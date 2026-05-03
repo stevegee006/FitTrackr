@@ -41,12 +41,12 @@ importers:
       '@fastify/rate-limit':
         specifier: ^10
         version: 10.3.0
+      '@fittrackr/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@google/generative-ai':
         specifier: ^0.24.1
         version: 0.24.1
-      '@macrotracker/shared':
-        specifier: workspace:*
-        version: link:../shared
       '@node-saml/node-saml':
         specifier: ^5.1.0
         version: 5.1.0
@@ -109,7 +109,7 @@ importers:
 
   packages/web:
     dependencies:
-      '@macrotracker/shared':
+      '@fittrackr/shared':
         specifier: workspace:*
         version: link:../shared
       '@serwist/next':
