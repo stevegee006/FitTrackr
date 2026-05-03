@@ -127,8 +127,8 @@ export default function LoginPage() {
       <div className="mb-6 text-center">
         <img src="/logo.svg" alt="FitTrackr" className="h-28 mx-auto mb-1" />
         <h1 className="text-2xl font-bold">
-          <span className="text-gray-900 dark:text-gray-100">macro</span>
-          <span className="text-gray-400 dark:text-gray-500 font-light">trackr</span>
+          <span className="text-gray-900 dark:text-gray-100">Fit</span>
+          <span className="text-gray-400 dark:text-gray-500 font-light">Trackr</span>
         </h1>
       </div>
 
