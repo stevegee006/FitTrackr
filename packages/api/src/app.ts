@@ -18,6 +18,7 @@ import ssoRoutes from './routes/auth/sso.js';
 import passkeyRoutes from './routes/auth/passkey.js';
 import exerciseRoutes from './routes/exercises/index.js';
 import workoutRoutes from './routes/workouts/index.js';
+import workoutImportRoutes from './routes/workouts/import.js';
 import workoutTemplateRoutes from './routes/workout-templates/index.js';
 import programRoutes from './routes/programs/index.js';
 import trainingGoalRoutes from './routes/training-goals/index.js';
@@ -89,6 +90,7 @@ export async function buildApp() {
       // Training domain
       await api.register(exerciseRoutes);
       await api.register(workoutRoutes);
+      await api.register(workoutImportRoutes);
       await api.register(workoutTemplateRoutes);
       await api.register(programRoutes);
       await api.register(trainingGoalRoutes);

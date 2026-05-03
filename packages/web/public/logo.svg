@@ -1,72 +1,23 @@
-<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="greenGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#4ade80"/>
-      <stop offset="10%" stop-color="#22c55e"/>
-      <stop offset="90%" stop-color="#16a34a"/>
-      <stop offset="100%" stop-color="#14532d"/>
-    </linearGradient>
-    <linearGradient id="yellowGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#fde047"/>
-      <stop offset="10%" stop-color="#eab308"/>
-      <stop offset="90%" stop-color="#ca8a04"/>
-      <stop offset="100%" stop-color="#78350f"/>
-    </linearGradient>
-    <linearGradient id="blueGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#60a5fa"/>
-      <stop offset="10%" stop-color="#3b82f6"/>
-      <stop offset="90%" stop-color="#2563eb"/>
-      <stop offset="100%" stop-color="#1e3a8a"/>
-    </linearGradient>
-    <linearGradient id="redGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#f87171"/>
-      <stop offset="10%" stop-color="#ef4444"/>
-      <stop offset="90%" stop-color="#dc2626"/>
-      <stop offset="100%" stop-color="#7f1d1d"/>
-    </linearGradient>
-    <linearGradient id="collarGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#e5e7eb"/>
-      <stop offset="40%" stop-color="#9ca3af"/>
-      <stop offset="100%" stop-color="#4b5563"/>
-    </linearGradient>
-    <linearGradient id="barGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#f3f4f6"/>
-      <stop offset="25%" stop-color="#b0b8c4"/>
-      <stop offset="75%" stop-color="#9ca3af"/>
-      <stop offset="100%" stop-color="#374151"/>
-    </linearGradient>
-    <filter id="shadow" x="-8%" y="-8%" width="116%" height="116%">
-      <feDropShadow dx="0" dy="2" stdDeviation="1.5" flood-color="#000" flood-opacity="0.28"/>
-    </filter>
-  </defs>
-
-  <!-- LEFT PLATES — outermost (green) to innermost (red) -->
-  <rect x="1"  y="9"  width="8" height="82" rx="2.5" fill="url(#greenGrad)"  filter="url(#shadow)"/>
-  <rect x="9"  y="15" width="8" height="70" rx="2"   fill="url(#yellowGrad)" filter="url(#shadow)"/>
-  <rect x="17" y="21" width="8" height="58" rx="2"   fill="url(#blueGrad)"   filter="url(#shadow)"/>
-  <rect x="25" y="27" width="8" height="46" rx="2"   fill="url(#redGrad)"    filter="url(#shadow)"/>
-  <!-- Left collar -->
-  <rect x="33" y="33" width="6" height="34" rx="1.5" fill="url(#collarGrad)"/>
-
-  <!-- BAR -->
-  <rect x="39" y="47" width="22" height="6" rx="3" fill="url(#barGrad)"/>
-
-  <!-- RIGHT COLLAR -->
-  <rect x="61" y="33" width="6" height="34" rx="1.5" fill="url(#collarGrad)"/>
-  <!-- RIGHT PLATES — innermost (red) to outermost (green) -->
-  <rect x="67" y="27" width="8" height="46" rx="2"   fill="url(#redGrad)"    filter="url(#shadow)"/>
-  <rect x="75" y="21" width="8" height="58" rx="2"   fill="url(#blueGrad)"   filter="url(#shadow)"/>
-  <rect x="83" y="15" width="8" height="70" rx="2"   fill="url(#yellowGrad)" filter="url(#shadow)"/>
-  <rect x="91" y="9"  width="8" height="82" rx="2.5" fill="url(#greenGrad)"  filter="url(#shadow)"/>
-
-  <!-- Highlight lines (left side) -->
-  <rect x="2.5"  y="13" width="1.5" height="74" rx="0.75" fill="white" opacity="0.22"/>
-  <rect x="10.5" y="19" width="1.5" height="62" rx="0.75" fill="white" opacity="0.2"/>
-  <rect x="18.5" y="25" width="1.5" height="50" rx="0.75" fill="white" opacity="0.2"/>
-  <rect x="26.5" y="31" width="1.5" height="38" rx="0.75" fill="white" opacity="0.2"/>
-  <!-- Highlight lines (right side) -->
-  <rect x="92.5" y="13" width="1.5" height="74" rx="0.75" fill="white" opacity="0.22"/>
-  <rect x="84.5" y="19" width="1.5" height="62" rx="0.75" fill="white" opacity="0.2"/>
-  <rect x="76.5" y="25" width="1.5" height="50" rx="0.75" fill="white" opacity="0.2"/>
-  <rect x="68.5" y="31" width="1.5" height="38" rx="0.75" fill="white" opacity="0.2"/>
+<svg viewBox="230 -15 220 220" xmlns="http://www.w3.org/2000/svg" role="img">
+  <title>FitTrackr</title>
+  <g transform="translate(340, 95)">
+    <!-- Left smaller outer plate -->
+    <rect x="-110" y="-38" width="24" height="76" fill="#60a5fa"/>
+    <!-- Left larger inner plate -->
+    <rect x="-86"  y="-50" width="32" height="100" fill="#3b82f6"/>
+    <!-- Bar -->
+    <rect x="-54"  y="-10" width="108" height="20" fill="#3b82f6"/>
+    <!-- Right larger inner plate -->
+    <rect x="54"   y="-50" width="32" height="100" fill="#3b82f6"/>
+    <!-- Right smaller outer plate -->
+    <rect x="86"   y="-38" width="24" height="76"  fill="#60a5fa"/>
+    <!-- Left grip notches -->
+    <rect x="-30"  y="-7"  width="3"  height="14"  fill="#60a5fa"/>
+    <rect x="-22"  y="-7"  width="3"  height="14"  fill="#60a5fa"/>
+    <rect x="-14"  y="-7"  width="3"  height="14"  fill="#60a5fa"/>
+    <!-- Right grip notches -->
+    <rect x="11"   y="-7"  width="3"  height="14"  fill="#60a5fa"/>
+    <rect x="19"   y="-7"  width="3"  height="14"  fill="#60a5fa"/>
+    <rect x="27"   y="-7"  width="3"  height="14"  fill="#60a5fa"/>
+  </g>
 </svg>
