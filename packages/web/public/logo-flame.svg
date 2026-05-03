@@ -1,0 +1,22 @@
+<svg viewBox="160 60 192 260" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="flameOuter" x1="40%" y1="0%" x2="60%" y2="100%">
+      <stop offset="0%" stop-color="#ff7433"/>
+      <stop offset="55%" stop-color="#ff3800"/>
+      <stop offset="100%" stop-color="#c92b00"/>
+    </linearGradient>
+    <linearGradient id="flameInner" x1="40%" y1="0%" x2="60%" y2="100%">
+      <stop offset="0%" stop-color="#fff0a0"/>
+      <stop offset="100%" stop-color="#ffbe00"/>
+    </linearGradient>
+    <filter id="glow" x="-0.143" y="-0.063" width="1.285" height="1.126">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <path d="M256 90 C256 90 224 148 216 192 C210 224 218 252 226 266 C218 240 220 214 230 202 C228 238 236 264 248 280 C244 256 244 232 252 220 C254 244 256 268 256 280 C256 268 258 244 260 220 C268 232 268 256 264 280 C276 264 284 238 282 202 C292 214 294 240 286 266 C294 252 302 224 296 192 C288 148 256 90 256 90Z" fill="url(#flameOuter)" filter="url(#glow)"/>
+  <path d="M256 180 C256 180 240 208 238 228 C236 244 242 258 248 266 C244 252 244 238 250 230 C250 246 252 258 256 266 C260 258 262 246 262 230 C268 238 268 252 264 266 C270 258 276 244 274 228 C272 208 256 180 256 180Z" fill="url(#flameInner)"/>
+</svg>

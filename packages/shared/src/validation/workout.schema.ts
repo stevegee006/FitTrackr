@@ -1,0 +1,49 @@
+import { z } from 'zod';
+
+export const workoutTypeValues = ['PUSH', 'PULL', 'LEGS', 'UPPER', 'LOWER', 'FULL_BODY', 'CARDIO', 'CUSTOM'] as const;
+
+export const createWorkoutSchema = z.object({
+  logDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  workoutType: z.enum(workoutTypeValues),
+  name: z.string().max(255).nullish(),
+  notes: z.string().max(2000).nullish(),
+  durationMin: z.number().int().positive().nullish(),
+});
+
+export const updateWorkoutSchema = createWorkoutSchema.partial();
+
+export const addSetSchema = z.object({
+  exerciseId: z.string().uuid(),
+  setNumber: z.number().int().min(1),
+  reps: z.number().int().min(0).nullish(),
+  weightKg: z.number().min(0).nullish(),
+  bodyweightKg: z.number().min(0).nullish(),
+  durationSec: z.number().int().min(0).nullish(),
+  distanceM: z.number().min(0).nullish(),
+  rpe: z.number().min(1).max(10).nullish(),
+  isWarmup: z.boolean().default(false),
+  notes: z.string().max(500).nullish(),
+});
+
+export const updateSetSchema = addSetSchema.omit({ exerciseId: true, setNumber: true }).partial();
+
+export const createWorkoutTemplateSchema = z.object({
+  name: z.string().min(1).max(255),
+  workoutType: z.enum(workoutTypeValues),
+  templateData: z.object({
+    exercises: z.array(z.object({
+      exerciseId: z.string().uuid(),
+      exerciseName: z.string(),
+      sets: z.number().int().min(1),
+      reps: z.number().int().min(1).optional(),
+      weightKg: z.number().min(0).optional(),
+      notes: z.string().max(500).optional(),
+    })),
+  }),
+});
+
+export type CreateWorkoutInput = z.infer<typeof createWorkoutSchema>;
+export type UpdateWorkoutInput = z.infer<typeof updateWorkoutSchema>;
+export type AddSetInput = z.infer<typeof addSetSchema>;
+export type UpdateSetInput = z.infer<typeof updateSetSchema>;
+export type CreateWorkoutTemplateInput = z.infer<typeof createWorkoutTemplateSchema>;

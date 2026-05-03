@@ -1,0 +1,20 @@
+services:
+  api:
+    build:
+      target: development
+    volumes:
+      - ./packages/api/src:/app/packages/api/src
+      - ./packages/shared/src:/app/packages/shared/src
+    environment:
+      NODE_ENV: development
+    command: pnpm --filter @fittrackr/api dev
+
+  web:
+    build:
+      target: development
+    volumes:
+      - ./packages/web/src:/app/packages/web/src
+      - ./packages/shared/src:/app/packages/shared/src
+    environment:
+      NODE_ENV: development
+    command: pnpm --filter @fittrackr/web dev

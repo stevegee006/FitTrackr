@@ -1,0 +1,27 @@
+{
+  "name": "fittrackr",
+  "private": true,
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "db:migrate": "pnpm --filter @fittrackr/api exec prisma migrate dev",
+    "db:push": "pnpm --filter @fittrackr/api exec prisma db push",
+    "db:seed": "pnpm --filter @fittrackr/api exec prisma db seed",
+    "db:studio": "pnpm --filter @fittrackr/api exec prisma studio"
+  },
+  "devDependencies": {
+    "turbo": "^2.4",
+    "typescript": "^5.7"
+  },
+  "packageManager": "pnpm@10.30.1",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma",
+      "esbuild",
+      "sharp"
+    ]
+  }
+}

@@ -1,0 +1,414 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Users ───────────────────────────────────────────────────────
+
+model User {
+  id              String       @id @default(uuid()) @db.Uuid
+  email           String       @unique @db.VarChar(255)
+  passwordHash    String?      @map("password_hash") @db.VarChar(255)
+  displayName     String?      @map("display_name") @db.VarChar(100)
+  avatarUrl       String?      @map("avatar_url") @db.Text
+  authProvider    AuthProvider @default(LOCAL) @map("auth_provider")
+  oauthProviderId String?      @map("oauth_provider_id") @db.VarChar(255)
+  isAdmin             Boolean      @default(false) @map("is_admin")
+  mustChangePassword  Boolean      @default(false) @map("must_change_password")
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  profile          UserProfile?
+  settings         UserSettings?
+  passkeys         Passkey[]
+  bodyMeasurements BodyMeasurement[]
+  progressPhotos   ProgressPhoto[]
+  workouts         Workout[]
+  trainingGoals    TrainingGoal[]
+  programs         Program[]
+  exercises        Exercise[]
+  personalRecords  PersonalRecord[]
+
+  @@map("users")
+}
+
+enum AuthProvider {
+  LOCAL
+  GOOGLE
+  GITHUB
+  SAML
+  OIDC
+  PASSKEY
+}
+
+model UserProfile {
+  id              String            @id @default(uuid()) @db.Uuid
+  userId          String            @unique @map("user_id") @db.Uuid
+  heightCm        Float?            @map("height_cm")
+  weightKg        Float?            @map("weight_kg")
+  age             Int?
+  birthDate       DateTime?         @map("birth_date") @db.Date
+  sex             Sex?
+  activityLevel   ActivityLevel?    @map("activity_level")
+  goal            TrainingGoalType? @map("goal")
+  weeklyFrequency Int?              @map("weekly_frequency")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_profiles")
+}
+
+enum Sex {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum ActivityLevel {
+  SEDENTARY
+  LIGHTLY_ACTIVE
+  MODERATELY_ACTIVE
+  VERY_ACTIVE
+  EXTREMELY_ACTIVE
+}
+
+enum TrainingGoalType {
+  STRENGTH
+  HYPERTROPHY
+  ENDURANCE
+  WEIGHT_LOSS
+  GENERAL_FITNESS
+}
+
+model UserSettings {
+  id              String     @id @default(uuid()) @db.Uuid
+  userId          String     @unique @map("user_id") @db.Uuid
+  openaiApiKey    String?    @map("openai_api_key") @db.Text
+  anthropicApiKey String?    @map("anthropic_api_key") @db.Text
+  geminiApiKey    String?    @map("gemini_api_key") @db.Text
+  aiProvider      AiProvider @default(OPENAI) @map("ai_provider")
+  preferredUnits  Units      @default(METRIC) @map("preferred_units")
+  darkMode        Boolean    @default(false) @map("dark_mode")
+  timezone        String?    @db.VarChar(100)
+  location        String?    @db.VarChar(255)
+  exerciseApiKey  String?    @map("exercise_api_key") @db.Text
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+enum AiProvider {
+  OPENAI
+  ANTHROPIC
+  GEMINI
+}
+
+enum Units {
+  METRIC
+  IMPERIAL
+}
+
+// ─── Passkeys (WebAuthn) ─────────────────────────────────────────
+
+model Passkey {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  credentialId  String    @unique @map("credential_id") @db.Text
+  publicKey     String    @map("public_key") @db.Text
+  counter       BigInt    @default(0)
+  transports    String[]  @default([])
+  deviceType    String?   @map("device_type") @db.VarChar(50)
+  backedUp      Boolean   @default(false) @map("backed_up")
+  friendlyName  String?   @map("friendly_name") @db.VarChar(100)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  lastUsedAt    DateTime? @map("last_used_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("passkeys")
+}
+
+// ─── Body Measurements ──────────────────────────────────────────
+
+model BodyMeasurement {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  measuredAt DateTime @map("measured_at") @db.Date
+  waist      Float?
+  hip        Float?
+  abdomen    Float?
+  chest      Float?
+  thighR     Float?   @map("thigh_r")
+  thighL     Float?   @map("thigh_l")
+  bicepR     Float?   @map("bicep_r")
+  bicepL     Float?   @map("bicep_l")
+  neck       Float?
+  calfR      Float?   @map("calf_r")
+  calfL      Float?   @map("calf_l")
+  shoulder   Float?
+  weightKg   Float?   @map("weight_kg")
+  bodyFatPct Float?   @map("body_fat_pct")
+  leanMassKg Float?   @map("lean_mass_kg")
+  notes      String?  @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, measuredAt])
+  @@map("body_measurements")
+}
+
+// ─── Progress Photos ────────────────────────────────────────────
+
+model ProgressPhoto {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  filePath  String   @map("file_path") @db.Text
+  takenAt   DateTime @map("taken_at") @db.Date
+  notes     String?  @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, takenAt])
+  @@map("progress_photos")
+}
+
+// ─── Exercise Library ────────────────────────────────────────────
+
+model Exercise {
+  id               String           @id @default(uuid()) @db.Uuid
+  name             String           @db.VarChar(255)
+  category         ExerciseCategory
+  primaryMuscle    MuscleGroup      @map("primary_muscle")
+  secondaryMuscles MuscleGroup[]    @map("secondary_muscles")
+  equipment        Equipment        @default(BODYWEIGHT)
+  instructions     String?          @db.Text
+  videoUrl         String?          @map("video_url") @db.Text
+  imageUrl         String?          @map("image_url") @db.Text
+  source           ExerciseSource   @default(MANUAL)
+  isCustom         Boolean          @default(false) @map("is_custom")
+  createdByUserId  String?          @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  createdBy       User?            @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  workoutSets     WorkoutSet[]
+  personalRecords PersonalRecord[]
+
+  @@index([name])
+  @@index([primaryMuscle])
+  @@map("exercises")
+}
+
+enum ExerciseCategory {
+  COMPOUND
+  ISOLATION
+  CARDIO
+  STRETCHING
+  OTHER
+}
+
+enum MuscleGroup {
+  CHEST
+  BACK
+  SHOULDERS
+  BICEPS
+  TRICEPS
+  FOREARMS
+  QUADS
+  HAMSTRINGS
+  GLUTES
+  CALVES
+  CORE
+  FULL_BODY
+}
+
+enum Equipment {
+  BARBELL
+  DUMBBELL
+  CABLE
+  MACHINE
+  BODYWEIGHT
+  KETTLEBELL
+  BANDS
+  OTHER
+}
+
+enum ExerciseSource {
+  WGER
+  MANUAL
+  AI_INGEST
+}
+
+// ─── Workouts ────────────────────────────────────────────────────
+
+model Workout {
+  id          String      @id @default(uuid()) @db.Uuid
+  userId      String      @map("user_id") @db.Uuid
+  name        String?     @db.VarChar(255)
+  logDate     DateTime    @map("log_date") @db.Date
+  durationMin Int?        @map("duration_min")
+  workoutType WorkoutType @map("workout_type")
+  notes       String?     @db.Text
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sets WorkoutSet[]
+
+  @@index([userId, logDate])
+  @@map("workouts")
+}
+
+enum WorkoutType {
+  PUSH
+  PULL
+  LEGS
+  UPPER
+  LOWER
+  FULL_BODY
+  CARDIO
+  CUSTOM
+}
+
+model WorkoutSet {
+  id           String   @id @default(uuid()) @db.Uuid
+  workoutId    String   @map("workout_id") @db.Uuid
+  exerciseId   String   @map("exercise_id") @db.Uuid
+  setNumber    Int      @map("set_number")
+  reps         Int?
+  weightKg     Float?   @map("weight_kg")
+  bodyweightKg Float?   @map("bodyweight_kg")
+  durationSec  Int?     @map("duration_sec")
+  distanceM    Float?   @map("distance_m")
+  rpe          Float?
+  isWarmup     Boolean  @default(false) @map("is_warmup")
+  notes        String?  @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  workout  Workout  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  exercise Exercise @relation(fields: [exerciseId], references: [id])
+
+  @@index([workoutId])
+  @@index([exerciseId])
+  @@map("workout_sets")
+}
+
+// ─── Workout Templates ──────────────────────────────────────────
+
+model WorkoutTemplate {
+  id           String      @id @default(uuid()) @db.Uuid
+  userId       String      @map("user_id") @db.Uuid
+  name         String      @db.VarChar(255)
+  workoutType  WorkoutType @map("workout_type")
+  templateData Json        @map("template_data")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("workout_templates")
+}
+
+// ─── AI Training Programs ────────────────────────────────────────
+
+model Program {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  name          String   @db.VarChar(255)
+  durationWeeks Int      @map("duration_weeks")
+  programData   Json     @map("program_data")
+  aiModel       String   @map("ai_model") @db.VarChar(50)
+  isActive      Boolean  @default(false) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("programs")
+}
+
+// ─── AI Training Goals ───────────────────────────────────────────
+
+model TrainingGoal {
+  id              String           @id @default(uuid()) @db.Uuid
+  userId          String           @map("user_id") @db.Uuid
+  primaryGoal     TrainingGoalType @map("primary_goal")
+  weeklyFrequency Int              @map("weekly_frequency")
+  volumeTargets   Json             @map("volume_targets")
+  reasoning       String           @db.Text
+  inputSnapshot   Json             @map("input_snapshot")
+  aiModel         String           @map("ai_model") @db.VarChar(50)
+  isActive        Boolean          @default(false) @map("is_active")
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("training_goals")
+}
+
+// ─── Personal Records ────────────────────────────────────────────
+
+model PersonalRecord {
+  id         String     @id @default(uuid()) @db.Uuid
+  userId     String     @map("user_id") @db.Uuid
+  exerciseId String     @map("exercise_id") @db.Uuid
+  recordType RecordType @map("record_type")
+  value      Float
+  setId      String?    @map("set_id") @db.Uuid
+  achievedAt DateTime   @map("achieved_at") @db.Date
+  createdAt  DateTime   @default(now()) @map("created_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exercise Exercise @relation(fields: [exerciseId], references: [id])
+
+  @@unique([userId, exerciseId, recordType])
+  @@index([userId, exerciseId])
+  @@map("personal_records")
+}
+
+enum RecordType {
+  MAX_WEIGHT
+  MAX_REPS
+  MAX_1RM
+  MAX_VOLUME
+}
+
+// ─── SSO Providers ──────────────────────────────────────────────
+
+model SsoProvider {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.VarChar(255)
+  type      SsoType
+  config    Json
+  enabled   Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("sso_providers")
+}
+
+enum SsoType {
+  SAML
+  OIDC
+}
+
+// ─── App Configuration ──────────────────────────────────────────
+
+model AppConfig {
+  key       String   @id @db.VarChar(100)
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("app_config")
+}

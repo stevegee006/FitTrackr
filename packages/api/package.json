@@ -1,0 +1,44 @@
+{
+  "name": "@fittrackr/api",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@fastify/auth": "^5",
+    "@fastify/cookie": "^11",
+    "@fastify/cors": "^11",
+    "@fastify/helmet": "^13.0.2",
+    "@fastify/jwt": "^9",
+    "@fastify/oauth2": "^8",
+    "@fastify/rate-limit": "^10",
+    "@google/generative-ai": "^0.24.1",
+    "@fittrackr/shared": "workspace:*",
+    "@node-saml/node-saml": "^5.1.0",
+    "@prisma/client": "^6",
+    "@simplewebauthn/server": "^13.3.0",
+    "bcryptjs": "^2.4",
+    "fastify": "^5",
+    "fastify-plugin": "^5",
+    "ioredis": "^5",
+    "openai": "^4.85",
+    "openid-client": "^5.7.1",
+    "pino": "^9",
+    "pino-pretty": "^13",
+    "zod": "^3.24"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4",
+    "prisma": "^6",
+    "tsx": "^4",
+    "typescript": "^5.7"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}
