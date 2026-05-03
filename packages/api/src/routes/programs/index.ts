@@ -6,7 +6,7 @@ export default async function programRoutes(fastify: FastifyInstance) {
   fastify.get('/programs', {
     preHandler: [fastify.authenticate],
     handler: async (req) => {
-      const data = await programService.getPrograms(fastify, req.user.id);
+      const data = await programService.getPrograms(fastify, req.user.sub);
       return { data };
     },
   });
@@ -14,7 +14,7 @@ export default async function programRoutes(fastify: FastifyInstance) {
   fastify.get('/programs/active', {
     preHandler: [fastify.authenticate],
     handler: async (req) => {
-      const data = await programService.getActiveProgram(fastify, req.user.id);
+      const data = await programService.getActiveProgram(fastify, req.user.sub);
       return { data };
     },
   });
@@ -23,7 +23,7 @@ export default async function programRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate],
     handler: async (req, reply) => {
       const body = generateProgramSchema.parse(req.body);
-      const data = await programService.generateProgram(fastify, req.user.id, body);
+      const data = await programService.generateProgram(fastify, req.user.sub, body);
       return reply.code(201).send({ data });
     },
   });
@@ -32,7 +32,7 @@ export default async function programRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate],
     handler: async (req, reply) => {
       const { id } = req.params as any;
-      await programService.deleteProgram(fastify, req.user.id, id);
+      await programService.deleteProgram(fastify, req.user.sub, id);
       return reply.code(204).send();
     },
   });

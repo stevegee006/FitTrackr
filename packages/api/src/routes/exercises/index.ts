@@ -46,7 +46,7 @@ export default async function exerciseRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate],
     handler: async (req, reply) => {
       const body = createExerciseSchema.parse(req.body);
-      const exercise = await exerciseService.createExercise(fastify, req.user.id, body, req.user.isAdmin);
+      const exercise = await exerciseService.createExercise(fastify, req.user.sub, body, req.user.isAdmin);
       return reply.code(201).send({ data: exercise });
     },
   });
@@ -57,7 +57,7 @@ export default async function exerciseRoutes(fastify: FastifyInstance) {
     handler: async (req) => {
       const { id } = req.params as any;
       const body = updateExerciseSchema.parse(req.body);
-      const exercise = await exerciseService.updateExercise(fastify, req.user.id, id, body, req.user.isAdmin);
+      const exercise = await exerciseService.updateExercise(fastify, req.user.sub, id, body, req.user.isAdmin);
       return { data: exercise };
     },
   });
@@ -67,7 +67,7 @@ export default async function exerciseRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate],
     handler: async (req, reply) => {
       const { id } = req.params as any;
-      await exerciseService.deleteExercise(fastify, req.user.id, id, req.user.isAdmin);
+      await exerciseService.deleteExercise(fastify, req.user.sub, id, req.user.isAdmin);
       return reply.code(204).send();
     },
   });

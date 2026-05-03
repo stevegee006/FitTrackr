@@ -6,7 +6,7 @@ export default async function trainingGoalRoutes(fastify: FastifyInstance) {
   fastify.get('/training-goals', {
     preHandler: [fastify.authenticate],
     handler: async (req) => {
-      const data = await goalService.getTrainingGoals(fastify, req.user.id);
+      const data = await goalService.getTrainingGoals(fastify, req.user.sub);
       return { data };
     },
   });
@@ -14,7 +14,7 @@ export default async function trainingGoalRoutes(fastify: FastifyInstance) {
   fastify.get('/training-goals/active', {
     preHandler: [fastify.authenticate],
     handler: async (req) => {
-      const data = await goalService.getActiveTrainingGoal(fastify, req.user.id);
+      const data = await goalService.getActiveTrainingGoal(fastify, req.user.sub);
       return { data };
     },
   });
@@ -23,7 +23,7 @@ export default async function trainingGoalRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate],
     handler: async (req, reply) => {
       const body = generateTrainingGoalSchema.parse(req.body);
-      const data = await goalService.generateTrainingGoal(fastify, req.user.id, body);
+      const data = await goalService.generateTrainingGoal(fastify, req.user.sub, body);
       return reply.code(201).send({ data });
     },
   });

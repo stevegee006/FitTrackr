@@ -76,10 +76,10 @@ export async function getWgerExercise(
     const url = `${WGER_BASE}/exerciseinfo/${wgerId}/?format=json`;
     const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
     if (!res.ok) return null;
-    const ex: WgerExercise = await res.json();
+    const ex = await res.json() as WgerExercise;
 
     const translations = (ex as any).translations ?? [];
-    const eng = translations.find((t: any) => t.language === language) ?? translations[0];
+    const eng = translations.find((t: any) => t.language === 2) ?? translations[0];
     const name: string = eng?.name ?? ex.name ?? 'Unknown Exercise';
     const instructions: string | null = eng?.description
       ? eng.description.replace(/<[^>]*>/g, '').trim() || null

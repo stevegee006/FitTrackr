@@ -8,7 +8,7 @@ export default async function workoutRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate],
     handler: async (req) => {
       const { from, to, page = '1', limit = '20' } = req.query as any;
-      return workoutService.getWorkouts(fastify, req.user.id, {
+      return workoutService.getWorkouts(fastify, req.user.sub, {
         from,
         to,
         page: parseInt(page),
@@ -22,7 +22,7 @@ export default async function workoutRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate],
     handler: async (req) => {
       const { from, to } = req.query as any;
-      const data = await workoutService.getWorkoutRange(fastify, req.user.id, from, to);
+      const data = await workoutService.getWorkoutRange(fastify, req.user.sub, from, to);
       return { data };
     },
   });
@@ -32,7 +32,7 @@ export default async function workoutRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate],
     handler: async (req) => {
       const { from, to } = req.query as any;
-      const data = await workoutService.getWeeklyVolume(fastify, req.user.id, from, to);
+      const data = await workoutService.getWeeklyVolume(fastify, req.user.sub, from, to);
       return { data };
     },
   });
@@ -42,7 +42,7 @@ export default async function workoutRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate],
     handler: async (req) => {
       const { id } = req.params as any;
-      const data = await workoutService.getWorkoutById(fastify, req.user.id, id);
+      const data = await workoutService.getWorkoutById(fastify, req.user.sub, id);
       return { data };
     },
   });
@@ -52,7 +52,7 @@ export default async function workoutRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate],
     handler: async (req, reply) => {
       const body = createWorkoutSchema.parse(req.body);
-      const data = await workoutService.createWorkout(fastify, req.user.id, body);
+      const data = await workoutService.createWorkout(fastify, req.user.sub, body);
       return reply.code(201).send({ data });
     },
   });
@@ -63,7 +63,7 @@ export default async function workoutRoutes(fastify: FastifyInstance) {
     handler: async (req) => {
       const { id } = req.params as any;
       const body = updateWorkoutSchema.parse(req.body);
-      const data = await workoutService.updateWorkout(fastify, req.user.id, id, body);
+      const data = await workoutService.updateWorkout(fastify, req.user.sub, id, body);
       return { data };
     },
   });
@@ -73,7 +73,7 @@ export default async function workoutRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate],
     handler: async (req, reply) => {
       const { id } = req.params as any;
-      await workoutService.deleteWorkout(fastify, req.user.id, id);
+      await workoutService.deleteWorkout(fastify, req.user.sub, id);
       return reply.code(204).send();
     },
   });
@@ -84,7 +84,7 @@ export default async function workoutRoutes(fastify: FastifyInstance) {
     handler: async (req, reply) => {
       const { id } = req.params as any;
       const body = addSetSchema.parse(req.body);
-      const data = await workoutService.addSet(fastify, req.user.id, id, body);
+      const data = await workoutService.addSet(fastify, req.user.sub, id, body);
       return reply.code(201).send({ data });
     },
   });
@@ -95,7 +95,7 @@ export default async function workoutRoutes(fastify: FastifyInstance) {
     handler: async (req) => {
       const { id, setId } = req.params as any;
       const body = updateSetSchema.parse(req.body);
-      const data = await workoutService.updateSet(fastify, req.user.id, id, setId, body);
+      const data = await workoutService.updateSet(fastify, req.user.sub, id, setId, body);
       return { data };
     },
   });
@@ -105,7 +105,7 @@ export default async function workoutRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate],
     handler: async (req, reply) => {
       const { id, setId } = req.params as any;
-      await workoutService.deleteSet(fastify, req.user.id, id, setId);
+      await workoutService.deleteSet(fastify, req.user.sub, id, setId);
       return reply.code(204).send();
     },
   });

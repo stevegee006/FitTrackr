@@ -6,7 +6,7 @@ export default async function personalRecordRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate],
     handler: async (req) => {
       const { exerciseId } = req.query as any;
-      const data = await prService.getPersonalRecords(fastify, req.user.id, exerciseId);
+      const data = await prService.getPersonalRecords(fastify, req.user.sub, exerciseId);
       return { data };
     },
   });
@@ -15,7 +15,7 @@ export default async function personalRecordRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate],
     handler: async (req) => {
       const { limit = '5' } = req.query as any;
-      const data = await prService.getRecentPRs(fastify, req.user.id, parseInt(limit));
+      const data = await prService.getRecentPRs(fastify, req.user.sub, parseInt(limit));
       return { data };
     },
   });
