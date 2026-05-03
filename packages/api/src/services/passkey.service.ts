@@ -60,7 +60,7 @@ export async function generateRegOptions(fastify: FastifyInstance, userId: strin
 
   const { rpName, rpID } = getRpConfigFromOrigin(clientOrigin);
 
-  const existingCredentials = user.passkeys.map((pk) => ({
+  const existingCredentials = user.passkeys.map((pk: { credentialId: string; transports: string[] }) => ({
     id: pk.credentialId,
     transports: pk.transports as AuthenticatorTransport[],
   }));

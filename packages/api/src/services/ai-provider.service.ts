@@ -399,7 +399,7 @@ export async function aiChatCompletion(
   logger.info({ provider, model, tier }, 'AI chat completion');
 
   try {
-    let result: AiResult;
+    let result!: AiResult;
     switch (provider) {
       case 'OPENAI':
         result = await openaiChat(apiKey, systemPrompt, userPrompt, model, temperature, maxTokens);
@@ -439,7 +439,7 @@ export async function aiVisionCompletion(
   logger.info({ provider, model, tier }, 'AI vision completion');
 
   try {
-    let result: AiResult;
+    let result!: AiResult;
     switch (provider) {
       case 'OPENAI':
         result = await openaiVision(apiKey, systemPrompt, userPrompt, imageBase64, model, temperature, maxTokens);

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import type { Prisma, WorkoutType } from '@prisma/client';
 
 interface CsvRow {
   date: string;
@@ -97,7 +98,7 @@ export async function importWorkoutsFromCsv(
       continue;
     }
 
-    const logDate = parsedDate.toISOString().slice(0, 10);
+    const logDate = new Date(parsedDate.toISOString().slice(0, 10) + 'T00:00:00Z');
 
     const existing = await fastify.prisma.workout.findFirst({
       where: { userId, logDate },
@@ -109,7 +110,7 @@ export async function importWorkoutsFromCsv(
       continue;
     }
 
-    await fastify.prisma.$transaction(async (tx) => {
+    await fastify.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const exerciseNames = sessionRows.map((r) => r.exercise);
       const resolvedMuscles: string[] = [];
 
@@ -149,7 +150,7 @@ export async function importWorkoutsFromCsv(
         data: {
           userId,
           logDate,
-          workoutType,
+          workoutType: workoutType as WorkoutType,
         },
         select: { id: true },
       });
