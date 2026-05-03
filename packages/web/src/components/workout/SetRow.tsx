@@ -23,6 +23,10 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted }: SetRowPro
     ? isImperial ? Math.round(set.weightKg * 2.20462 * 10) / 10 : set.weightKg
     : null;
 
+  const [weightVal, setWeightVal] = useState(displayWeight != null ? String(displayWeight) : '');
+  const [repsVal, setRepsVal] = useState(set.reps != null ? String(set.reps) : '');
+  const [rpeVal, setRpeVal] = useState(set.rpe != null ? String(set.rpe) : '');
+
   const updateMutation = useMutation({
     mutationFn: (data: { reps?: number; weightKg?: number; rpe?: number }) =>
       apiFetch(`/workouts/${workoutId}/sets/${set.id}`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -38,6 +42,24 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted }: SetRowPro
     },
   });
 
+  function commitWeight() {
+    const lbsOrKg = parseFloat(weightVal);
+    if (!isNaN(lbsOrKg)) {
+      const weightKg = isImperial ? lbsOrKg / 2.20462 : lbsOrKg;
+      updateMutation.mutate({ weightKg: Math.round(weightKg * 100) / 100 });
+    }
+  }
+
+  function commitReps() {
+    const reps = parseInt(repsVal);
+    if (!isNaN(reps)) updateMutation.mutate({ reps });
+  }
+
+  function commitRpe() {
+    const rpe = parseFloat(rpeVal);
+    if (!isNaN(rpe) && rpe >= 1 && rpe <= 10) updateMutation.mutate({ rpe });
+  }
+
   return (
     <div className={`flex items-center gap-2 py-1.5 ${set.isWarmup ? 'opacity-60' : ''}`}>
       <span className="w-6 text-center text-xs font-medium text-gray-500 shrink-0">
@@ -47,14 +69,9 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted }: SetRowPro
       <MathInput
         className="w-20 text-center text-sm"
         placeholder={isImperial ? 'lbs' : 'kg'}
-        defaultValue={displayWeight != null ? String(displayWeight) : ''}
-        onCommit={(val) => {
-          const lbsOrKg = parseFloat(val);
-          if (!isNaN(lbsOrKg)) {
-            const weightKg = isImperial ? lbsOrKg / 2.20462 : lbsOrKg;
-            updateMutation.mutate({ weightKg: Math.round(weightKg * 100) / 100 });
-          }
-        }}
+        value={weightVal}
+        onChange={setWeightVal}
+        onBlur={commitWeight}
       />
 
       <span className="text-gray-400 text-xs shrink-0">×</span>
@@ -62,21 +79,17 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted }: SetRowPro
       <MathInput
         className="w-16 text-center text-sm"
         placeholder="reps"
-        defaultValue={set.reps != null ? String(set.reps) : ''}
-        onCommit={(val) => {
-          const reps = parseInt(val);
-          if (!isNaN(reps)) updateMutation.mutate({ reps });
-        }}
+        value={repsVal}
+        onChange={setRepsVal}
+        onBlur={commitReps}
       />
 
       <MathInput
         className="w-14 text-center text-sm"
         placeholder="RPE"
-        defaultValue={set.rpe != null ? String(set.rpe) : ''}
-        onCommit={(val) => {
-          const rpe = parseFloat(val);
-          if (!isNaN(rpe) && rpe >= 1 && rpe <= 10) updateMutation.mutate({ rpe });
-        }}
+        value={rpeVal}
+        onChange={setRpeVal}
+        onBlur={commitRpe}
       />
 
       <button

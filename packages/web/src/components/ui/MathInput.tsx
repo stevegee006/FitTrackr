@@ -7,6 +7,8 @@ interface MathInputProps {
   label?: string;
   value: string;
   onChange: (value: string) => void;
+  onBlur?: () => void;
+  placeholder?: string;
   min?: number;
   step?: number | string;
   className?: string;
@@ -21,7 +23,7 @@ const OP_MAP: Record<string, string> = { '+': '+', '\u2212': '-', '\u00d7': '*',
  * Users can type e.g. "150-32" and it evaluates to "118" on blur.
  * Operator buttons appear above the input on focus for mobile number pads.
  */
-export function MathInput({ label, value, onChange, min, step, className, inputMode }: MathInputProps) {
+export function MathInput({ label, value, onChange, onBlur: onBlurProp, placeholder, min, step, className, inputMode }: MathInputProps) {
   const [raw, setRaw] = useState(value);
   const [hasExpr, setHasExpr] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -57,6 +59,7 @@ export function MathInput({ label, value, onChange, min, step, className, inputM
         setHasExpr(false);
       }
     }
+    onBlurProp?.();
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -126,6 +129,7 @@ export function MathInput({ label, value, onChange, min, step, className, inputM
           }}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
+          placeholder={placeholder}
           min={min}
           step={step}
           className={cn(
