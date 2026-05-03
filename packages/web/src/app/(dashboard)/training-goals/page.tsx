@@ -139,7 +139,7 @@ export default function TrainingGoalsPage() {
                       }}
                     />
                   </div>
-                  <span className="text-xs text-gray-500 shrink-0 w-16 text-right">{target} sets/wk</span>
+                  <span className="text-xs text-gray-500 shrink-0 w-16 text-right">{target as number} sets/wk</span>
                 </div>
               );
             })}
