@@ -14,7 +14,7 @@ FROM deps AS development
 COPY packages/shared/ ./packages/shared/
 COPY packages/web/ ./packages/web/
 EXPOSE 3000
-CMD ["pnpm", "--filter", "@macrotracker/web", "dev"]
+CMD ["pnpm", "--filter", "@fittrackr/web", "dev"]
 
 # Build
 FROM deps AS build
@@ -22,8 +22,8 @@ COPY tsconfig.base.json ./
 COPY packages/shared/ ./packages/shared/
 COPY packages/web/ ./packages/web/
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN pnpm --filter @macrotracker/shared build
-RUN pnpm --filter @macrotracker/web build
+RUN pnpm --filter @fittrackr/shared build
+RUN pnpm --filter @fittrackr/web build
 
 # Production
 FROM base AS production

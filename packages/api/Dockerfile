@@ -14,16 +14,16 @@ FROM deps AS development
 COPY packages/shared/ ./packages/shared/
 COPY packages/api/ ./packages/api/
 EXPOSE 4000
-CMD ["pnpm", "--filter", "@macrotracker/api", "dev"]
+CMD ["pnpm", "--filter", "@fittrackr/api", "dev"]
 
 # Build
 FROM deps AS build
 COPY tsconfig.base.json ./
 COPY packages/shared/ ./packages/shared/
 COPY packages/api/ ./packages/api/
-RUN pnpm --filter @macrotracker/shared build
-RUN pnpm --filter @macrotracker/api exec prisma generate
-RUN pnpm --filter @macrotracker/api build
+RUN pnpm --filter @fittrackr/shared build
+RUN pnpm --filter @fittrackr/api exec prisma generate
+RUN pnpm --filter @fittrackr/api build
 
 # Production
 FROM base AS production
