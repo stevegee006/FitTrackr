@@ -9,10 +9,11 @@ import { Spinner } from '@/components/ui/Spinner';
 import { SetRow } from '@/components/workout/SetRow';
 import { RestTimer } from '@/components/workout/RestTimer';
 import { ExerciseSearchForm } from '@/components/exercise/ExerciseSearchForm';
+import { ProgressiveOverloadPanel } from '@/components/workout/ProgressiveOverloadPanel';
 import { WORKOUT_TYPE_LABELS, MUSCLE_GROUP_COLORS } from '@fittrackr/shared';
 import type { Workout, WorkoutSet, Exercise } from '@fittrackr/shared';
 import { useAuth } from '@/providers/AuthProvider';
-import { ChevronLeft, Plus, Trash2, Timer } from 'lucide-react';
+import { ChevronLeft, Plus, Trash2, Timer, Sparkles, Check, X } from 'lucide-react';
 import Link from 'next/link';
 
 export default function WorkoutDetailPage() {
@@ -23,6 +24,9 @@ export default function WorkoutDetailPage() {
   const [showExerciseSearch, setShowExerciseSearch] = useState(false);
   const [showRestTimer, setShowRestTimer] = useState(false);
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
+  const [editingRepRange, setEditingRepRange] = useState<Map<string, boolean>>(new Map());
+  const [repRangeEdits, setRepRangeEdits] = useState<Record<string, { min: string; max: string }>>({});
+  const [showAiPanel, setShowAiPanel] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['workout', id],
@@ -34,18 +38,61 @@ export default function WorkoutDetailPage() {
     queryFn: () => apiFetch<{ data: { preferredUnits: 'METRIC' | 'IMPERIAL' } }>('/users/me/settings'),
   });
 
+  const exerciseIds = [...(data?.data?.sets ?? [])].map(s => s.exerciseId).filter((v, i, a) => a.indexOf(v) === i);
+
+  const prefsQuery = useQuery({
+    queryKey: ['exercise-prefs', exerciseIds],
+    queryFn: async () => {
+      const results = await Promise.all(
+        exerciseIds.map(eid =>
+          apiFetch<{ data: { repRangeMin: number | null; repRangeMax: number | null; targetSets: number | null } | null }>(
+            `/exercises/${eid}/preference`
+          ).then(r => [eid, r.data] as const)
+        )
+      );
+      return Object.fromEntries(results) as Record<string, { repRangeMin: number | null; repRangeMax: number | null; targetSets: number | null } | null>;
+    },
+    enabled: exerciseIds.length > 0,
+  });
+
+  const workout = data?.data;
+
   const addSetMutation = useMutation({
-    mutationFn: (exerciseId: string) =>
-      apiFetch(`/workouts/${id}/sets`, {
+    mutationFn: async (exerciseId: string) => {
+      const existingSets = workout?.sets?.filter((s) => s.exerciseId === exerciseId) ?? [];
+
+      let weightKg: number | null = null;
+      let reps: number | null = null;
+
+      if (existingSets.length > 0) {
+        // Copy from last set in current workout
+        const last = existingSets[existingSets.length - 1];
+        weightKg = last.weightKg ?? null;
+        reps = last.reps ?? null;
+      } else {
+        // Fetch from previous workouts
+        try {
+          const lastSet = await apiFetch<{ data: { weightKg: number | null; reps: number | null; rpe: number | null } | null }>(
+            `/exercises/${exerciseId}/last-set?excludeWorkoutId=${id}`
+          );
+          weightKg = lastSet.data?.weightKg ?? null;
+          reps = lastSet.data?.reps ?? null;
+        } catch {
+          // If fetch fails, proceed with null values
+        }
+      }
+
+      return apiFetch(`/workouts/${id}/sets`, {
         method: 'POST',
         body: JSON.stringify({
           exerciseId,
-          setNumber: (workout?.sets?.filter((s) => s.exerciseId === exerciseId).length ?? 0) + 1,
-          reps: null,
-          weightKg: null,
+          setNumber: existingSets.length + 1,
+          reps,
+          weightKg,
           isWarmup: false,
         }),
-      }),
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workout', id] });
       setShowExerciseSearch(false);
@@ -58,9 +105,19 @@ export default function WorkoutDetailPage() {
     onSuccess: () => router.replace('/workouts'),
   });
 
+  const saveRepRangeMutation = useMutation({
+    mutationFn: ({ exerciseId, repRangeMin, repRangeMax }: { exerciseId: string; repRangeMin: number | null; repRangeMax: number | null }) =>
+      apiFetch(`/exercises/${exerciseId}/preference`, {
+        method: 'PATCH',
+        body: JSON.stringify({ repRangeMin, repRangeMax }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['exercise-prefs'] });
+    },
+  });
+
   if (isLoading) return <div className="flex justify-center py-12"><Spinner /></div>;
 
-  const workout = data?.data;
   if (!workout) return null;
 
   const units = settingsData?.data?.preferredUnits ?? 'METRIC';
@@ -114,6 +171,36 @@ export default function WorkoutDetailPage() {
             const exerciseName = sets[0]?.exercise?.name ?? 'Exercise';
             const primaryMuscle = sets[0]?.exercise?.primaryMuscle ?? 'FULL_BODY';
             const workingSets = sets.filter((s) => !s.isWarmup);
+            const pref = prefsQuery.data?.[exerciseId];
+            const isEditingRange = editingRepRange.get(exerciseId) ?? false;
+
+            const enterRepRangeEdit = () => {
+              setRepRangeEdits(prev => ({
+                ...prev,
+                [exerciseId]: {
+                  min: pref?.repRangeMin != null ? String(pref.repRangeMin) : '',
+                  max: pref?.repRangeMax != null ? String(pref.repRangeMax) : '',
+                },
+              }));
+              setEditingRepRange(prev => new Map(prev).set(exerciseId, true));
+            };
+
+            const cancelRepRangeEdit = () => {
+              setEditingRepRange(prev => {
+                const next = new Map(prev);
+                next.delete(exerciseId);
+                return next;
+              });
+            };
+
+            const saveRepRange = () => {
+              const edits = repRangeEdits[exerciseId];
+              const repRangeMin = edits?.min ? parseInt(edits.min, 10) : null;
+              const repRangeMax = edits?.max ? parseInt(edits.max, 10) : null;
+              saveRepRangeMutation.mutate({ exerciseId, repRangeMin, repRangeMax });
+              cancelRepRangeEdit();
+            };
+
             return (
               <Card key={exerciseId} className="p-0 overflow-hidden">
                 <div
@@ -121,6 +208,72 @@ export default function WorkoutDetailPage() {
                   style={{ borderLeftColor: (MUSCLE_GROUP_COLORS as any)[primaryMuscle], borderLeftWidth: 3 }}
                 >
                   <p className="text-sm font-semibold flex-1">{exerciseName}</p>
+
+                  {/* Rep range display / edit */}
+                  {isEditingRange ? (
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min={1}
+                        value={repRangeEdits[exerciseId]?.min ?? ''}
+                        onChange={e => setRepRangeEdits(prev => ({ ...prev, [exerciseId]: { ...prev[exerciseId]!, min: e.target.value } }))}
+                        className="w-10 text-xs text-center border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 bg-white dark:bg-gray-800"
+                        placeholder="min"
+                      />
+                      <span className="text-xs text-gray-400">–</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={repRangeEdits[exerciseId]?.max ?? ''}
+                        onChange={e => setRepRangeEdits(prev => ({ ...prev, [exerciseId]: { ...prev[exerciseId]!, max: e.target.value } }))}
+                        className="w-10 text-xs text-center border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 bg-white dark:bg-gray-800"
+                        placeholder="max"
+                      />
+                      <button
+                        type="button"
+                        onClick={saveRepRange}
+                        className="p-0.5 text-green-600 hover:text-green-800"
+                        title="Save rep range"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelRepRangeEdit}
+                        className="p-0.5 text-gray-400 hover:text-gray-600"
+                        title="Cancel"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : pref?.repRangeMin != null || pref?.repRangeMax != null ? (
+                    <button
+                      type="button"
+                      onClick={enterRepRangeEdit}
+                      className="text-xs bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full"
+                    >
+                      {pref?.repRangeMin}–{pref?.repRangeMax} reps
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={enterRepRangeEdit}
+                      className="text-xs text-gray-400 hover:text-indigo-500"
+                    >
+                      + range
+                    </button>
+                  )}
+
+                  {/* AI Progressive Overload button */}
+                  <button
+                    type="button"
+                    onClick={() => setShowAiPanel(showAiPanel === exerciseId ? null : exerciseId)}
+                    className={`p-1 rounded-lg transition-colors ${showAiPanel === exerciseId ? 'text-indigo-600 bg-indigo-100 dark:bg-indigo-900/40' : 'text-gray-400 hover:text-indigo-500'}`}
+                    title="AI progressive overload"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                  </button>
+
                   <span className="text-xs text-gray-500">{workingSets.length} sets</span>
                 </div>
                 <div className="px-3 py-1 divide-y divide-gray-50 dark:divide-gray-800">
@@ -144,6 +297,18 @@ export default function WorkoutDetailPage() {
                     <Plus className="h-3 w-3" /> Add set
                   </button>
                 </div>
+                {showAiPanel === exerciseId && (
+                  <div className="px-3 pb-3">
+                    <ProgressiveOverloadPanel
+                      exerciseId={exerciseId}
+                      exerciseName={exerciseName}
+                      units={units}
+                      repRangeMin={prefsQuery.data?.[exerciseId]?.repRangeMin}
+                      repRangeMax={prefsQuery.data?.[exerciseId]?.repRangeMax}
+                      onClose={() => setShowAiPanel(null)}
+                    />
+                  </div>
+                )}
               </Card>
             );
           })}

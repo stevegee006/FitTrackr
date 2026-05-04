@@ -30,8 +30,9 @@ model User {
   workouts         Workout[]
   trainingGoals    TrainingGoal[]
   programs         Program[]
-  exercises        Exercise[]
-  personalRecords  PersonalRecord[]
+  exercises           Exercise[]
+  personalRecords     PersonalRecord[]
+  exercisePreferences ExercisePreference[]
 
   @@map("users")
 }
@@ -201,9 +202,10 @@ model Exercise {
   createdAt        DateTime         @default(now()) @map("created_at")
   updatedAt        DateTime         @updatedAt @map("updated_at")
 
-  createdBy       User?            @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdBy       User?              @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
   workoutSets     WorkoutSet[]
   personalRecords PersonalRecord[]
+  preferences     ExercisePreference[]
 
   @@index([name])
   @@index([primaryMuscle])
@@ -411,4 +413,25 @@ model AppConfig {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("app_config")
+}
+
+// ─── Exercise Preferences ────────────────────────────────────────
+
+model ExercisePreference {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  exerciseId  String   @map("exercise_id") @db.Uuid
+  repRangeMin Int?     @map("rep_range_min")
+  repRangeMax Int?     @map("rep_range_max")
+  targetSets  Int?     @map("target_sets")
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exercise Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, exerciseId])
+  @@index([userId])
+  @@map("exercise_preferences")
 }
