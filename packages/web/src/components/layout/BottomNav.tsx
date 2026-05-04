@@ -24,8 +24,8 @@ export function BottomNav() {
                 className={cn(
                   'w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-95',
                   isActive
-                    ? 'bg-emerald-600 shadow-emerald-500/30'
-                    : 'bg-emerald-500 shadow-emerald-500/20'
+                    ? 'bg-indigo-600 shadow-indigo-500/30'
+                    : 'bg-indigo-500 shadow-indigo-500/20'
                 )}
               >
                 <Icon className="h-5 w-5 text-white" />
@@ -40,12 +40,12 @@ export function BottomNav() {
               className={cn(
                 'relative flex flex-col items-center gap-0.5 px-2 py-1 text-[10px] transition-all',
                 isActive
-                  ? 'text-emerald-600 dark:text-emerald-400'
+                  ? 'text-indigo-600 dark:text-indigo-400'
                   : 'text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300',
               )}
             >
               {isActive && (
-                <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 h-0.5 w-8 rounded-full bg-emerald-500" />
+                <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 h-0.5 w-8 rounded-full bg-indigo-500" />
               )}
               <Icon className="h-5 w-5" />
               <span>{label}</span>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api-client';
 import { todayString, addDays } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
@@ -9,8 +9,8 @@ import { WorkoutCard } from '@/components/workout/WorkoutCard';
 import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { Plus } from 'lucide-react';
-import type { Workout, UserProfile, TrainingGoal, MuscleGroup } from '@fittrackr/shared';
-import { MUSCLE_GROUP_LABELS } from '@fittrackr/shared';
+import type { Workout, UserProfile, TrainingGoal, MuscleGroup, WorkoutType } from '@fittrackr/shared';
+import { MUSCLE_GROUP_LABELS, WORKOUT_TYPE_LABELS } from '@fittrackr/shared';
 import Link from 'next/link';
 
 function getSmartGreeting(
@@ -95,6 +95,17 @@ export default function DashboardPage() {
     queryFn: () => apiFetch<{ data: TrainingGoal | null }>('/training-goals/active'),
   });
 
+  const createWorkoutMutation = useMutation({
+    mutationFn: (workoutType: WorkoutType) =>
+      apiFetch<{ data: Workout }>('/workouts', {
+        method: 'POST',
+        body: JSON.stringify({ logDate: today, workoutType, name: WORKOUT_TYPE_LABELS[workoutType] }),
+      }),
+    onSuccess: (res) => {
+      window.location.href = `/workouts/${res.data.id}`;
+    },
+  });
+
   // This week's workouts
   const { data: workoutsData, isLoading: workoutsLoading } = useQuery({
     queryKey: ['workouts', weekStart, weekEnd],
@@ -174,6 +185,38 @@ export default function DashboardPage() {
           {greeting.emoji} {greeting.message}
         </p>
       </div>
+
+      {/* Quick start */}
+      <Card className="p-3">
+        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Quick Start</p>
+        <div className="grid grid-cols-4 gap-2">
+          {(['PUSH', 'PULL', 'LEGS', 'FULL_BODY'] as WorkoutType[]).map((type) => (
+            <button
+              key={type}
+              type="button"
+              onClick={() => createWorkoutMutation.mutate(type)}
+              disabled={createWorkoutMutation.isPending}
+              className="flex flex-col items-center gap-1 p-2 rounded-xl bg-gray-50 dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 border border-gray-200 dark:border-gray-700 hover:border-indigo-300 transition-all active:scale-95"
+            >
+              <span className="text-xl">{type === 'PUSH' ? '🤜' : type === 'PULL' ? '🤛' : type === 'LEGS' ? '🦵' : '💪'}</span>
+              <span className="text-[10px] font-medium text-gray-600 dark:text-gray-300 text-center leading-tight">{WORKOUT_TYPE_LABELS[type]}</span>
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-2 mt-2">
+          {(['UPPER', 'LOWER', 'CARDIO', 'CUSTOM'] as WorkoutType[]).map((type) => (
+            <button
+              key={type}
+              type="button"
+              onClick={() => createWorkoutMutation.mutate(type)}
+              disabled={createWorkoutMutation.isPending}
+              className="flex-1 py-1.5 rounded-lg bg-gray-50 dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 border border-gray-200 dark:border-gray-700 text-[10px] font-medium text-gray-600 dark:text-gray-300 transition-all active:scale-95"
+            >
+              {WORKOUT_TYPE_LABELS[type]}
+            </button>
+          ))}
+        </div>
+      </Card>
 
       {/* Volume rings */}
       <Card

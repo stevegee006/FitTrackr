@@ -126,7 +126,9 @@ export default function ProgramsPage() {
             <Button variant="outline" onClick={() => setShowGenerator(false)}>Cancel</Button>
           </div>
           {generateMutation.isError && (
-            <p className="text-sm text-red-500">Failed to generate. Check your AI API key in Settings.</p>
+            <p className="text-sm text-red-500">
+              {(generateMutation.error as Error)?.message || 'Failed to generate. Check your AI API key in Settings.'}
+            </p>
           )}
         </Card>
       )}

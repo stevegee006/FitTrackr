@@ -25,8 +25,8 @@ const MODEL_MAP: Record<AiProvider, Record<AiTier, string>> = {
   },
   ANTHROPIC: {
     light: 'claude-haiku-4-5-20251001',
-    heavy: 'claude-sonnet-4-5-20250929',
-    vision: 'claude-sonnet-4-5-20250929',
+    heavy: 'claude-sonnet-4-6',
+    vision: 'claude-sonnet-4-6',
   },
   GEMINI: {
     light: 'gemini-2.0-flash',
