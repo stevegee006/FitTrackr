@@ -13,6 +13,7 @@ import { ProgressiveOverloadPanel } from '@/components/workout/ProgressiveOverlo
 import { WORKOUT_TYPE_LABELS, MUSCLE_GROUP_COLORS } from '@fittrackr/shared';
 import type { Workout, WorkoutSet, Exercise } from '@fittrackr/shared';
 import { useAuth } from '@/providers/AuthProvider';
+import { parseDateLocal } from '@/lib/utils';
 import { ChevronLeft, Plus, Trash2, Timer, Sparkles, Check, X, Flame } from 'lucide-react';
 import Link from 'next/link';
 
@@ -186,7 +187,7 @@ export default function WorkoutDetailPage() {
         <div className="flex-1 min-w-0">
           <h1 className="text-xl font-bold truncate">{workout.name ?? WORKOUT_TYPE_LABELS[workout.workoutType]}</h1>
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            {new Date(workout.logDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+            {parseDateLocal(String(workout.logDate).split('T')[0]).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
           </p>
         </div>
         <button
