@@ -107,7 +107,7 @@ export default function DashboardPage() {
   const { data: rangeData } = useQuery({
     queryKey: ['workouts-range', thirtyDaysAgo, today],
     queryFn: () =>
-      apiFetch<{ data: { date: string }[] }>(`/workouts/range?from=${thirtyDaysAgo}&to=${today}`),
+      apiFetch<{ data: { logDate: string }[] }>(`/workouts/range?from=${thirtyDaysAgo}&to=${today}`),
   });
 
   const { data: profileData } = useQuery({
@@ -127,7 +127,7 @@ export default function DashboardPage() {
 
   // Streak: consecutive days with a workout, ending today
   const workoutDates = new Set(
-    (rangeData?.data ?? []).map((d) => d.date.split('T')[0]),
+    (rangeData?.data ?? []).map((d) => d.logDate.split('T')[0]),
   );
   let streak = 0;
   for (let i = 0; i <= 30; i++) {
