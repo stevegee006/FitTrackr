@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api-client';
 import { todayString, addDays } from '@/lib/utils';
@@ -11,7 +10,6 @@ import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { Plus } from 'lucide-react';
 import type { Workout, UserProfile, TrainingGoal, MuscleGroup } from '@fittrackr/shared';
-import { MUSCLE_GROUP_LABELS } from '@fittrackr/shared';
 import Link from 'next/link';
 
 function getSmartGreeting(
@@ -78,7 +76,6 @@ function getSmartGreeting(
 export default function DashboardPage() {
   const { user } = useAuth();
   const today = todayString();
-  const [focusMuscle, setFocusMuscle] = useState<MuscleGroup | null>(null);
 
   // Week bounds (Mon–Sun)
   const weekStart = addDays(today, -((new Date().getDay() + 6) % 7));
@@ -180,28 +177,12 @@ export default function DashboardPage() {
           This week&apos;s volume
         </p>
         <VolumeRings
+          workoutCount={workouts.length}
+          weeklyFrequency={goalData?.data?.weeklyFrequency}
           volumeByMuscle={volumeByMuscle}
-          targetsByMuscle={weeklySetTargets}
-          onRingTap={(m) => setFocusMuscle(focusMuscle === m ? null : m)}
+          weeklySetTargets={weeklySetTargets}
           streak={streak}
         />
-        {focusMuscle && (
-          <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 text-center">
-            <p className="text-sm font-semibold">{MUSCLE_GROUP_LABELS[focusMuscle]}</p>
-            <p className="text-xs text-gray-500 mt-0.5">
-              {volumeByMuscle[focusMuscle] ?? 0} sets this week
-              {weeklySetTargets?.[focusMuscle]
-                ? ` · target ${weeklySetTargets[focusMuscle]}`
-                : ''}
-            </p>
-            <Link
-              href="/workouts"
-              className="mt-2 inline-flex text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
-            >
-              Log a workout &rarr;
-            </Link>
-          </div>
-        )}
       </Card>
 
       {/* This week's workouts */}
