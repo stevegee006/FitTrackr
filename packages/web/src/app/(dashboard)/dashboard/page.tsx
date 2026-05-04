@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { Plus } from 'lucide-react';
 import type { Workout, UserProfile, TrainingGoal, MuscleGroup } from '@fittrackr/shared';
+import { MUSCLE_GROUP_LABELS } from '@fittrackr/shared';
 import Link from 'next/link';
 
 function getSmartGreeting(
