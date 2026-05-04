@@ -13,6 +13,7 @@ interface MathInputProps {
   step?: number | string;
   className?: string;
   inputMode?: 'decimal' | 'numeric';
+  hideOps?: boolean;
 }
 
 const OPS = ['+', '\u2212', '\u00d7', '\u00f7'] as const;
@@ -23,7 +24,7 @@ const OP_MAP: Record<string, string> = { '+': '+', '\u2212': '-', '\u00d7': '*',
  * Users can type e.g. "150-32" and it evaluates to "118" on blur.
  * Operator buttons appear above the input on focus for mobile number pads.
  */
-export function MathInput({ label, value, onChange, onBlur: onBlurProp, placeholder, min, step, className, inputMode }: MathInputProps) {
+export function MathInput({ label, value, onChange, onBlur: onBlurProp, placeholder, min, step, className, inputMode, hideOps = false }: MathInputProps) {
   const [raw, setRaw] = useState(value);
   const [hasExpr, setHasExpr] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -94,27 +95,28 @@ export function MathInput({ label, value, onChange, onBlur: onBlurProp, placehol
           {label}
         </label>
       )}
-      {/* Operator buttons — show when input is focused */}
-      <div
-        className={`flex gap-1.5 overflow-hidden transition-all duration-150 ${
-          focused ? 'max-h-9 opacity-100 pb-1.5' : 'max-h-0 opacity-0 pb-0'
-        }`}
-      >
-        {OPS.map((op) => (
-          <button
-            key={op}
-            type="button"
-            tabIndex={-1}
-            onPointerDown={(e) => {
-              e.preventDefault();
-              insertOp(op);
-            }}
-            className="flex-1 h-7 rounded-md bg-gray-100 dark:bg-gray-700 text-xs font-semibold text-gray-600 dark:text-gray-300 active:bg-gray-200 dark:active:bg-gray-600 transition-colors"
-          >
-            {op}
-          </button>
-        ))}
-      </div>
+      {!hideOps && (
+        <div
+          className={`flex gap-1.5 overflow-hidden transition-all duration-150 ${
+            focused ? 'max-h-9 opacity-100 pb-1.5' : 'max-h-0 opacity-0 pb-0'
+          }`}
+        >
+          {OPS.map((op) => (
+            <button
+              key={op}
+              type="button"
+              tabIndex={-1}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                insertOp(op);
+              }}
+              className="flex-1 h-7 rounded-md bg-gray-100 dark:bg-gray-700 text-xs font-semibold text-gray-600 dark:text-gray-300 active:bg-gray-200 dark:active:bg-gray-600 transition-colors"
+            >
+              {op}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="relative">
         <input
           ref={inputRef}

@@ -933,6 +933,10 @@ function SettingsTab() {
       </div>
 
       <div className="lg:col-span-2">
+        <PlateSettingsCard />
+      </div>
+
+      <div className="lg:col-span-2">
         <RestartTutorialCard />
       </div>
 
@@ -1521,6 +1525,220 @@ function PhotosTab() {
         </div>
       )}
     </div>
+  );
+}
+
+// ─── Plate Settings Card ──────────────────────────────────────
+
+interface PlateConfig {
+  bars: Array<{ name: string; weightKg: number }>;
+  defaultBarIndex: number;
+  platesKg: number[];
+  platesLbs: number[];
+}
+
+const DEFAULT_PLATE_CONFIG: PlateConfig = {
+  bars: [
+    { name: 'Standard Bar', weightKg: 20.41 },
+    { name: 'EZ Bar', weightKg: 6.8 },
+    { name: "Women's Bar", weightKg: 15 },
+    { name: 'No Bar', weightKg: 0 },
+  ],
+  defaultBarIndex: 0,
+  platesKg: [25, 20, 15, 10, 5, 2.5, 1.25],
+  platesLbs: [45, 35, 25, 10, 5, 2.5, 1.25],
+};
+
+const ALL_PLATES_KG = [25, 20, 15, 10, 5, 2.5, 1.25];
+const ALL_PLATES_LBS = [45, 35, 25, 10, 5, 2.5, 1.25];
+
+const PLATE_CONFIG_KEY = 'fittrackr_plate_config';
+
+function loadPlateConfig(): PlateConfig {
+  try {
+    if (typeof window === 'undefined') return DEFAULT_PLATE_CONFIG;
+    const raw = localStorage.getItem(PLATE_CONFIG_KEY);
+    if (!raw) return DEFAULT_PLATE_CONFIG;
+    return JSON.parse(raw) as PlateConfig;
+  } catch {
+    return DEFAULT_PLATE_CONFIG;
+  }
+}
+
+function PlateSettingsCard() {
+  const [config, setConfig] = useState<PlateConfig>(DEFAULT_PLATE_CONFIG);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setConfig(loadPlateConfig());
+    }
+  }, []);
+
+  function save(next: PlateConfig) {
+    setConfig(next);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(PLATE_CONFIG_KEY, JSON.stringify(next));
+    }
+  }
+
+  function handleBarNameChange(index: number, name: string) {
+    const bars = config.bars.map((b, i) => (i === index ? { ...b, name } : b));
+    save({ ...config, bars });
+  }
+
+  function handleBarWeightChange(index: number, weightKg: number) {
+    const bars = config.bars.map((b, i) => (i === index ? { ...b, weightKg } : b));
+    save({ ...config, bars });
+  }
+
+  function handleSetDefault(index: number) {
+    save({ ...config, defaultBarIndex: index });
+  }
+
+  function handleDeleteBar(index: number) {
+    const bars = config.bars.filter((_, i) => i !== index);
+    const defaultBarIndex = config.defaultBarIndex >= bars.length
+      ? Math.max(0, bars.length - 1)
+      : config.defaultBarIndex === index
+        ? 0
+        : config.defaultBarIndex > index
+          ? config.defaultBarIndex - 1
+          : config.defaultBarIndex;
+    save({ ...config, bars, defaultBarIndex });
+  }
+
+  function handleAddBar() {
+    save({ ...config, bars: [...config.bars, { name: 'Custom Bar', weightKg: 20 }] });
+  }
+
+  function togglePlateKg(plate: number) {
+    const has = config.platesKg.includes(plate);
+    const platesKg = has
+      ? config.platesKg.filter((p) => p !== plate)
+      : [...config.platesKg, plate].sort((a, b) => b - a);
+    save({ ...config, platesKg });
+  }
+
+  function togglePlateLbs(plate: number) {
+    const has = config.platesLbs.includes(plate);
+    const platesLbs = has
+      ? config.platesLbs.filter((p) => p !== plate)
+      : [...config.platesLbs, plate].sort((a, b) => b - a);
+    save({ ...config, platesLbs });
+  }
+
+  return (
+    <Card className="space-y-6">
+      <div>
+        <h3 className="font-semibold">Plate Calculator</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Configure bars and available plates for the plate calculator.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Bar Presets</h4>
+        <div className="space-y-2">
+          {config.bars.map((bar, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleSetDefault(i)}
+                className={`shrink-0 h-4 w-4 rounded-full border-2 transition-colors ${
+                  config.defaultBarIndex === i
+                    ? 'border-indigo-600 bg-indigo-600'
+                    : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800'
+                }`}
+                aria-label={`Set ${bar.name} as default`}
+              />
+              <input
+                type="text"
+                value={bar.name}
+                onChange={(e) => handleBarNameChange(i, e.target.value)}
+                className="flex-1 min-w-0 rounded-lg border border-gray-300 dark:border-gray-600 px-2 py-1.5 text-sm bg-white dark:bg-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+              />
+              <div className="flex items-center gap-1 shrink-0">
+                <input
+                  type="number"
+                  value={bar.weightKg}
+                  step="0.01"
+                  min="0"
+                  onChange={(e) => handleBarWeightChange(i, parseFloat(e.target.value) || 0)}
+                  className="w-20 rounded-lg border border-gray-300 dark:border-gray-600 px-2 py-1.5 text-sm bg-white dark:bg-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+                <span className="text-xs text-gray-400 dark:text-gray-500 w-5">kg</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleDeleteBar(i)}
+                disabled={config.bars.length <= 1}
+                className="shrink-0 p-1.5 text-gray-400 hover:text-red-500 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                aria-label={`Delete ${bar.name}`}
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={handleAddBar}
+          className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline"
+        >
+          + Add Bar
+        </button>
+      </div>
+
+      <div className="space-y-4">
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Available Plates</h4>
+
+        <div className="space-y-2">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Metric (kg)</p>
+          <div className="flex flex-wrap gap-2">
+            {ALL_PLATES_KG.map((plate) => {
+              const active = config.platesKg.includes(plate);
+              return (
+                <button
+                  key={plate}
+                  type="button"
+                  onClick={() => togglePlateKg(plate)}
+                  className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+                    active
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  {plate}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Imperial (lbs)</p>
+          <div className="flex flex-wrap gap-2">
+            {ALL_PLATES_LBS.map((plate) => {
+              const active = config.platesLbs.includes(plate);
+              return (
+                <button
+                  key={plate}
+                  type="button"
+                  onClick={() => togglePlateLbs(plate)}
+                  className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+                    active
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  {plate}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </Card>
   );
 }
 
