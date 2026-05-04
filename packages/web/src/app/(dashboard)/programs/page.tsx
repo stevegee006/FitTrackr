@@ -7,7 +7,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { WORKOUT_TYPE_LABELS } from '@fittrackr/shared';
-import type { Program, ProgramData, WorkoutType } from '@fittrackr/shared';
+import type { Program, ProgramData, WorkoutType, Exercise } from '@fittrackr/shared';
 import { Sparkles, Calendar, Trash2, CheckCircle, ChevronDown, ChevronUp, Play } from 'lucide-react';
 import { todayString } from '@/lib/utils';
 
@@ -73,11 +73,40 @@ export default function ProgramsPage() {
   });
 
   const startWorkoutMutation = useMutation({
-    mutationFn: ({ workoutType, logDate }: { workoutType: WorkoutType; logDate: string }) =>
-      apiFetch<{ data: { id: string } }>('/workouts', {
+    mutationFn: async ({
+      workoutType,
+      logDate,
+      exercises,
+    }: {
+      workoutType: WorkoutType;
+      logDate: string;
+      exercises: Array<{ name: string; sets: number; reps: string | number }>;
+    }) => {
+      const res = await apiFetch<{ data: { id: string } }>('/workouts', {
         method: 'POST',
         body: JSON.stringify({ logDate, workoutType, name: WORKOUT_TYPE_LABELS[workoutType] }),
-      }),
+      });
+      const workoutId = res.data.id;
+
+      for (const ex of exercises) {
+        try {
+          const searchRes = await apiFetch<{ data: Exercise[] }>(
+            `/exercises?search=${encodeURIComponent(ex.name)}&limit=5`,
+          );
+          const match = searchRes.data[0];
+          if (!match) continue;
+          const reps = parseInt(String(ex.reps)) || null;
+          for (let i = 0; i < ex.sets; i++) {
+            await apiFetch(`/workouts/${workoutId}/sets`, {
+              method: 'POST',
+              body: JSON.stringify({ exerciseId: match.id, setNumber: i + 1, reps, weightKg: null, isWarmup: false }),
+            });
+          }
+        } catch { /* skip exercises that can't be found */ }
+      }
+
+      return res;
+    },
     onSuccess: (res) => {
       window.location.href = `/workouts/${res.data.id}`;
     },
@@ -341,7 +370,7 @@ export default function ProgramsPage() {
                           </div>
                           <button
                             type="button"
-                            onClick={() => startWorkoutMutation.mutate({ workoutType: selectedDay.workoutType, logDate: today })}
+                            onClick={() => startWorkoutMutation.mutate({ workoutType: selectedDay.workoutType, logDate: today, exercises: selectedDay.exercises })}
                             disabled={startWorkoutMutation.isPending}
                             className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition-colors"
                           >

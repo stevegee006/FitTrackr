@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api-client';
 import { useParams, useRouter } from 'next/navigation';
@@ -24,6 +24,8 @@ export default function WorkoutDetailPage() {
   const queryClient = useQueryClient();
   const [showExerciseSearch, setShowExerciseSearch] = useState(false);
   const [showRestTimer, setShowRestTimer] = useState(false);
+  const [restTimerTrigger, setRestTimerTrigger] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
   const [editingRepRange, setEditingRepRange] = useState<Map<string, boolean>>(new Map());
   const [repRangeEdits, setRepRangeEdits] = useState<Record<string, { min: string; max: string }>>({});
@@ -164,18 +166,47 @@ export default function WorkoutDetailPage() {
     },
   });
 
+  // Duration clock
+  useEffect(() => {
+    if (!workout?.createdAt) return;
+    const start = new Date(workout.createdAt).getTime();
+    const tick = () => setElapsed(Math.floor((Date.now() - start) / 1000));
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [workout?.createdAt]);
+
   if (isLoading) return <div className="flex justify-center py-12"><Spinner /></div>;
 
   if (!workout) return null;
 
   const units = settingsData?.data?.preferredUnits ?? 'METRIC';
 
-  // Group sets by exercise
+  const hours = Math.floor(elapsed / 3600);
+  const mins = Math.floor((elapsed % 3600) / 60);
+  const secs = elapsed % 60;
+  const durationDisplay = hours > 0
+    ? `${hours}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+    : `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+
+  function handleSetLogged() {
+    setShowRestTimer(true);
+    setRestTimerTrigger((t) => t + 1);
+  }
+
+  // Group sets by exercise, warmups sorted to top within each group
   const byExercise = new Map<string, WorkoutSet[]>();
   for (const set of workout.sets ?? []) {
     const key = set.exerciseId;
     if (!byExercise.has(key)) byExercise.set(key, []);
     byExercise.get(key)!.push(set);
+  }
+  for (const [key, sets] of byExercise) {
+    byExercise.set(key, [...sets].sort((a, b) => {
+      if (a.isWarmup && !b.isWarmup) return -1;
+      if (!a.isWarmup && b.isWarmup) return 1;
+      return a.setNumber - b.setNumber;
+    }));
   }
 
   return (
@@ -186,9 +217,13 @@ export default function WorkoutDetailPage() {
         </Link>
         <div className="flex-1 min-w-0">
           <h1 className="text-xl font-bold truncate">{workout.name ?? WORKOUT_TYPE_LABELS[workout.workoutType]}</h1>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            {parseDateLocal(String(workout.logDate).split('T')[0]).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-          </p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {parseDateLocal(String(workout.logDate).split('T')[0]).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+            </p>
+            <span className="text-xs text-gray-300 dark:text-gray-600">·</span>
+            <span className="text-xs font-mono text-indigo-600 dark:text-indigo-400">{durationDisplay}</span>
+          </div>
         </div>
         <button
           type="button"
@@ -203,7 +238,7 @@ export default function WorkoutDetailPage() {
       {showRestTimer && (
         <Card>
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Rest Timer</p>
-          <RestTimer />
+          <RestTimer triggerStart={restTimerTrigger} />
         </Card>
       )}
 
@@ -337,6 +372,7 @@ export default function WorkoutDetailPage() {
                           setIndex={workingCount}
                           units={units}
                           onDeleted={() => queryClient.invalidateQueries({ queryKey: ['workout', id] })}
+                          onSetLogged={handleSetLogged}
                         />
                       );
                     });

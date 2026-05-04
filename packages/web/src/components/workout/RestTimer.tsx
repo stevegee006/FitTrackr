@@ -3,12 +3,21 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Timer, Pause, Play, RotateCcw } from 'lucide-react';
 
-interface RestTimerProps {
-  defaultSeconds?: number;
+const STORAGE_KEY = 'fittrackr_rest_seconds';
+
+function getStoredSeconds(fallback: number) {
+  if (typeof window === 'undefined') return fallback;
+  const v = parseInt(localStorage.getItem(STORAGE_KEY) ?? '');
+  return isNaN(v) ? fallback : v;
 }
 
-export function RestTimer({ defaultSeconds = 90 }: RestTimerProps) {
-  const [seconds, setSeconds] = useState(defaultSeconds);
+interface RestTimerProps {
+  defaultSeconds?: number;
+  triggerStart?: number;
+}
+
+export function RestTimer({ defaultSeconds = 90, triggerStart = 0 }: RestTimerProps) {
+  const [seconds, setSeconds] = useState(() => getStoredSeconds(defaultSeconds));
   const [remaining, setRemaining] = useState(0);
   const [running, setRunning] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -27,6 +36,14 @@ export function RestTimer({ defaultSeconds = 90 }: RestTimerProps) {
     stop();
     setRemaining(seconds);
   }, [stop, seconds]);
+
+  // Auto-start when a set is logged
+  useEffect(() => {
+    if (triggerStart === 0) return;
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    setRemaining(seconds);
+    setRunning(true);
+  }, [triggerStart]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!running) return;
@@ -97,7 +114,12 @@ export function RestTimer({ defaultSeconds = 90 }: RestTimerProps) {
           <button
             key={s}
             type="button"
-            onClick={() => { stop(); setSeconds(s); setRemaining(s); }}
+            onClick={() => {
+              stop();
+              setSeconds(s);
+              setRemaining(s);
+              localStorage.setItem(STORAGE_KEY, String(s));
+            }}
             className={`text-[11px] px-2 py-0.5 rounded-full transition-colors ${
               seconds === s
                 ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400'
@@ -108,6 +130,7 @@ export function RestTimer({ defaultSeconds = 90 }: RestTimerProps) {
           </button>
         ))}
       </div>
+      <p className="text-[10px] text-gray-400 dark:text-gray-500">Default saved automatically</p>
     </div>
   );
 }

@@ -14,9 +14,10 @@ interface SetRowProps {
   setIndex: number;
   units: 'METRIC' | 'IMPERIAL';
   onDeleted: () => void;
+  onSetLogged?: () => void;
 }
 
-export function SetRow({ set, workoutId, setIndex, units, onDeleted }: SetRowProps) {
+export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged }: SetRowProps) {
   const queryClient = useQueryClient();
   const isImperial = units === 'IMPERIAL';
 
@@ -69,6 +70,7 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted }: SetRowPro
     commitRpe();
     setSaved(true);
     setTimeout(() => setSaved(false), 1200);
+    if (!set.isWarmup) onSetLogged?.();
   }
 
   return (
