@@ -370,7 +370,10 @@ function BiometricsTab() {
           </Button>
 
           {mutation.isSuccess && (
-            <p className="text-sm text-indigo-600 text-center">Profile saved!</p>
+            <p className="text-sm text-green-600 dark:text-green-400 text-center">Profile saved!</p>
+          )}
+          {mutation.isError && (
+            <p className="text-sm text-red-500 text-center">Failed to save. Please try again.</p>
           )}
         </form>
       </Card>

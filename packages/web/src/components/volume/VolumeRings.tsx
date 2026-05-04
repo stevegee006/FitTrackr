@@ -1,7 +1,7 @@
 'use client';
 
 import { useTheme } from '@/providers/ThemeProvider';
-import { MUSCLE_GROUP_LABELS, MUSCLE_GROUP_COLORS, PRIMARY_MUSCLE_GROUPS } from '@fittrackr/shared';
+import { MUSCLE_GROUP_LABELS, MUSCLE_GROUP_COLORS } from '@fittrackr/shared';
 import type { MuscleGroup } from '@fittrackr/shared';
 import { Flame } from 'lucide-react';
 
@@ -93,44 +93,27 @@ function Ring({
   );
 }
 
+const DISPLAY_GROUPS: MuscleGroup[] = ['CHEST', 'BACK', 'SHOULDERS', 'QUADS', 'HAMSTRINGS', 'CORE'];
+
 export function VolumeRings({ volumeByMuscle, targetsByMuscle, onRingTap, streak }: VolumeRingsProps) {
   const { isDark } = useTheme();
   const bgStroke = isDark ? '#374151' : '#e5e7eb';
 
-  const topRow = PRIMARY_MUSCLE_GROUPS.slice(0, 5);
-  const bottomRow = PRIMARY_MUSCLE_GROUPS.slice(5);
-
   return (
     <div>
-      <div className="space-y-2 py-2">
-        <div className="grid grid-cols-5 gap-1">
-          {topRow.map((muscle) => (
-            <Ring
-              key={muscle}
-              value={volumeByMuscle[muscle] ?? 0}
-              max={targetsByMuscle?.[muscle] ?? null}
-              label={MUSCLE_GROUP_LABELS[muscle]}
-              color={MUSCLE_GROUP_COLORS[muscle]}
-              size={60}
-              bgStroke={bgStroke}
-              onTap={onRingTap ? () => onRingTap(muscle) : undefined}
-            />
-          ))}
-        </div>
-        <div className="grid grid-cols-4 gap-1">
-          {bottomRow.map((muscle) => (
-            <Ring
-              key={muscle}
-              value={volumeByMuscle[muscle] ?? 0}
-              max={targetsByMuscle?.[muscle] ?? null}
-              label={MUSCLE_GROUP_LABELS[muscle]}
-              color={MUSCLE_GROUP_COLORS[muscle]}
-              size={60}
-              bgStroke={bgStroke}
-              onTap={onRingTap ? () => onRingTap(muscle) : undefined}
-            />
-          ))}
-        </div>
+      <div className="grid grid-cols-3 gap-3 py-2">
+        {DISPLAY_GROUPS.map((muscle) => (
+          <Ring
+            key={muscle}
+            value={volumeByMuscle[muscle] ?? 0}
+            max={targetsByMuscle?.[muscle] ?? null}
+            label={MUSCLE_GROUP_LABELS[muscle]}
+            color={MUSCLE_GROUP_COLORS[muscle]}
+            size={72}
+            bgStroke={bgStroke}
+            onTap={onRingTap ? () => onRingTap(muscle) : undefined}
+          />
+        ))}
       </div>
       {streak != null && streak > 0 && (
         <div className="flex justify-center pt-2 border-t border-gray-100 dark:border-gray-800">

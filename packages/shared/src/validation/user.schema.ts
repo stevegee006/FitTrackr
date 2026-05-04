@@ -22,7 +22,7 @@ export const updateProfileSchema = z.object({
     .enum(['SEDENTARY', 'LIGHTLY_ACTIVE', 'MODERATELY_ACTIVE', 'VERY_ACTIVE', 'EXTREMELY_ACTIVE'])
     .nullable()
     .optional(),
-  goal: z.enum(['LOSE_WEIGHT', 'MAINTAIN', 'GAIN_MUSCLE']).nullable().optional(),
+  goal: z.enum(['STRENGTH', 'HYPERTROPHY', 'ENDURANCE', 'WEIGHT_LOSS', 'GENERAL_FITNESS']).nullable().optional(),
   targetCalories: z.number().int().positive().max(10000).nullable().optional(),
   targetProteinG: z.number().int().nonnegative().max(1000).nullable().optional(),
   targetCarbsG: z.number().int().nonnegative().max(2000).nullable().optional(),
