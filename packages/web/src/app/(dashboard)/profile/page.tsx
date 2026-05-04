@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api-client';
 import { useAuth } from '@/providers/AuthProvider';
@@ -929,6 +929,10 @@ function SettingsTab() {
       </div>
 
       <div className="lg:col-span-2">
+        <ImportCard />
+      </div>
+
+      <div className="lg:col-span-2">
         <RestartTutorialCard />
       </div>
 
@@ -1517,6 +1521,79 @@ function PhotosTab() {
         </div>
       )}
     </div>
+  );
+}
+
+// ─── Import Card ───────────────────────────────────────────────
+
+function ImportCard() {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [csvText, setCsvText] = useState<string | null>(null);
+  const [summary, setSummary] = useState<{ workoutsCreated: number; setsCreated: number; exercisesCreated: number; skipped: number } | null>(null);
+  const [error, setError] = useState('');
+  const [importing, setImporting] = useState(false);
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    setSummary(null);
+    setError('');
+    const reader = new FileReader();
+    reader.onload = (ev) => setCsvText(ev.target?.result as string);
+    reader.readAsText(file);
+  }
+
+  async function handleImport() {
+    if (!csvText) return;
+    setImporting(true);
+    setError('');
+    try {
+      const res = await apiFetch<{ data: { workoutsCreated: number; setsCreated: number; exercisesCreated: number; skipped: number } }>(
+        '/workouts/import-csv',
+        { method: 'POST', body: JSON.stringify({ csv: csvText }) },
+      );
+      setSummary(res.data);
+      setCsvText(null);
+      setFileName(null);
+    } catch (err: any) {
+      setError(err.message || 'Import failed');
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  return (
+    <Card className="space-y-4">
+      <h3 className="font-semibold">Import Workouts</h3>
+      <p className="text-sm text-gray-500 dark:text-gray-400">
+        Upload a CSV export from your previous fitness app to import your workout history.
+      </p>
+      <button
+        type="button"
+        onClick={() => fileInputRef.current?.click()}
+        className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 px-4 py-4 text-sm transition-colors hover:border-indigo-400 hover:bg-indigo-50/50 dark:hover:border-indigo-500 dark:hover:bg-indigo-950/20"
+      >
+        <span className="font-medium text-gray-700 dark:text-gray-300">
+          {fileName ? fileName : 'Click to select a CSV file'}
+        </span>
+      </button>
+      <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleFileChange} />
+      {csvText && (
+        <Button variant="outline" onClick={handleImport} isLoading={importing} className="w-full">
+          Import Workouts
+        </Button>
+      )}
+      {summary && (
+        <p className="text-sm text-green-600 dark:text-green-400">
+          Imported {summary.workoutsCreated} workout{summary.workoutsCreated !== 1 ? 's' : ''},{' '}
+          {summary.setsCreated} sets
+          {summary.skipped > 0 ? ` (${summary.skipped} sessions skipped — already imported)` : ''}
+        </p>
+      )}
+      {error && <p className="text-sm text-red-600">{error}</p>}
+    </Card>
   );
 }
 
