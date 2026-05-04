@@ -371,6 +371,7 @@ export default function WorkoutDetailPage() {
                     <ProgressiveOverloadPanel
                       exerciseId={exerciseId}
                       exerciseName={exerciseName}
+                      workoutId={id}
                       units={units}
                       repRangeMin={prefsQuery.data?.[exerciseId]?.repRangeMin}
                       repRangeMax={prefsQuery.data?.[exerciseId]?.repRangeMax}

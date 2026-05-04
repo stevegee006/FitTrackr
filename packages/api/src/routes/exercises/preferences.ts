@@ -87,16 +87,16 @@ export default async function exercisePreferenceRoutes(fastify: FastifyInstance)
     preHandler: [fastify.authenticate],
     handler: async (req) => {
       const { exerciseId } = req.params as any;
-      const { limit: limitParam } = req.query as any;
+      const { limit: limitParam, excludeWorkoutId } = req.query as any;
       const userId = req.user.sub;
 
       const limit = Math.min(parseInt(limitParam ?? '8', 10) || 8, 20);
 
+      const historyWhere: Record<string, any> = { userId, sets: { some: { exerciseId } } };
+      if (excludeWorkoutId) historyWhere.id = { not: excludeWorkoutId };
+
       const workouts = await fastify.prisma.workout.findMany({
-        where: {
-          userId,
-          sets: { some: { exerciseId } },
-        },
+        where: historyWhere,
         orderBy: { logDate: 'desc' },
         take: limit,
         select: {
@@ -125,14 +125,15 @@ export default async function exercisePreferenceRoutes(fastify: FastifyInstance)
     preHandler: [fastify.authenticate],
     handler: async (req, reply) => {
       const { exerciseId } = req.params as any;
+      const { excludeWorkoutId: excludeId } = req.query as any;
       const userId = req.user.sub;
 
-      // Fetch last 6 sessions of history
+      // Fetch last 6 sessions of history, excluding the current workout
+      const aiWhere: Record<string, any> = { userId, sets: { some: { exerciseId } } };
+      if (excludeId) aiWhere.id = { not: excludeId };
+
       const workouts = await fastify.prisma.workout.findMany({
-        where: {
-          userId,
-          sets: { some: { exerciseId } },
-        },
+        where: aiWhere,
         orderBy: { logDate: 'desc' },
         take: 6,
         select: {

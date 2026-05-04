@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api-client';
+import { parseDateLocal } from '@/lib/utils';
 import { Spinner } from '@/components/ui/Spinner';
 import { Card } from '@/components/ui/Card';
 import { Sparkles, X, RefreshCw } from 'lucide-react';
@@ -10,6 +11,7 @@ import { Sparkles, X, RefreshCw } from 'lucide-react';
 interface ProgressiveOverloadPanelProps {
   exerciseId: string;
   exerciseName: string;
+  workoutId: string;
   units: 'METRIC' | 'IMPERIAL';
   repRangeMin?: number | null;
   repRangeMax?: number | null;
@@ -46,6 +48,7 @@ const STRATEGY_STYLES: Record<AiSuggestion['strategy'], { label: string; classNa
 export function ProgressiveOverloadPanel({
   exerciseId,
   exerciseName,
+  workoutId,
   units,
   repRangeMin,
   repRangeMax,
@@ -56,10 +59,10 @@ export function ProgressiveOverloadPanel({
   const [aiError, setAiError] = useState<string | null>(null);
 
   const { data: historyData, isLoading: historyLoading } = useQuery({
-    queryKey: ['exercise-history', exerciseId],
+    queryKey: ['exercise-history', exerciseId, workoutId],
     queryFn: () =>
       apiFetch<{ data: HistorySession[] }>(
-        `/exercises/${exerciseId}/history?limit=8`,
+        `/exercises/${exerciseId}/history?limit=8&excludeWorkoutId=${workoutId}`,
       ),
   });
 
@@ -103,7 +106,7 @@ export function ProgressiveOverloadPanel({
   }
 
   function formatDate(iso: string): string {
-    const d = new Date(iso);
+    const d = parseDateLocal(iso.split('T')[0]);
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   }
 
@@ -112,7 +115,7 @@ export function ProgressiveOverloadPanel({
     setAiError(null);
     try {
       const res = await apiFetch<{ data: AiSuggestion }>(
-        `/exercises/${exerciseId}/ai-suggest`,
+        `/exercises/${exerciseId}/ai-suggest?excludeWorkoutId=${workoutId}`,
         { method: 'POST' },
       );
       setAiResult(res.data);
