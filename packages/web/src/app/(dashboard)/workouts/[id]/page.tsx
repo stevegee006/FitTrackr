@@ -13,7 +13,7 @@ import { ProgressiveOverloadPanel } from '@/components/workout/ProgressiveOverlo
 import { WORKOUT_TYPE_LABELS, MUSCLE_GROUP_COLORS } from '@fittrackr/shared';
 import type { Workout, WorkoutSet, Exercise } from '@fittrackr/shared';
 import { useAuth } from '@/providers/AuthProvider';
-import { ChevronLeft, Plus, Trash2, Timer, Sparkles, Check, X } from 'lucide-react';
+import { ChevronLeft, Plus, Trash2, Timer, Sparkles, Check, X, Flame } from 'lucide-react';
 import Link from 'next/link';
 
 export default function WorkoutDetailPage() {
@@ -98,6 +98,53 @@ export default function WorkoutDetailPage() {
       setShowExerciseSearch(false);
       setSelectedExercise(null);
     },
+  });
+
+  const addWarmupMutation = useMutation({
+    mutationFn: async (exerciseId: string) => {
+      const existingSets = workout?.sets?.filter((s) => s.exerciseId === exerciseId) ?? [];
+      const workingSets = existingSets.filter((s) => !s.isWarmup);
+      const workingWeight = workingSets.length > 0 ? workingSets[workingSets.length - 1].weightKg : null;
+      const warmupWeight = workingWeight != null ? Math.round(workingWeight * 0.5 * 4) / 4 : null;
+      return apiFetch(`/workouts/${id}/sets`, {
+        method: 'POST',
+        body: JSON.stringify({ exerciseId, setNumber: existingSets.length + 1, reps: null, weightKg: warmupWeight, isWarmup: true }),
+      });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['workout', id] }),
+  });
+
+  const WARMUP_LADDER = [
+    { pct: 0.4, reps: 8 },
+    { pct: 0.6, reps: 5 },
+    { pct: 0.75, reps: 3 },
+  ];
+
+  const addWarmupLadderMutation = useMutation({
+    mutationFn: async (exerciseId: string) => {
+      const existingSets = workout?.sets?.filter((s) => s.exerciseId === exerciseId) ?? [];
+      const workingSets = existingSets.filter((s) => !s.isWarmup);
+      let workingWeightKg: number | null = workingSets.length > 0
+        ? (workingSets[workingSets.length - 1].weightKg ?? null)
+        : null;
+      if (workingWeightKg === null) {
+        try {
+          const lastSet = await apiFetch<{ data: { weightKg: number | null } | null }>(
+            `/exercises/${exerciseId}/last-set?excludeWorkoutId=${id}`
+          );
+          workingWeightKg = lastSet.data?.weightKg ?? null;
+        } catch { /* proceed with null */ }
+      }
+      let setNumber = existingSets.length + 1;
+      for (const step of WARMUP_LADDER) {
+        const weightKg = workingWeightKg != null ? Math.round(workingWeightKg * step.pct * 4) / 4 : null;
+        await apiFetch(`/workouts/${id}/sets`, {
+          method: 'POST',
+          body: JSON.stringify({ exerciseId, setNumber: setNumber++, reps: step.reps, weightKg, isWarmup: true }),
+        });
+      }
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['workout', id] }),
   });
 
   const deleteMutation = useMutation({
@@ -277,24 +324,45 @@ export default function WorkoutDetailPage() {
                   <span className="text-xs text-gray-500">{workingSets.length} sets</span>
                 </div>
                 <div className="px-3 py-1 divide-y divide-gray-50 dark:divide-gray-800">
-                  {sets.map((set, i) => (
-                    <SetRow
-                      key={set.id}
-                      set={set}
-                      workoutId={id}
-                      setIndex={i + 1}
-                      units={units}
-                      onDeleted={() => queryClient.invalidateQueries({ queryKey: ['workout', id] })}
-                    />
-                  ))}
+                  {(() => {
+                    let workingCount = 0;
+                    return sets.map((set) => {
+                      if (!set.isWarmup) workingCount++;
+                      return (
+                        <SetRow
+                          key={set.id}
+                          set={set}
+                          workoutId={id}
+                          setIndex={workingCount}
+                          units={units}
+                          onDeleted={() => queryClient.invalidateQueries({ queryKey: ['workout', id] })}
+                        />
+                      );
+                    });
+                  })()}
                 </div>
-                <div className="px-3 pb-2">
+                <div className="px-3 pb-2 flex items-center gap-4 flex-wrap">
                   <button
                     type="button"
                     onClick={() => addSetMutation.mutate(exerciseId)}
                     className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 font-medium flex items-center gap-1"
                   >
                     <Plus className="h-3 w-3" /> Add set
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => addWarmupMutation.mutate(exerciseId)}
+                    className="text-xs text-amber-600 dark:text-amber-400 hover:text-amber-800 font-medium flex items-center gap-1"
+                  >
+                    <Plus className="h-3 w-3" /> Add warmup
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => addWarmupLadderMutation.mutate(exerciseId)}
+                    disabled={addWarmupLadderMutation.isPending}
+                    className="text-xs text-amber-600 dark:text-amber-400 hover:text-amber-800 font-medium flex items-center gap-1 disabled:opacity-40"
+                  >
+                    <Flame className="h-3 w-3" /> Warmup ladder
                   </button>
                 </div>
                 {showAiPanel === exerciseId && (

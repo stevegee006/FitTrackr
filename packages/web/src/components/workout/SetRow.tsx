@@ -74,9 +74,18 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted }: SetRowPro
   return (
     <div className={`flex flex-col ${set.isWarmup ? 'opacity-60' : ''}`}>
       <div className="flex items-center gap-2 py-1.5">
-        <span className="w-6 text-center text-xs font-medium text-gray-500 shrink-0">
+        <button
+          type="button"
+          onClick={() => updateMutation.mutate({ isWarmup: !set.isWarmup })}
+          title={set.isWarmup ? 'Mark as working set' : 'Mark as warmup'}
+          className={`w-6 text-center text-xs font-semibold shrink-0 transition-colors rounded ${
+            set.isWarmup
+              ? 'text-amber-500 dark:text-amber-400 hover:text-amber-700'
+              : 'text-gray-500 hover:text-amber-500'
+          }`}
+        >
           {set.isWarmup ? 'W' : setIndex}
-        </span>
+        </button>
 
         <MathInput
           className="w-20 text-center text-sm"
