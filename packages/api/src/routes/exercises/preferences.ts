@@ -171,42 +171,73 @@ export default async function exercisePreferenceRoutes(fastify: FastifyInstance)
       const repRangeMax = pref?.repRangeMax ?? null;
       const targetSets = pref?.targetSets ?? null;
 
-      const systemPrompt =
-        'You are an expert strength and conditioning coach analyzing workout data to guide progressive overload. Given an athlete\'s recent workout history for a specific exercise, suggest the optimal target for their next session. Respond ONLY with valid JSON.';
+      // Fetch user's preferred units so the AI can speak in the right unit
+      const settings = await fastify.prisma.userSettings.findUnique({
+        where: { userId },
+        select: { preferredUnits: true },
+      });
+      const isImperial = settings?.preferredUnits === 'IMPERIAL';
+      const unitLabel = isImperial ? 'lbs' : 'kg';
+      const toDisplay = (kg: number) =>
+        isImperial ? Math.round(kg * 2.20462 * 10) / 10 : kg;
+
+      const systemPrompt = `You are an expert strength and conditioning coach. Analyze the athlete's workout history and provide specific, actionable progressive overload advice. You MUST respond with ONLY a valid JSON object containing ALL of these fields:
+{
+  "strategy": one of "increase_weight" | "increase_reps" | "maintain" | "deload",
+  "suggestion": "2-3 sentences of specific coaching advice explaining what to do next session and why",
+  "targetWeight${isImperial ? 'Lbs' : 'Kg'}": number or null,
+  "targetRepsRange": "e.g. '5' or '8-10'" or null
+}
+The "suggestion" field MUST be a non-empty string with specific advice. Do not leave it empty.`;
 
       const historyLines = history
         .map((session: { date: Date; sets: WorkoutSetSummary[] }) => {
           const workingSets = session.sets
-            .filter((s: WorkoutSetSummary) => !s.isWarmup)
-            .map((s: WorkoutSetSummary) => `${s.reps}x${s.weightKg}kg`)
+            .filter((s: WorkoutSetSummary) => !s.isWarmup && s.weightKg != null)
+            .map((s: WorkoutSetSummary) => `${s.reps ?? '?'}×${toDisplay(s.weightKg!)}${unitLabel}`)
             .join(', ');
-          return `${session.date.toISOString().split('T')[0]}: ${workingSets}`;
+          return `${session.date.toISOString().split('T')[0]}: ${workingSets || '(no working sets)'}`;
         })
         .join('\n');
 
+      const rangeStr = repRangeMin != null && repRangeMax != null
+        ? `${repRangeMin}–${repRangeMax} reps`
+        : repRangeMin != null ? `${repRangeMin}+ reps` : 'not set';
+
       const userPrompt = `Exercise: ${exerciseName}
-Rep range target: ${repRangeMin ?? '?'}-${repRangeMax ?? '?'} reps
-Target sets: ${targetSets ?? 'not set'}
+Target rep range: ${rangeStr}
+Target sets per session: ${targetSets ?? 'not set'}
+Units: ${unitLabel}
 
-Recent history (newest first):
-${historyLines}
+Recent history (most recent first):
+${historyLines || 'No history yet.'}
 
-Analyze the progression trend and provide a suggestion for the next session.`;
+Based on this progression, what should the athlete aim for in their next session? Provide the JSON response now.`;
 
       try {
         const result = await aiChatCompletion(fastify, userId, systemPrompt, userPrompt, {
           tier: 'light',
-          maxTokens: 500,
+          maxTokens: 600,
         });
 
         const parsed = JSON.parse(result.content);
         const validStrategies = ['increase_weight', 'increase_reps', 'maintain', 'deload'];
         const rawStrategy = String(parsed.strategy ?? '').toLowerCase().replace(/[\s-]+/g, '_');
+
+        // Handle both targetWeightLbs and targetWeightKg field names from the AI
+        const rawTargetWeight = parsed.targetWeightLbs ?? parsed.targetWeightKg ?? null;
+        const targetWeightKg = rawTargetWeight != null
+          ? (isImperial ? rawTargetWeight / 2.20462 : rawTargetWeight)
+          : null;
+
+        const suggestion = (parsed.suggestion && String(parsed.suggestion).trim())
+          || 'No specific suggestion generated — try refreshing.';
+
         return {
           data: {
             strategy: validStrategies.includes(rawStrategy) ? rawStrategy : 'maintain',
-            suggestion: parsed.suggestion ?? 'No suggestion available.',
-            targetWeightKg: parsed.targetWeightKg ?? null,
+            suggestion,
+            targetWeightKg: targetWeightKg != null ? Math.round(targetWeightKg * 100) / 100 : null,
             targetRepsRange: parsed.targetRepsRange ?? null,
           },
         };
