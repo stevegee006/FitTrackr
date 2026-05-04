@@ -12,6 +12,8 @@ interface VolumeRingsProps {
   weeklyFrequency?: number | null;
   volumeByMuscle: Partial<Record<MuscleGroup, number>>;
   weeklySetTargets?: Partial<Record<MuscleGroup, number>>;
+  totalWeightKg?: number;
+  units?: 'METRIC' | 'IMPERIAL';
   streak?: number;
 }
 
@@ -22,6 +24,7 @@ function Ring({
   color,
   size = 80,
   bgStroke,
+  displayValue,
 }: {
   value: number;
   max: number | null;
@@ -29,6 +32,7 @@ function Ring({
   color: string;
   size?: number;
   bgStroke: string;
+  displayValue?: string;
 }) {
   const strokeWidth = 6;
   const radius = (size - strokeWidth) / 2;
@@ -57,7 +61,7 @@ function Ring({
           className={`fill-current font-bold ${targetHit ? 'text-green-500' : isOver ? 'text-red-500' : 'text-gray-800 dark:text-gray-100'}`}
           fontSize={size * 0.24}
         >
-          {value}
+          {displayValue ?? value}
         </text>
         {max != null && (
           <text
@@ -75,11 +79,18 @@ function Ring({
   );
 }
 
+function formatWeight(value: number): string {
+  if (value >= 1000) return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k`;
+  return String(value);
+}
+
 export function VolumeRings({
   workoutCount,
   weeklyFrequency,
   volumeByMuscle,
   weeklySetTargets,
+  totalWeightKg,
+  units = 'METRIC',
   streak,
 }: VolumeRingsProps) {
   const { isDark } = useTheme();
@@ -94,9 +105,16 @@ export function VolumeRings({
     .filter(([, count]) => count > 0)
     .sort((a, b) => b[1] - a[1]);
 
+  const weightDisplay = totalWeightKg != null
+    ? units === 'IMPERIAL'
+      ? Math.round(totalWeightKg * 2.20462)
+      : totalWeightKg
+    : null;
+  const weightLabel = units === 'IMPERIAL' ? 'lbs lifted' : 'kg lifted';
+
   return (
     <div>
-      <div className="flex justify-center gap-10 py-2">
+      <div className="flex justify-center gap-6 py-2">
         <Ring
           value={workoutCount}
           max={weeklyFrequency ?? null}
@@ -113,6 +131,17 @@ export function VolumeRings({
           size={84}
           bgStroke={bgStroke}
         />
+        {weightDisplay != null && (
+          <Ring
+            value={weightDisplay}
+            max={null}
+            label={weightLabel}
+            color="#f59e0b"
+            size={84}
+            bgStroke={bgStroke}
+            displayValue={formatWeight(weightDisplay)}
+          />
+        )}
       </div>
 
       {musclesHit.length > 0 && (

@@ -198,16 +198,20 @@ export async function getWeeklyVolume(
       },
       isWarmup: false,
     },
-    include: { exercise: { select: { primaryMuscle: true } } },
+    select: { reps: true, weightKg: true, exercise: { select: { primaryMuscle: true } } },
   });
 
   const volumeByMuscle: Record<string, number> = {};
+  let totalWeightKg = 0;
   for (const set of sets) {
     const muscle = set.exercise.primaryMuscle;
     volumeByMuscle[muscle] = (volumeByMuscle[muscle] ?? 0) + 1;
+    if (set.reps != null && set.weightKg != null) {
+      totalWeightKg += set.reps * set.weightKg;
+    }
   }
 
-  return volumeByMuscle;
+  return { volumeByMuscle, totalWeightKg: Math.round(totalWeightKg) };
 }
 
 export async function getWorkoutRange(

@@ -85,7 +85,9 @@ export default function DashboardPage() {
   const { data: volumeData, isLoading: volumeLoading } = useQuery({
     queryKey: ['workout-volume', weekStart, weekEnd],
     queryFn: () =>
-      apiFetch<{ data: Record<string, number> }>(`/workouts/volume?from=${weekStart}&to=${weekEnd}`),
+      apiFetch<{ data: { volumeByMuscle: Record<string, number>; totalWeightKg: number } }>(
+        `/workouts/volume?from=${weekStart}&to=${weekEnd}`
+      ),
   });
 
   const { data: goalData } = useQuery({
@@ -113,11 +115,16 @@ export default function DashboardPage() {
     queryFn: () => apiFetch<{ data: UserProfile }>('/users/me/profile'),
   });
 
+  const { data: settingsData } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => apiFetch<{ data: { preferredUnits: 'METRIC' | 'IMPERIAL' } }>('/users/me/settings'),
+  });
+
   if (volumeLoading || workoutsLoading) {
     return <div className="flex justify-center py-12"><Spinner /></div>;
   }
 
-  const volumeByMuscle = (volumeData?.data ?? {}) as Partial<Record<MuscleGroup, number>>;
+  const volumeByMuscle = (volumeData?.data?.volumeByMuscle ?? {}) as Partial<Record<MuscleGroup, number>>;
   const weeklySetTargets = (goalData?.data?.volumeTargets as any)?.weeklySetTargets as
     | Partial<Record<MuscleGroup, number>>
     | undefined;
@@ -182,6 +189,8 @@ export default function DashboardPage() {
           weeklyFrequency={goalData?.data?.weeklyFrequency}
           volumeByMuscle={volumeByMuscle}
           weeklySetTargets={weeklySetTargets}
+          totalWeightKg={volumeData?.data?.totalWeightKg}
+          units={settingsData?.data?.preferredUnits}
           streak={streak}
         />
       </Card>
