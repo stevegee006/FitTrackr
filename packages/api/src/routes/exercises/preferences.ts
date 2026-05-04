@@ -200,7 +200,16 @@ Analyze the progression trend and provide a suggestion for the next session.`;
         });
 
         const parsed = JSON.parse(result.content);
-        return { data: parsed };
+        const validStrategies = ['increase_weight', 'increase_reps', 'maintain', 'deload'];
+        const rawStrategy = String(parsed.strategy ?? '').toLowerCase().replace(/[\s-]+/g, '_');
+        return {
+          data: {
+            strategy: validStrategies.includes(rawStrategy) ? rawStrategy : 'maintain',
+            suggestion: parsed.suggestion ?? 'No suggestion available.',
+            targetWeightKg: parsed.targetWeightKg ?? null,
+            targetRepsRange: parsed.targetRepsRange ?? null,
+          },
+        };
       } catch (err: any) {
         return reply.code(503).send({
           error: {

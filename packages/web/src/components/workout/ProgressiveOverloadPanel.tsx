@@ -226,9 +226,9 @@ export function ProgressiveOverloadPanel({
           <Card className="mt-1">
             <div className="flex items-start justify-between gap-2 mb-2">
               <span
-                className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${STRATEGY_STYLES[aiResult.strategy].className}`}
+                className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${(STRATEGY_STYLES[aiResult.strategy] ?? STRATEGY_STYLES['maintain']).className}`}
               >
-                {STRATEGY_STYLES[aiResult.strategy].label}
+                {(STRATEGY_STYLES[aiResult.strategy] ?? STRATEGY_STYLES['maintain']).label}
               </span>
               <button
                 onClick={handleRefresh}
