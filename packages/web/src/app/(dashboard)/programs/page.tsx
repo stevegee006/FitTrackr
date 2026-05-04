@@ -7,8 +7,9 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { WORKOUT_TYPE_LABELS } from '@fittrackr/shared';
-import type { Program, WorkoutType } from '@fittrackr/shared';
-import { Sparkles, Calendar, Trash2, CheckCircle } from 'lucide-react';
+import type { Program, ProgramData, WorkoutType } from '@fittrackr/shared';
+import { Sparkles, Calendar, Trash2, CheckCircle, ChevronDown, ChevronUp, Play } from 'lucide-react';
+import { todayString } from '@/lib/utils';
 
 const GOAL_LABELS: Record<string, string> = {
   STRENGTH: 'Build Strength',
@@ -18,8 +19,13 @@ const GOAL_LABELS: Record<string, string> = {
   GENERAL_FITNESS: 'General Fitness',
 };
 
+const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const DAY_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
 export default function ProgramsPage() {
   const queryClient = useQueryClient();
+  const today = todayString();
+
   const [showGenerator, setShowGenerator] = useState(false);
   const [form, setForm] = useState({
     durationWeeks: 8,
@@ -28,7 +34,15 @@ export default function ProgramsPage() {
     experienceLevel: 'INTERMEDIATE',
     availableEquipment: [] as string[],
     preferences: '',
+    preferredDays: [1, 3, 5, 6] as number[], // Mon, Wed, Fri, Sat by default
   });
+
+  // Expanded program state: which program is expanded, which week, which day
+  const [expanded, setExpanded] = useState<{
+    programId: string;
+    weekIdx: number;
+    dayOfWeek: number | null;
+  } | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['programs'],
@@ -36,8 +50,17 @@ export default function ProgramsPage() {
   });
 
   const generateMutation = useMutation({
-    mutationFn: () =>
-      apiFetch('/programs/generate', { method: 'POST', body: JSON.stringify(form) }),
+    mutationFn: () => {
+      const dayNames = form.preferredDays.map((d) => DAY_LABELS[d - 1]).join(', ');
+      const fullPreferences = [
+        form.preferences,
+        `Preferred training days: ${dayNames}. Schedule all workouts on these days only.`,
+      ].filter(Boolean).join(' ');
+      return apiFetch('/programs/generate', {
+        method: 'POST',
+        body: JSON.stringify({ ...form, preferences: fullPreferences }),
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['programs'] });
       setShowGenerator(false);
@@ -49,7 +72,34 @@ export default function ProgramsPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['programs'] }),
   });
 
+  const startWorkoutMutation = useMutation({
+    mutationFn: ({ workoutType, logDate }: { workoutType: WorkoutType; logDate: string }) =>
+      apiFetch<{ data: { id: string } }>('/workouts', {
+        method: 'POST',
+        body: JSON.stringify({ logDate, workoutType, name: WORKOUT_TYPE_LABELS[workoutType] }),
+      }),
+    onSuccess: (res) => {
+      window.location.href = `/workouts/${res.data.id}`;
+    },
+  });
+
   const programs = data?.data ?? [];
+
+  function toggleDay(programId: string, weekIdx: number, dayOfWeek: number) {
+    if (expanded?.programId === programId && expanded.weekIdx === weekIdx && expanded.dayOfWeek === dayOfWeek) {
+      setExpanded((e) => e ? { ...e, dayOfWeek: null } : null);
+    } else {
+      setExpanded({ programId, weekIdx, dayOfWeek });
+    }
+  }
+
+  function toggleProgram(programId: string) {
+    if (expanded?.programId === programId) {
+      setExpanded(null);
+    } else {
+      setExpanded({ programId, weekIdx: 0, dayOfWeek: null });
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -111,6 +161,39 @@ export default function ProgramsPage() {
               </select>
             </div>
           </div>
+
+          {/* Preferred training days */}
+          <div>
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-2">Preferred Training Days</label>
+            <div className="flex gap-1.5">
+              {DAY_SHORT.map((label, i) => {
+                const dayNum = i + 1;
+                const selected = form.preferredDays.includes(dayNum);
+                return (
+                  <button
+                    key={dayNum}
+                    type="button"
+                    onClick={() =>
+                      setForm((f) => ({
+                        ...f,
+                        preferredDays: selected
+                          ? f.preferredDays.filter((d) => d !== dayNum)
+                          : [...f.preferredDays, dayNum].sort(),
+                      }))
+                    }
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                      selected
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <textarea
             value={form.preferences}
             onChange={(e) => setForm((f) => ({ ...f, preferences: e.target.value }))}
@@ -145,58 +228,162 @@ export default function ProgramsPage() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {programs.map((p) => (
-            <Card key={p.id} className="space-y-3">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="font-semibold text-sm">{p.name}</p>
-                    {p.isActive && (
-                      <span className="inline-flex items-center gap-1 text-[10px] text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-800/40 px-1.5 py-0.5 rounded-full font-medium">
-                        <CheckCircle className="h-2.5 w-2.5" /> Active
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-gray-500 mt-0.5">{p.durationWeeks} weeks · {p.aiModel}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => { if (confirm('Delete this program?')) deleteMutation.mutate(p.id); }}
-                  className="p-1.5 text-gray-400 hover:text-red-500 transition-colors"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
+          {programs.map((p) => {
+            const pd = p.programData as ProgramData;
+            const isExpanded = expanded?.programId === p.id;
+            const weekIdx = expanded?.programId === p.id ? expanded.weekIdx : 0;
+            const currentWeek = pd.weeks?.[weekIdx];
+            const selectedDayOfWeek = expanded?.programId === p.id ? expanded.dayOfWeek : null;
+            const selectedDay = selectedDayOfWeek != null
+              ? currentWeek?.days?.find((d) => d.dayOfWeek === selectedDayOfWeek)
+              : null;
 
-              {/* Week preview */}
-              {(p.programData as any)?.weeks?.[0]?.days && (
-                <div className="grid grid-cols-7 gap-1">
-                  {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, i) => {
-                    const dayData = (p.programData as any).weeks[0].days.find(
-                      (d: any) => d.dayOfWeek === i + 1,
-                    );
-                    return (
-                      <div
-                        key={i}
-                        className={`flex flex-col items-center gap-0.5 p-1.5 rounded-lg text-center ${
-                          dayData
-                            ? 'bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-800/30'
-                            : 'bg-gray-50 dark:bg-gray-800/50'
-                        }`}
-                      >
-                        <span className="text-[9px] font-medium text-gray-500">{day}</span>
-                        {dayData && (
-                          <span className="text-[9px] font-semibold text-indigo-600 dark:text-indigo-400 leading-tight">
-                            {(dayData.workoutType as string).slice(0, 3)}
-                          </span>
+            return (
+              <Card key={p.id} className="p-0 overflow-hidden">
+                {/* Header */}
+                <div className="flex items-center gap-2 px-4 py-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-semibold text-sm">{p.name}</p>
+                      {p.isActive && (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/40 border border-indigo-200 dark:border-indigo-800/40 px-1.5 py-0.5 rounded-full font-medium">
+                          <CheckCircle className="h-2.5 w-2.5" /> Active
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-0.5">{p.durationWeeks} weeks · {p.aiModel}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => toggleProgram(p.id)}
+                    className="p-1.5 text-gray-400 hover:text-indigo-500 transition-colors"
+                    aria-label={isExpanded ? 'Collapse' : 'Expand'}
+                  >
+                    {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { if (confirm('Delete this program?')) deleteMutation.mutate(p.id); }}
+                    className="p-1.5 text-gray-400 hover:text-red-500 transition-colors"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+
+                {/* Week strip preview (always visible) */}
+                <div className="px-4 pb-3">
+                  <div className="grid grid-cols-7 gap-1">
+                    {DAY_SHORT.map((label, i) => {
+                      const dayNum = i + 1;
+                      const dayData = currentWeek?.days?.find((d) => d.dayOfWeek === dayNum);
+                      const isSelected = isExpanded && selectedDayOfWeek === dayNum;
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => {
+                            if (!isExpanded) setExpanded({ programId: p.id, weekIdx: 0, dayOfWeek: dayData ? dayNum : null });
+                            else if (dayData) toggleDay(p.id, weekIdx, dayNum);
+                          }}
+                          disabled={!dayData}
+                          className={`flex flex-col items-center gap-0.5 py-2 rounded-lg text-center transition-colors ${
+                            isSelected
+                              ? 'bg-indigo-600 text-white'
+                              : dayData
+                              ? 'bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-800/30 hover:border-indigo-400 cursor-pointer'
+                              : 'bg-gray-50 dark:bg-gray-800/50 opacity-50'
+                          }`}
+                        >
+                          <span className={`text-[9px] font-medium ${isSelected ? 'text-indigo-100' : 'text-gray-500'}`}>{label}</span>
+                          {dayData && (
+                            <span className={`text-[9px] font-bold leading-tight ${isSelected ? 'text-white' : 'text-indigo-600 dark:text-indigo-400'}`}>
+                              {dayData.workoutType.slice(0, 3)}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Expanded content */}
+                {isExpanded && (
+                  <div className="border-t border-gray-100 dark:border-gray-800">
+                    {/* Week selector */}
+                    {pd.weeks && pd.weeks.length > 1 && (
+                      <div className="px-4 py-2 flex gap-1.5 overflow-x-auto scrollbar-none border-b border-gray-100 dark:border-gray-800">
+                        {pd.weeks.map((w, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => setExpanded((e) => e ? { ...e, weekIdx: i, dayOfWeek: null } : null)}
+                            className={`shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                              weekIdx === i
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                            }`}
+                          >
+                            Week {w.weekNumber}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Day exercise detail */}
+                    {selectedDay ? (
+                      <div className="px-4 py-3 space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-semibold">
+                              {DAY_LABELS[selectedDayOfWeek! - 1]} — {selectedDay.focus}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-0.5">{WORKOUT_TYPE_LABELS[selectedDay.workoutType]}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => startWorkoutMutation.mutate({ workoutType: selectedDay.workoutType, logDate: today })}
+                            disabled={startWorkoutMutation.isPending}
+                            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition-colors"
+                          >
+                            {startWorkoutMutation.isPending ? <Spinner /> : <Play className="h-3 w-3" />}
+                            Start Workout
+                          </button>
+                        </div>
+
+                        <div className="space-y-1">
+                          {selectedDay.exercises.map((ex, i) => (
+                            <div key={i} className="flex items-start gap-3 py-1.5 border-b border-gray-50 dark:border-gray-800 last:border-0">
+                              <span className="shrink-0 w-5 h-5 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold flex items-center justify-center mt-0.5">
+                                {i + 1}
+                              </span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium leading-tight">{ex.name}</p>
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                  {ex.sets} sets × {ex.reps} reps
+                                  {ex.rpe ? ` · RPE ${ex.rpe}` : ''}
+                                </p>
+                                {ex.notes && (
+                                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 italic">{ex.notes}</p>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {pd.notes && weekIdx === 0 && (
+                          <p className="text-xs text-gray-400 dark:text-gray-500 italic pt-1">{pd.notes}</p>
                         )}
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </Card>
-          ))}
+                    ) : (
+                      <p className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400 text-center">
+                        Tap a training day above to see exercises
+                      </p>
+                    )}
+                  </div>
+                )}
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
