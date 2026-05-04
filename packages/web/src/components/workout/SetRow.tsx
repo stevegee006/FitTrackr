@@ -31,7 +31,7 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted }: SetRowPro
   const [saved, setSaved] = useState(false);
 
   const updateMutation = useMutation({
-    mutationFn: (data: { reps?: number; weightKg?: number; rpe?: number }) =>
+    mutationFn: (data: { reps?: number; weightKg?: number; rpe?: number; isWarmup?: boolean }) =>
       apiFetch(`/workouts/${workoutId}/sets/${set.id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['workout', workoutId] }),
   });
