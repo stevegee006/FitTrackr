@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api-client';
 import { useParams, useRouter } from 'next/navigation';
@@ -14,7 +14,7 @@ import { WORKOUT_TYPE_LABELS, MUSCLE_GROUP_COLORS } from '@fittrackr/shared';
 import type { Workout, WorkoutSet, Exercise } from '@fittrackr/shared';
 import { useAuth } from '@/providers/AuthProvider';
 import { parseDateLocal } from '@/lib/utils';
-import { ChevronLeft, Plus, Trash2, Timer, Sparkles, Check, X, Flame } from 'lucide-react';
+import { ChevronLeft, Plus, Trash2, Timer, Sparkles, Check, X, Flame, Pause, Play, Flag } from 'lucide-react';
 import Link from 'next/link';
 
 export default function WorkoutDetailPage() {
@@ -26,6 +26,8 @@ export default function WorkoutDetailPage() {
   const [showRestTimer, setShowRestTimer] = useState(false);
   const [restTimerTrigger, setRestTimerTrigger] = useState(0);
   const [elapsed, setElapsed] = useState(0);
+  const [clockRunning, setClockRunning] = useState(true);
+  const startAnchorRef = useRef<number>(0);
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
   const [editingRepRange, setEditingRepRange] = useState<Map<string, boolean>>(new Map());
   const [repRangeEdits, setRepRangeEdits] = useState<Record<string, { min: string; max: string }>>({});
@@ -152,7 +154,25 @@ export default function WorkoutDetailPage() {
 
   const deleteMutation = useMutation({
     mutationFn: () => apiFetch(`/workouts/${id}`, { method: 'DELETE' }),
-    onSuccess: () => router.replace('/workouts'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workouts'] });
+      queryClient.invalidateQueries({ queryKey: ['workout-volume'] });
+      router.replace('/workouts');
+    },
+  });
+
+  const finishMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(`/workouts/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ durationMin: Math.max(1, Math.round(elapsed / 60)) }),
+      }),
+    onSuccess: () => {
+      pauseClock();
+      queryClient.invalidateQueries({ queryKey: ['workouts'] });
+      queryClient.invalidateQueries({ queryKey: ['workout-volume'] });
+      router.replace('/workouts');
+    },
   });
 
   const saveRepRangeMutation = useMutation({
@@ -166,15 +186,27 @@ export default function WorkoutDetailPage() {
     },
   });
 
-  // Duration clock
+  // Duration clock — initialise anchor from createdAt
   useEffect(() => {
     if (!workout?.createdAt) return;
-    const start = new Date(workout.createdAt).getTime();
-    const tick = () => setElapsed(Math.floor((Date.now() - start) / 1000));
-    tick();
+    startAnchorRef.current = new Date(workout.createdAt).getTime();
+    setElapsed(Math.floor((Date.now() - startAnchorRef.current) / 1000));
+  }, [workout?.createdAt]);
+
+  // Tick when running
+  useEffect(() => {
+    if (!clockRunning || !workout?.createdAt) return;
+    const tick = () => setElapsed(Math.floor((Date.now() - startAnchorRef.current) / 1000));
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [workout?.createdAt]);
+  }, [clockRunning, workout?.createdAt]);
+
+  const pauseClock = useCallback(() => setClockRunning(false), []);
+  const resumeClock = useCallback(() => {
+    // Shift anchor so elapsed continues from its current value
+    startAnchorRef.current = Date.now() - elapsed * 1000;
+    setClockRunning(true);
+  }, [elapsed]);
 
   if (isLoading) return <div className="flex justify-center py-12"><Spinner /></div>;
 
@@ -222,7 +254,21 @@ export default function WorkoutDetailPage() {
               {parseDateLocal(String(workout.logDate).split('T')[0]).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
             </p>
             <span className="text-xs text-gray-300 dark:text-gray-600">·</span>
-            <span className="text-xs font-mono text-indigo-600 dark:text-indigo-400">{durationDisplay}</span>
+            <button
+              type="button"
+              onClick={clockRunning ? pauseClock : resumeClock}
+              className="flex items-center gap-1 group"
+              title={clockRunning ? 'Pause clock' : 'Resume clock'}
+            >
+              <span className={`text-xs font-mono ${clockRunning ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                {durationDisplay}
+              </span>
+              <span className="opacity-0 group-hover:opacity-100 transition-opacity">
+                {clockRunning
+                  ? <Pause className="h-2.5 w-2.5 text-gray-400" />
+                  : <Play className="h-2.5 w-2.5 text-indigo-500" />}
+              </span>
+            </button>
           </div>
         </div>
         <button
@@ -446,16 +492,27 @@ export default function WorkoutDetailPage() {
         </button>
       )}
 
-      <div className="flex justify-end pt-2">
+      <div className="flex items-center justify-between pt-2 pb-4">
         <button
           type="button"
           onClick={() => {
-            if (confirm('Delete this workout?')) deleteMutation.mutate();
+            if (confirm('Delete this workout? This cannot be undone.')) deleteMutation.mutate();
           }}
-          className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
+          disabled={deleteMutation.isPending}
+          className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1 disabled:opacity-40"
         >
           <Trash2 className="h-3.5 w-3.5" />
-          Delete workout
+          Delete
+        </button>
+
+        <button
+          type="button"
+          onClick={() => finishMutation.mutate()}
+          disabled={finishMutation.isPending}
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-sm font-semibold transition-all disabled:opacity-40 shadow-lg shadow-indigo-500/20"
+        >
+          <Flag className="h-4 w-4" />
+          Finish Workout · {durationDisplay}
         </button>
       </div>
     </div>

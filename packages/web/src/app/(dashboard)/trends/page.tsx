@@ -194,18 +194,18 @@ export default function TrendsPage() {
   const prevWeekEnd = addDays(weekStart, -1);
   const thirtyDaysAgo = addDays(today, -29);
 
+  type VolumeResponse = { data: { volumeByMuscle: Record<string, number>; totalWeightKg: number } };
+
   // This week's volume per muscle group
   const { data: volumeThis, isLoading: volThisLoading } = useQuery({
     queryKey: ['workout-volume', weekStart, weekEnd],
-    queryFn: () =>
-      apiFetch<{ data: Record<string, number> }>(`/workouts/volume?from=${weekStart}&to=${weekEnd}`),
+    queryFn: () => apiFetch<VolumeResponse>(`/workouts/volume?from=${weekStart}&to=${weekEnd}`),
   });
 
   // Last week's volume for comparison
   const { data: volumePrev, isLoading: volPrevLoading } = useQuery({
     queryKey: ['workout-volume', prevWeekStart, prevWeekEnd],
-    queryFn: () =>
-      apiFetch<{ data: Record<string, number> }>(`/workouts/volume?from=${prevWeekStart}&to=${prevWeekEnd}`),
+    queryFn: () => apiFetch<VolumeResponse>(`/workouts/volume?from=${prevWeekStart}&to=${prevWeekEnd}`),
   });
 
   // Active training goal for targets
@@ -239,8 +239,8 @@ export default function TrendsPage() {
   const isImperial = settingsData?.data?.preferredUnits === 'IMPERIAL';
   const isLoading = volThisLoading || volPrevLoading || workoutsLoading || (tab === 'measurements' && measureLoading);
 
-  const thisVol = (volumeThis?.data ?? {}) as Record<string, number>;
-  const prevVol = (volumePrev?.data ?? {}) as Record<string, number>;
+  const thisVol = (volumeThis?.data?.volumeByMuscle ?? {}) as Record<string, number>;
+  const prevVol = (volumePrev?.data?.volumeByMuscle ?? {}) as Record<string, number>;
   const weeklySetTargets = (goalData?.data?.volumeTargets as any)?.weeklySetTargets as Record<string, number> | undefined;
   const workoutsCount = workoutsThisWeek?.data?.length ?? 0;
 

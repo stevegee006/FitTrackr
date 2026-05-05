@@ -80,7 +80,7 @@ export default function ProgramsPage() {
     }: {
       workoutType: WorkoutType;
       logDate: string;
-      exercises: Array<{ name: string; sets: number; reps: string | number }>;
+      exercises: Array<{ name: string; sets: number; reps: string | number; rpe?: number }>;
     }) => {
       const res = await apiFetch<{ data: { id: string } }>('/workouts', {
         method: 'POST',
@@ -95,11 +95,42 @@ export default function ProgramsPage() {
           );
           const match = searchRes.data[0];
           if (!match) continue;
-          const reps = parseInt(String(ex.reps)) || null;
+
+          // Parse rep range from program (e.g. "8-12" → min=8, max=12, target=8)
+          const repsStr = String(ex.reps);
+          const repParts = repsStr.split('-').map((p) => parseInt(p.trim())).filter((n) => !isNaN(n));
+          const repRangeMin = repParts[0] ?? null;
+          const repRangeMax = repParts[1] ?? repParts[0] ?? null;
+          const targetReps = repRangeMin;
+
+          // Save rep range to user preferences for this exercise
+          if (repRangeMin != null) {
+            apiFetch(`/exercises/${match.id}/preference`, {
+              method: 'PATCH',
+              body: JSON.stringify({ repRangeMin, repRangeMax, targetSets: ex.sets }),
+            }).catch(() => {});
+          }
+
+          // Fetch last working weight for progressive overload
+          let weightKg: number | null = null;
+          try {
+            const lastSet = await apiFetch<{ data: { weightKg: number | null; reps: number | null } | null }>(
+              `/exercises/${match.id}/last-set`,
+            );
+            weightKg = lastSet.data?.weightKg ?? null;
+          } catch { /* no history — leave null */ }
+
           for (let i = 0; i < ex.sets; i++) {
             await apiFetch(`/workouts/${workoutId}/sets`, {
               method: 'POST',
-              body: JSON.stringify({ exerciseId: match.id, setNumber: i + 1, reps, weightKg: null, isWarmup: false }),
+              body: JSON.stringify({
+                exerciseId: match.id,
+                setNumber: i + 1,
+                reps: targetReps,
+                weightKg,
+                rpe: ex.rpe ?? null,
+                isWarmup: false,
+              }),
             });
           }
         } catch { /* skip exercises that can't be found */ }

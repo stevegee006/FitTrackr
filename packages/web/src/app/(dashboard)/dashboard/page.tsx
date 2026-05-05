@@ -186,6 +186,26 @@ export default function DashboardPage() {
         </p>
       </div>
 
+      {/* Volume rings */}
+      <Card
+        className="relative overflow-hidden border-indigo-200/50 dark:border-indigo-800/30 bg-gradient-to-br from-white to-gray-50 dark:from-gray-900 dark:to-gray-900/50"
+        data-tutorial="volume-rings"
+      >
+        <div className="pointer-events-none absolute -top-8 -right-8 h-32 w-32 rounded-full bg-indigo-500/5 dark:bg-indigo-400/5 blur-2xl" />
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+          This week&apos;s volume
+        </p>
+        <VolumeRings
+          workoutCount={workouts.length}
+          weeklyFrequency={goalData?.data?.weeklyFrequency}
+          volumeByMuscle={volumeByMuscle}
+          weeklySetTargets={weeklySetTargets}
+          totalWeightKg={volumeData?.data?.totalWeightKg}
+          units={settingsData?.data?.preferredUnits}
+          streak={streak}
+        />
+      </Card>
+
       {/* Quick start */}
       <Card className="p-3">
         <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Quick Start</p>
@@ -216,26 +236,6 @@ export default function DashboardPage() {
             </button>
           ))}
         </div>
-      </Card>
-
-      {/* Volume rings */}
-      <Card
-        className="relative overflow-hidden border-indigo-200/50 dark:border-indigo-800/30 bg-gradient-to-br from-white to-gray-50 dark:from-gray-900 dark:to-gray-900/50"
-        data-tutorial="volume-rings"
-      >
-        <div className="pointer-events-none absolute -top-8 -right-8 h-32 w-32 rounded-full bg-indigo-500/5 dark:bg-indigo-400/5 blur-2xl" />
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-          This week&apos;s volume
-        </p>
-        <VolumeRings
-          workoutCount={workouts.length}
-          weeklyFrequency={goalData?.data?.weeklyFrequency}
-          volumeByMuscle={volumeByMuscle}
-          weeklySetTargets={weeklySetTargets}
-          totalWeightKg={volumeData?.data?.totalWeightKg}
-          units={settingsData?.data?.preferredUnits}
-          streak={streak}
-        />
       </Card>
 
       {/* This week's workouts */}
