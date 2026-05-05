@@ -140,7 +140,15 @@ export default function ProgramsPage() {
     }: {
       workoutType: WorkoutType;
       logDate: string;
-      exercises: Array<{ name: string; sets: number; reps: string | number; rpe?: number }>;
+      exercises: Array<{
+        name: string;
+        sets: number;
+        reps: string | number;
+        rpe?: number;
+        primaryMuscle?: string;
+        equipment?: string;
+        category?: string;
+      }>;
     }) => {
       const res = await apiFetch<{ data: { id: string } }>('/workouts', {
         method: 'POST',
