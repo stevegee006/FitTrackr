@@ -7,9 +7,69 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { WORKOUT_TYPE_LABELS } from '@fittrackr/shared';
-import type { Program, ProgramData, WorkoutType, Exercise } from '@fittrackr/shared';
+import type { Program, ProgramData, WorkoutType, Exercise, MuscleGroup } from '@fittrackr/shared';
 import { Sparkles, Calendar, Trash2, CheckCircle, ChevronDown, ChevronUp, Play } from 'lucide-react';
 import { todayString } from '@/lib/utils';
+
+/** Infer muscle group, equipment and category from an exercise name + workout type. */
+function inferExerciseDetails(name: string, workoutType: WorkoutType) {
+  const n = name.toLowerCase();
+
+  // Equipment
+  let equipment = 'BODYWEIGHT';
+  if (n.includes('barbell')) equipment = 'BARBELL';
+  else if (n.includes('dumbbell')) equipment = 'DUMBBELL';
+  else if (n.includes('cable')) equipment = 'CABLE';
+  else if (n.includes('machine') || n.includes('smith')) equipment = 'MACHINE';
+  else if (n.includes('kettlebell')) equipment = 'KETTLEBELL';
+  else if (n.includes('band') || n.includes('resistance')) equipment = 'BANDS';
+
+  // Category
+  const compoundKw = ['press', 'squat', 'deadlift', 'row', 'pull', 'dip', 'lunge', 'clean', 'snatch', 'thrust'];
+  const category = compoundKw.some((kw) => n.includes(kw)) ? 'COMPOUND' : 'ISOLATION';
+
+  // Primary muscle
+  let primaryMuscle: MuscleGroup = 'FULL_BODY';
+  if (n.includes('chest') || n.includes('pec') || n.includes('fly') || n.includes('flye') ||
+      (n.includes('bench') && !n.includes('row'))) {
+    primaryMuscle = 'CHEST';
+  } else if (n.includes('tricep') || n.includes('pushdown') ||
+      (n.includes('extension') && !n.includes('leg') && !n.includes('back'))) {
+    primaryMuscle = 'TRICEPS';
+  } else if (n.includes('bicep') || n.includes('biceps') ||
+      (n.includes('curl') && !n.includes('leg') && !n.includes('ham'))) {
+    primaryMuscle = 'BICEPS';
+  } else if (n.includes('shoulder') || n.includes('delt') || n.includes('lateral raise') ||
+      n.includes('overhead press') || n.includes('military')) {
+    primaryMuscle = 'SHOULDERS';
+  } else if (n.includes('lat ') || n.includes('lats') || n.includes(' row') || n.includes('pulldown') ||
+      n.includes('pull-up') || n.includes('pullup') || n.includes('back') ||
+      (n.includes('deadlift') && !n.includes('romanian') && !n.includes('rdl'))) {
+    primaryMuscle = 'BACK';
+  } else if (n.includes('quad') || n.includes('squat') || n.includes('leg press') || n.includes('lunge')) {
+    primaryMuscle = 'QUADS';
+  } else if (n.includes('hamstring') || n.includes('rdl') || n.includes('romanian') || n.includes('leg curl')) {
+    primaryMuscle = 'HAMSTRINGS';
+  } else if (n.includes('glute') || n.includes('hip thrust') || n.includes('hip hinge')) {
+    primaryMuscle = 'GLUTES';
+  } else if (n.includes('calf') || n.includes('calves') || n.includes('gastrocnemius')) {
+    primaryMuscle = 'CALVES';
+  } else if (n.includes('core') || n.includes(' ab') || n.includes('crunch') || n.includes('plank') ||
+      n.includes('sit-up') || n.includes('situp')) {
+    primaryMuscle = 'CORE';
+  } else if (n.includes('forearm') || n.includes('wrist')) {
+    primaryMuscle = 'FOREARMS';
+  } else {
+    // Fall back to primary muscle for the workout type
+    const typeMap: Partial<Record<WorkoutType, MuscleGroup>> = {
+      PUSH: 'CHEST', PULL: 'BACK', LEGS: 'QUADS',
+      UPPER: 'CHEST', LOWER: 'QUADS', FULL_BODY: 'FULL_BODY',
+    };
+    primaryMuscle = typeMap[workoutType] ?? 'FULL_BODY';
+  }
+
+  return { primaryMuscle, equipment, category };
+}
 
 const GOAL_LABELS: Record<string, string> = {
   STRENGTH: 'Build Strength',
@@ -93,8 +153,17 @@ export default function ProgramsPage() {
           const searchRes = await apiFetch<{ data: Exercise[] }>(
             `/exercises?search=${encodeURIComponent(ex.name)}&limit=5`,
           );
-          const match = searchRes.data[0];
-          if (!match) continue;
+          let match: Exercise | undefined = searchRes.data[0];
+
+          // If nothing found, auto-create the exercise so it always gets added
+          if (!match) {
+            const details = inferExerciseDetails(ex.name, workoutType);
+            const created = await apiFetch<{ data: Exercise }>('/exercises', {
+              method: 'POST',
+              body: JSON.stringify({ name: ex.name, secondaryMuscles: [], ...details }),
+            });
+            match = created.data;
+          }
 
           // Parse rep range from program (e.g. "8-12" → min=8, max=12, target=8)
           const repsStr = String(ex.reps);
