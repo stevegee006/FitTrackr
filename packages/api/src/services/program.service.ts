@@ -18,7 +18,16 @@ Return ONLY valid JSON with this structure:
           "workoutType": "PUSH",
           "focus": "Chest & Triceps",
           "exercises": [
-            { "name": "Barbell Bench Press", "sets": 4, "reps": "6-8", "rpe": 8, "notes": "Focus on chest stretch at bottom" }
+            {
+              "name": "Barbell Bench Press",
+              "sets": 4,
+              "reps": "6-8",
+              "rpe": 8,
+              "notes": "Focus on chest stretch at bottom",
+              "primaryMuscle": "CHEST",
+              "equipment": "BARBELL",
+              "category": "COMPOUND"
+            }
           ]
         }
       ]
@@ -29,6 +38,10 @@ Return ONLY valid JSON with this structure:
 
 dayOfWeek: 1=Monday, 2=Tuesday, ..., 7=Sunday
 workoutType must be one of: PUSH, PULL, LEGS, UPPER, LOWER, FULL_BODY, CARDIO, CUSTOM
+primaryMuscle must be one of: CHEST, BACK, SHOULDERS, BICEPS, TRICEPS, FOREARMS, QUADS, HAMSTRINGS, GLUTES, CALVES, CORE, FULL_BODY
+equipment must be one of: BARBELL, DUMBBELL, CABLE, MACHINE, BODYWEIGHT, KETTLEBELL, BANDS, OTHER
+category must be one of: COMPOUND, ISOLATION, CARDIO, STRETCHING, OTHER
+Every exercise MUST include primaryMuscle, equipment, and category.
 Use progressive overload across weeks (increase weight or reps each week).
 Rest days should be omitted from the days array.`;
 

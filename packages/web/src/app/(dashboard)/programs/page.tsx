@@ -157,10 +157,17 @@ export default function ProgramsPage() {
 
           // If nothing found, auto-create the exercise so it always gets added
           if (!match) {
-            const details = inferExerciseDetails(ex.name, workoutType);
+            // Prefer AI-provided fields; fall back to inference for older programs
+            const inferred = inferExerciseDetails(ex.name, workoutType);
             const created = await apiFetch<{ data: Exercise }>('/exercises', {
               method: 'POST',
-              body: JSON.stringify({ name: ex.name, secondaryMuscles: [], ...details }),
+              body: JSON.stringify({
+                name: ex.name,
+                secondaryMuscles: [],
+                primaryMuscle: ex.primaryMuscle ?? inferred.primaryMuscle,
+                equipment: ex.equipment ?? inferred.equipment,
+                category: ex.category ?? inferred.category,
+              }),
             });
             match = created.data;
           }

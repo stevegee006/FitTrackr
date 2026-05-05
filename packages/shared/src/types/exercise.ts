@@ -98,6 +98,9 @@ export interface ProgramData {
         reps: string; // e.g. "8-10"
         rpe?: number;
         notes?: string;
+        primaryMuscle?: string; // e.g. "CHEST"
+        equipment?: string;     // e.g. "BARBELL"
+        category?: string;      // e.g. "COMPOUND"
       }>;
     }>;
   }>;
