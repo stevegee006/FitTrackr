@@ -26,7 +26,8 @@ export default function WorkoutDetailPage() {
   const [showRestTimer, setShowRestTimer] = useState(false);
   const [restTimerTrigger, setRestTimerTrigger] = useState(0);
   const [elapsed, setElapsed] = useState(0);
-  const [clockRunning, setClockRunning] = useState(true);
+  const [clockRunning, setClockRunning] = useState(false);
+  const [workoutStarted, setWorkoutStarted] = useState(false);
   const startAnchorRef = useRef<number>(0);
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
   const [editingRepRange, setEditingRepRange] = useState<Map<string, boolean>>(new Map());
@@ -186,24 +187,23 @@ export default function WorkoutDetailPage() {
     },
   });
 
-  // Duration clock — initialise anchor from createdAt
-  useEffect(() => {
-    if (!workout?.createdAt) return;
-    startAnchorRef.current = new Date(workout.createdAt).getTime();
-    setElapsed(Math.floor((Date.now() - startAnchorRef.current) / 1000));
-  }, [workout?.createdAt]);
-
   // Tick when running
   useEffect(() => {
-    if (!clockRunning || !workout?.createdAt) return;
+    if (!clockRunning) return;
     const tick = () => setElapsed(Math.floor((Date.now() - startAnchorRef.current) / 1000));
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [clockRunning, workout?.createdAt]);
+  }, [clockRunning]);
+
+  const startClock = useCallback(() => {
+    startAnchorRef.current = Date.now();
+    setElapsed(0);
+    setClockRunning(true);
+    setWorkoutStarted(true);
+  }, []);
 
   const pauseClock = useCallback(() => setClockRunning(false), []);
   const resumeClock = useCallback(() => {
-    // Shift anchor so elapsed continues from its current value
     startAnchorRef.current = Date.now() - elapsed * 1000;
     setClockRunning(true);
   }, [elapsed]);
@@ -254,21 +254,23 @@ export default function WorkoutDetailPage() {
               {parseDateLocal(String(workout.logDate).split('T')[0]).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
             </p>
             <span className="text-xs text-gray-300 dark:text-gray-600">·</span>
-            <button
-              type="button"
-              onClick={clockRunning ? pauseClock : resumeClock}
-              className="flex items-center gap-1 group"
-              title={clockRunning ? 'Pause clock' : 'Resume clock'}
-            >
-              <span className={`text-xs font-mono ${clockRunning ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400 dark:text-gray-500'}`}>
-                {durationDisplay}
-              </span>
-              <span className="opacity-0 group-hover:opacity-100 transition-opacity">
-                {clockRunning
-                  ? <Pause className="h-2.5 w-2.5 text-gray-400" />
-                  : <Play className="h-2.5 w-2.5 text-indigo-500" />}
-              </span>
-            </button>
+            {workoutStarted && (
+              <button
+                type="button"
+                onClick={clockRunning ? pauseClock : resumeClock}
+                className="flex items-center gap-1 group"
+                title={clockRunning ? 'Pause clock' : 'Resume clock'}
+              >
+                <span className={`text-xs font-mono ${clockRunning ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                  {durationDisplay}
+                </span>
+                <span className="opacity-0 group-hover:opacity-100 transition-opacity">
+                  {clockRunning
+                    ? <Pause className="h-2.5 w-2.5 text-gray-400" />
+                    : <Play className="h-2.5 w-2.5 text-indigo-500" />}
+                </span>
+              </button>
+            )}
           </div>
         </div>
         <button
@@ -286,6 +288,18 @@ export default function WorkoutDetailPage() {
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Rest Timer</p>
           <RestTimer triggerStart={restTimerTrigger} />
         </Card>
+      )}
+
+      {/* Start banner */}
+      {!workoutStarted && (
+        <button
+          type="button"
+          onClick={startClock}
+          className="w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white font-semibold text-base transition-all shadow-lg shadow-indigo-500/25"
+        >
+          <Play className="h-5 w-5 fill-white" />
+          Start Workout
+        </button>
       )}
 
       {/* Sets grouped by exercise */}
