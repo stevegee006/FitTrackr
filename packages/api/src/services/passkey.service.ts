@@ -16,33 +16,21 @@ const CHALLENGE_TTL = 300; // 5 minutes
 type AuthenticatorTransport = 'ble' | 'cable' | 'hybrid' | 'internal' | 'nfc' | 'smart-card' | 'usb';
 
 /**
- * Derive rpID and origin from the client's Origin or Referer header.
- * Uses the registrable domain (eTLD+1) as rpID so passkeys work across
- * subdomains and on iOS Safari which is strict about rpID matching.
+ * Derive rpID and origin from the client's Origin header.
+ * Uses the full hostname as rpID so each subdomain app gets its own isolated
+ * passkey scope. This prevents passkeys from one app (e.g. macros.geehive.com)
+ * appearing in another app's authenticator sheet (e.g. fit.geehive.com).
  *
  * Examples:
- *   macros.geehive.com  → rpID = geehive.com
- *   localhost            → rpID = localhost
- *   192.168.1.50         → rpID = 192.168.1.50
+ *   fit.geehive.com   → rpID = fit.geehive.com
+ *   localhost          → rpID = localhost
+ *   192.168.1.50       → rpID = 192.168.1.50
  */
-function getRegistrableDomain(hostname: string): string {
-  // IP addresses and localhost: use as-is
-  if (hostname === 'localhost' || /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) || hostname.startsWith('[')) {
-    return hostname;
-  }
-  // For domain names with 3+ labels, use the last 2 (eTLD+1 for standard TLDs)
-  const parts = hostname.split('.');
-  if (parts.length > 2) {
-    return parts.slice(-2).join('.');
-  }
-  return hostname;
-}
-
 function getRpConfigFromOrigin(origin: string) {
   const url = new URL(origin);
   return {
     rpName: 'FitTrackr',
-    rpID: getRegistrableDomain(url.hostname),
+    rpID: url.hostname,
     origin: url.origin,
   };
 }
