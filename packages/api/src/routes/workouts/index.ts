@@ -1,6 +1,33 @@
 import type { FastifyInstance } from 'fastify';
 import { createWorkoutSchema, updateWorkoutSchema, addSetSchema, updateSetSchema } from '@fittrackr/shared';
 import * as workoutService from '../../services/workout.service.js';
+import { aiChatCompletion, aiVisionCompletion } from '../../services/ai-provider.service.js';
+
+const WORKOUT_AI_SYSTEM = `You are an expert personal trainer. Generate or parse a single workout session.
+
+Return ONLY valid JSON with this exact structure:
+{
+  "name": "descriptive workout name",
+  "workoutType": "PUSH",
+  "exercises": [
+    {
+      "name": "Barbell Bench Press",
+      "primaryMuscle": "CHEST",
+      "equipment": "BARBELL",
+      "category": "COMPOUND",
+      "sets": 4,
+      "reps": "6-8",
+      "rpe": 8,
+      "notes": "Focus on chest stretch at bottom"
+    }
+  ]
+}
+
+workoutType must be one of: PUSH, PULL, LEGS, UPPER, LOWER, FULL_BODY, CARDIO, CUSTOM
+primaryMuscle must be one of: CHEST, BACK, SHOULDERS, BICEPS, TRICEPS, FOREARMS, QUADS, HAMSTRINGS, GLUTES, CALVES, CORE, FULL_BODY
+equipment must be one of: BARBELL, DUMBBELL, CABLE, MACHINE, BODYWEIGHT, KETTLEBELL, BANDS, OTHER
+category must be one of: COMPOUND, ISOLATION, CARDIO, STRETCHING, OTHER
+Every exercise MUST include primaryMuscle, equipment, and category. rpe and notes are optional.`;
 
 export default async function workoutRoutes(fastify: FastifyInstance) {
   // GET /workouts — paginated list with optional date range
@@ -107,6 +134,55 @@ export default async function workoutRoutes(fastify: FastifyInstance) {
       const { id, setId } = req.params as any;
       await workoutService.deleteSet(fastify, req.user.sub, id, setId);
       return reply.code(204).send();
+    },
+  });
+
+  // POST /workouts/ai-generate — generate a workout with AI
+  fastify.post('/workouts/ai-generate', {
+    preHandler: [fastify.authenticate],
+    handler: async (req, reply) => {
+      const { workoutType, preferences } = req.body as { workoutType?: string; preferences?: string };
+      const typeHint = workoutType ? `Workout type: ${workoutType}.` : '';
+      const prefHint = preferences ? `User preferences / notes: ${preferences}.` : '';
+      const userPrompt = `Generate a well-structured single workout session for a fully-equipped gym.
+${typeHint} ${prefHint}
+Include 4–7 exercises with appropriate sets, reps, RPE, and coaching notes.
+Choose a specific workoutType that best fits the session.`;
+
+      try {
+        const result = await aiChatCompletion(fastify, req.user.sub, WORKOUT_AI_SYSTEM, userPrompt, {
+          tier: 'heavy',
+          maxTokens: 2000,
+          temperature: 0.5,
+        });
+        const parsed = JSON.parse(result.content);
+        return reply.send({ data: parsed });
+      } catch (err: any) {
+        return reply.code(503).send({ error: { code: 'AI_UNAVAILABLE', message: err?.message || 'AI generation failed.' } });
+      }
+    },
+  });
+
+  // POST /workouts/ai-import — parse a workout from a screenshot image
+  fastify.post('/workouts/ai-import', {
+    preHandler: [fastify.authenticate],
+    handler: async (req, reply) => {
+      const { imageBase64 } = req.body as { imageBase64: string };
+      if (!imageBase64) return reply.code(400).send({ error: { code: 'BAD_REQUEST', message: 'imageBase64 is required.' } });
+
+      const userPrompt = `Extract every exercise from this workout image. If the image shows a whiteboard, app screenshot, book page, or handwritten notes, capture all exercises visible. If sets/reps/weight aren't shown for an exercise, use sensible defaults. Determine the most appropriate workoutType for the overall session.`;
+
+      try {
+        const result = await aiVisionCompletion(fastify, req.user.sub, WORKOUT_AI_SYSTEM, userPrompt, imageBase64, {
+          tier: 'vision',
+          maxTokens: 2000,
+          temperature: 0.2,
+        });
+        const parsed = JSON.parse(result.content);
+        return reply.send({ data: parsed });
+      } catch (err: any) {
+        return reply.code(503).send({ error: { code: 'AI_UNAVAILABLE', message: err?.message || 'AI import failed.' } });
+      }
     },
   });
 }
