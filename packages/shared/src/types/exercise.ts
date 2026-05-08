@@ -36,6 +36,7 @@ export interface WorkoutSet {
   distanceM: number | null;
   rpe: number | null;
   isWarmup: boolean;
+  supersetGroupId?: string | null;
   notes: string | null;
   createdAt: string;
 }

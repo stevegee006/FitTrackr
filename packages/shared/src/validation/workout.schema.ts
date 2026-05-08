@@ -22,6 +22,7 @@ export const addSetSchema = z.object({
   distanceM: z.number().min(0).nullish(),
   rpe: z.number().min(1).max(10).nullish(),
   isWarmup: z.boolean().default(false),
+  supersetGroupId: z.string().uuid().nullish(),
   notes: z.string().max(500).nullish(),
 });
 

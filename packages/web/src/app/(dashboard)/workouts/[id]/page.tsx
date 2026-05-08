@@ -14,8 +14,62 @@ import { WORKOUT_TYPE_LABELS, MUSCLE_GROUP_COLORS } from '@fittrackr/shared';
 import type { Workout, WorkoutSet, Exercise } from '@fittrackr/shared';
 import { useAuth } from '@/providers/AuthProvider';
 import { parseDateLocal } from '@/lib/utils';
-import { ChevronLeft, Plus, Trash2, Timer, Sparkles, Check, X, Flame, Pause, Play, Flag } from 'lucide-react';
+import { ChevronLeft, Plus, Trash2, Timer, Sparkles, Check, X, Flame, Pause, Play, Flag, Link2, Unlink2 } from 'lucide-react';
 import Link from 'next/link';
+
+// ─── Delete confirmation modal ────────────────────────────────────────────────
+
+function DeleteConfirmModal({ onConfirm, onCancel, isPending }: { onConfirm: () => void; onCancel: () => void; isPending: boolean }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 px-4 pb-4 sm:pb-0">
+      <Card className="w-full max-w-sm space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-full bg-red-100 dark:bg-red-900/30 shrink-0">
+            <Trash2 className="h-5 w-5 text-red-600 dark:text-red-400" />
+          </div>
+          <div>
+            <p className="font-semibold text-gray-900 dark:text-white">Delete workout?</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">All sets will be permanently removed.</p>
+          </div>
+        </div>
+        <div className="flex gap-2.5">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={isPending}
+            className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition-colors disabled:opacity-40"
+          >
+            {isPending ? 'Deleting…' : 'Delete'}
+          </button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Superset badge colours (cycles through a palette) ────────────────────────
+
+const SUPERSET_COLORS = [
+  { border: '#f59e0b', badge: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300' },
+  { border: '#8b5cf6', badge: 'bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300' },
+  { border: '#ec4899', badge: 'bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300' },
+  { border: '#14b8a6', badge: 'bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300' },
+];
+
+function supersetColor(groupId: string) {
+  let hash = 0;
+  for (const ch of groupId) hash = (hash * 31 + ch.charCodeAt(0)) | 0;
+  return SUPERSET_COLORS[Math.abs(hash) % SUPERSET_COLORS.length];
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function WorkoutDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -29,10 +83,13 @@ export default function WorkoutDetailPage() {
   const [clockRunning, setClockRunning] = useState(false);
   const [workoutStarted, setWorkoutStarted] = useState(false);
   const startAnchorRef = useRef<number>(0);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
   const [editingRepRange, setEditingRepRange] = useState<Map<string, boolean>>(new Map());
   const [repRangeEdits, setRepRangeEdits] = useState<Record<string, { min: string; max: string }>>({});
   const [showAiPanel, setShowAiPanel] = useState<string | null>(null);
+  // Superset link mode: exerciseId that is currently waiting to be paired
+  const [linkingExerciseId, setLinkingExerciseId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['workout', id],
@@ -71,32 +128,22 @@ export default function WorkoutDetailPage() {
       let reps: number | null = null;
 
       if (existingSets.length > 0) {
-        // Copy from last set in current workout
         const last = existingSets[existingSets.length - 1];
         weightKg = last.weightKg ?? null;
         reps = last.reps ?? null;
       } else {
-        // Fetch from previous workouts
         try {
           const lastSet = await apiFetch<{ data: { weightKg: number | null; reps: number | null; rpe: number | null } | null }>(
             `/exercises/${exerciseId}/last-set?excludeWorkoutId=${id}`
           );
           weightKg = lastSet.data?.weightKg ?? null;
           reps = lastSet.data?.reps ?? null;
-        } catch {
-          // If fetch fails, proceed with null values
-        }
+        } catch { /* proceed with null */ }
       }
 
       return apiFetch(`/workouts/${id}/sets`, {
         method: 'POST',
-        body: JSON.stringify({
-          exerciseId,
-          setNumber: existingSets.length + 1,
-          reps,
-          weightKg,
-          isWarmup: false,
-        }),
+        body: JSON.stringify({ exerciseId, setNumber: existingSets.length + 1, reps, weightKg, isWarmup: false }),
       });
     },
     onSuccess: () => {
@@ -182,9 +229,22 @@ export default function WorkoutDetailPage() {
         method: 'PATCH',
         body: JSON.stringify({ repRangeMin, repRangeMax }),
       }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['exercise-prefs'] }),
+  });
+
+  const createSupersetMutation = useMutation({
+    mutationFn: (exerciseIds: string[]) =>
+      apiFetch(`/workouts/${id}/superset`, { method: 'POST', body: JSON.stringify({ exerciseIds }) }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['exercise-prefs'] });
+      queryClient.invalidateQueries({ queryKey: ['workout', id] });
+      setLinkingExerciseId(null);
     },
+  });
+
+  const deleteSupersetMutation = useMutation({
+    mutationFn: (groupId: string) =>
+      apiFetch(`/workouts/${id}/superset/${groupId}`, { method: 'DELETE' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['workout', id] }),
   });
 
   // Tick when running
@@ -209,7 +269,6 @@ export default function WorkoutDetailPage() {
   }, [elapsed]);
 
   if (isLoading) return <div className="flex justify-center py-12"><Spinner /></div>;
-
   if (!workout) return null;
 
   const units = settingsData?.data?.preferredUnits ?? 'METRIC';
@@ -226,12 +285,11 @@ export default function WorkoutDetailPage() {
     setRestTimerTrigger((t) => t + 1);
   }
 
-  // Group sets by exercise, warmups sorted to top within each group
+  // ─── Group sets by exercise ──────────────────────────────────────────────────
   const byExercise = new Map<string, WorkoutSet[]>();
   for (const set of workout.sets ?? []) {
-    const key = set.exerciseId;
-    if (!byExercise.has(key)) byExercise.set(key, []);
-    byExercise.get(key)!.push(set);
+    if (!byExercise.has(set.exerciseId)) byExercise.set(set.exerciseId, []);
+    byExercise.get(set.exerciseId)!.push(set);
   }
   for (const [key, sets] of byExercise) {
     byExercise.set(key, [...sets].sort((a, b) => {
@@ -241,294 +299,366 @@ export default function WorkoutDetailPage() {
     }));
   }
 
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <Link href="/workouts" className="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-          <ChevronLeft className="h-5 w-5" />
-        </Link>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-bold truncate">{workout.name ?? WORKOUT_TYPE_LABELS[workout.workoutType]}</h1>
-          <div className="flex items-center gap-2 mt-0.5">
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              {parseDateLocal(String(workout.logDate).split('T')[0]).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-            </p>
-            <span className="text-xs text-gray-300 dark:text-gray-600">·</span>
-            {workoutStarted && (
-              <button
-                type="button"
-                onClick={clockRunning ? pauseClock : resumeClock}
-                className="flex items-center gap-1 group"
-                title={clockRunning ? 'Pause clock' : 'Resume clock'}
-              >
-                <span className={`text-xs font-mono ${clockRunning ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400 dark:text-gray-500'}`}>
-                  {durationDisplay}
-                </span>
-                <span className="opacity-0 group-hover:opacity-100 transition-opacity">
-                  {clockRunning
-                    ? <Pause className="h-2.5 w-2.5 text-gray-400" />
-                    : <Play className="h-2.5 w-2.5 text-indigo-500" />}
-                </span>
+  // ─── Build superset group maps ───────────────────────────────────────────────
+  const supersetGroupMap = new Map<string, string[]>(); // groupId → ordered exerciseIds
+  const exerciseToGroup = new Map<string, string>();    // exerciseId → groupId
+  for (const set of workout.sets ?? []) {
+    if (!set.supersetGroupId) continue;
+    exerciseToGroup.set(set.exerciseId, set.supersetGroupId);
+    const group = supersetGroupMap.get(set.supersetGroupId) ?? [];
+    if (!group.includes(set.exerciseId)) group.push(set.exerciseId);
+    supersetGroupMap.set(set.supersetGroupId, group);
+  }
+
+  // ─── Build ordered rendering slots ──────────────────────────────────────────
+  type Slot = { type: 'single'; exerciseId: string } | { type: 'group'; groupId: string; exerciseIds: string[] };
+  const exerciseOrder = [...byExercise.keys()];
+  const renderedEids = new Set<string>();
+  const slots: Slot[] = [];
+  for (const eid of exerciseOrder) {
+    if (renderedEids.has(eid)) continue;
+    const gid = exerciseToGroup.get(eid);
+    if (gid) {
+      const groupEids = (supersetGroupMap.get(gid) ?? [eid]).filter(e => byExercise.has(e));
+      groupEids.forEach(e => renderedEids.add(e));
+      slots.push({ type: 'group', groupId: gid, exerciseIds: groupEids });
+    } else {
+      renderedEids.add(eid);
+      slots.push({ type: 'single', exerciseId: eid });
+    }
+  }
+
+  // ─── Exercise card body renderer ─────────────────────────────────────────────
+  function renderExerciseCard(exerciseId: string, isInGroup = false) {
+    const sets = byExercise.get(exerciseId) ?? [];
+    const exerciseName = sets[0]?.exercise?.name ?? 'Exercise';
+    const primaryMuscle = sets[0]?.exercise?.primaryMuscle ?? 'FULL_BODY';
+    const workingSets = sets.filter((s) => !s.isWarmup);
+    const pref = prefsQuery.data?.[exerciseId];
+    const isEditingRange = editingRepRange.get(exerciseId) ?? false;
+    const groupId = exerciseToGroup.get(exerciseId);
+    const isLinking = linkingExerciseId === exerciseId;
+    const otherExerciseIds = exerciseOrder.filter(e => e !== exerciseId);
+
+    const enterRepRangeEdit = () => {
+      setRepRangeEdits(prev => ({
+        ...prev,
+        [exerciseId]: {
+          min: pref?.repRangeMin != null ? String(pref.repRangeMin) : '',
+          max: pref?.repRangeMax != null ? String(pref.repRangeMax) : '',
+        },
+      }));
+      setEditingRepRange(prev => new Map(prev).set(exerciseId, true));
+    };
+
+    const cancelRepRangeEdit = () => {
+      setEditingRepRange(prev => { const next = new Map(prev); next.delete(exerciseId); return next; });
+    };
+
+    const saveRepRange = () => {
+      const edits = repRangeEdits[exerciseId];
+      saveRepRangeMutation.mutate({
+        exerciseId,
+        repRangeMin: edits?.min ? parseInt(edits.min, 10) : null,
+        repRangeMax: edits?.max ? parseInt(edits.max, 10) : null,
+      });
+      cancelRepRangeEdit();
+    };
+
+    return (
+      <div key={exerciseId} className={isInGroup ? 'border-b border-gray-100 dark:border-gray-800 last:border-b-0' : ''}>
+        {/* Exercise header */}
+        <div
+          className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 dark:border-gray-800"
+          style={{ borderLeftColor: (MUSCLE_GROUP_COLORS as any)[primaryMuscle], borderLeftWidth: 3 }}
+        >
+          <p className="text-sm font-semibold flex-1">{exerciseName}</p>
+
+          {/* Rep range display / edit */}
+          {isEditingRange ? (
+            <div className="flex items-center gap-1">
+              <input
+                type="number" min={1}
+                value={repRangeEdits[exerciseId]?.min ?? ''}
+                onChange={e => setRepRangeEdits(prev => ({ ...prev, [exerciseId]: { ...prev[exerciseId]!, min: e.target.value } }))}
+                className="w-10 text-xs text-center border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 bg-white dark:bg-gray-800"
+                placeholder="min"
+              />
+              <span className="text-xs text-gray-400">–</span>
+              <input
+                type="number" min={1}
+                value={repRangeEdits[exerciseId]?.max ?? ''}
+                onChange={e => setRepRangeEdits(prev => ({ ...prev, [exerciseId]: { ...prev[exerciseId]!, max: e.target.value } }))}
+                className="w-10 text-xs text-center border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 bg-white dark:bg-gray-800"
+                placeholder="max"
+              />
+              <button type="button" onClick={saveRepRange} className="p-0.5 text-green-600 hover:text-green-800" title="Save">
+                <Check className="h-3.5 w-3.5" />
               </button>
-            )}
-          </div>
+              <button type="button" onClick={cancelRepRangeEdit} className="p-0.5 text-gray-400 hover:text-gray-600" title="Cancel">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : pref?.repRangeMin != null || pref?.repRangeMax != null ? (
+            <button type="button" onClick={enterRepRangeEdit}
+              className="text-xs bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full">
+              {pref?.repRangeMin}–{pref?.repRangeMax} reps
+            </button>
+          ) : (
+            <button type="button" onClick={enterRepRangeEdit} className="text-xs text-gray-400 hover:text-indigo-500">
+              + range
+            </button>
+          )}
+
+          {/* AI Progressive Overload */}
+          <button type="button"
+            onClick={() => setShowAiPanel(showAiPanel === exerciseId ? null : exerciseId)}
+            className={`p-1 rounded-lg transition-colors ${showAiPanel === exerciseId ? 'text-indigo-600 bg-indigo-100 dark:bg-indigo-900/40' : 'text-gray-400 hover:text-indigo-500'}`}
+            title="AI progressive overload">
+            <Sparkles className="h-3.5 w-3.5" />
+          </button>
+
+          <span className="text-xs text-gray-500">{workingSets.length} sets</span>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowRestTimer((v) => !v)}
-          className={`p-2 rounded-lg transition-colors ${showRestTimer ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
-          title="Rest timer"
-        >
-          <Timer className="h-4 w-4" />
-        </button>
+
+        {/* Sets */}
+        <div className="px-3 py-1 divide-y divide-gray-50 dark:divide-gray-800">
+          {(() => {
+            let workingCount = 0;
+            return sets.map((set) => {
+              if (!set.isWarmup) workingCount++;
+              return (
+                <SetRow key={set.id} set={set} workoutId={id} setIndex={workingCount} units={units}
+                  onDeleted={() => queryClient.invalidateQueries({ queryKey: ['workout', id] })}
+                  onSetLogged={handleSetLogged}
+                />
+              );
+            });
+          })()}
+        </div>
+
+        {/* Actions */}
+        <div className="px-3 pb-2 flex items-center gap-4 flex-wrap">
+          <button type="button" onClick={() => addSetMutation.mutate(exerciseId)}
+            className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 font-medium flex items-center gap-1">
+            <Plus className="h-3 w-3" /> Add set
+          </button>
+          <button type="button" onClick={() => addWarmupMutation.mutate(exerciseId)}
+            className="text-xs text-amber-600 dark:text-amber-400 hover:text-amber-800 font-medium flex items-center gap-1">
+            <Plus className="h-3 w-3" /> Add warmup
+          </button>
+          <button type="button" onClick={() => addWarmupLadderMutation.mutate(exerciseId)}
+            disabled={addWarmupLadderMutation.isPending}
+            className="text-xs text-amber-600 dark:text-amber-400 hover:text-amber-800 font-medium flex items-center gap-1 disabled:opacity-40">
+            <Flame className="h-3 w-3" /> Warmup ladder
+          </button>
+
+          {/* Superset / unlink */}
+          {groupId ? (
+            <button type="button"
+              onClick={() => deleteSupersetMutation.mutate(groupId)}
+              disabled={deleteSupersetMutation.isPending}
+              className="ml-auto text-xs text-orange-500 dark:text-orange-400 hover:text-orange-700 font-medium flex items-center gap-1">
+              <Unlink2 className="h-3 w-3" /> Unlink
+            </button>
+          ) : (
+            <button type="button"
+              onClick={() => setLinkingExerciseId(isLinking ? null : exerciseId)}
+              className={`ml-auto text-xs font-medium flex items-center gap-1 transition-colors ${isLinking ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400 hover:text-indigo-500'}`}>
+              <Link2 className="h-3 w-3" />
+              {isLinking ? 'Cancel' : 'Superset'}
+            </button>
+          )}
+        </div>
+
+        {/* Link picker */}
+        {isLinking && otherExerciseIds.length > 0 && (
+          <div className="px-3 pb-3 space-y-1.5">
+            <p className="text-[11px] font-medium text-gray-500">Pair with:</p>
+            <div className="flex flex-wrap gap-1.5">
+              {otherExerciseIds.map((tid) => {
+                const tSets = byExercise.get(tid) ?? [];
+                const tName = tSets[0]?.exercise?.name ?? 'Exercise';
+                return (
+                  <button key={tid} type="button"
+                    onClick={() => createSupersetMutation.mutate([exerciseId, tid])}
+                    disabled={createSupersetMutation.isPending}
+                    className="px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/50 text-xs font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-950/50 transition-colors disabled:opacity-40">
+                    {tName}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* AI panel */}
+        {showAiPanel === exerciseId && (
+          <div className="px-3 pb-3">
+            <ProgressiveOverloadPanel
+              exerciseId={exerciseId}
+              exerciseName={exerciseName}
+              workoutId={id}
+              units={units}
+              repRangeMin={prefsQuery.data?.[exerciseId]?.repRangeMin}
+              repRangeMax={prefsQuery.data?.[exerciseId]?.repRangeMax}
+              onClose={() => setShowAiPanel(null)}
+            />
+          </div>
+        )}
       </div>
+    );
+  }
 
-      {showRestTimer && (
-        <Card>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Rest Timer</p>
-          <RestTimer triggerStart={restTimerTrigger} />
-        </Card>
+  return (
+    <>
+      {/* Delete confirmation modal */}
+      {showDeleteModal && (
+        <DeleteConfirmModal
+          onConfirm={() => { setShowDeleteModal(false); deleteMutation.mutate(); }}
+          onCancel={() => setShowDeleteModal(false)}
+          isPending={deleteMutation.isPending}
+        />
       )}
 
-      {/* Start banner */}
-      {!workoutStarted && (
-        <button
-          type="button"
-          onClick={startClock}
-          className="w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white font-semibold text-base transition-all shadow-lg shadow-indigo-500/25"
-        >
-          <Play className="h-5 w-5 fill-white" />
-          Start Workout
-        </button>
-      )}
-
-      {/* Sets grouped by exercise */}
-      {byExercise.size === 0 ? (
-        <Card className="py-8 text-center">
-          <p className="font-semibold text-gray-700 dark:text-gray-200">No exercises yet</p>
-          <p className="text-sm text-gray-500 mt-1">Tap + to add your first exercise</p>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {[...byExercise.entries()].map(([exerciseId, sets]) => {
-            const exerciseName = sets[0]?.exercise?.name ?? 'Exercise';
-            const primaryMuscle = sets[0]?.exercise?.primaryMuscle ?? 'FULL_BODY';
-            const workingSets = sets.filter((s) => !s.isWarmup);
-            const pref = prefsQuery.data?.[exerciseId];
-            const isEditingRange = editingRepRange.get(exerciseId) ?? false;
-
-            const enterRepRangeEdit = () => {
-              setRepRangeEdits(prev => ({
-                ...prev,
-                [exerciseId]: {
-                  min: pref?.repRangeMin != null ? String(pref.repRangeMin) : '',
-                  max: pref?.repRangeMax != null ? String(pref.repRangeMax) : '',
-                },
-              }));
-              setEditingRepRange(prev => new Map(prev).set(exerciseId, true));
-            };
-
-            const cancelRepRangeEdit = () => {
-              setEditingRepRange(prev => {
-                const next = new Map(prev);
-                next.delete(exerciseId);
-                return next;
-              });
-            };
-
-            const saveRepRange = () => {
-              const edits = repRangeEdits[exerciseId];
-              const repRangeMin = edits?.min ? parseInt(edits.min, 10) : null;
-              const repRangeMax = edits?.max ? parseInt(edits.max, 10) : null;
-              saveRepRangeMutation.mutate({ exerciseId, repRangeMin, repRangeMax });
-              cancelRepRangeEdit();
-            };
-
-            return (
-              <Card key={exerciseId} className="p-0 overflow-hidden">
-                <div
-                  className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 dark:border-gray-800"
-                  style={{ borderLeftColor: (MUSCLE_GROUP_COLORS as any)[primaryMuscle], borderLeftWidth: 3 }}
-                >
-                  <p className="text-sm font-semibold flex-1">{exerciseName}</p>
-
-                  {/* Rep range display / edit */}
-                  {isEditingRange ? (
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        min={1}
-                        value={repRangeEdits[exerciseId]?.min ?? ''}
-                        onChange={e => setRepRangeEdits(prev => ({ ...prev, [exerciseId]: { ...prev[exerciseId]!, min: e.target.value } }))}
-                        className="w-10 text-xs text-center border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 bg-white dark:bg-gray-800"
-                        placeholder="min"
-                      />
-                      <span className="text-xs text-gray-400">–</span>
-                      <input
-                        type="number"
-                        min={1}
-                        value={repRangeEdits[exerciseId]?.max ?? ''}
-                        onChange={e => setRepRangeEdits(prev => ({ ...prev, [exerciseId]: { ...prev[exerciseId]!, max: e.target.value } }))}
-                        className="w-10 text-xs text-center border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 bg-white dark:bg-gray-800"
-                        placeholder="max"
-                      />
-                      <button
-                        type="button"
-                        onClick={saveRepRange}
-                        className="p-0.5 text-green-600 hover:text-green-800"
-                        title="Save rep range"
-                      >
-                        <Check className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={cancelRepRangeEdit}
-                        className="p-0.5 text-gray-400 hover:text-gray-600"
-                        title="Cancel"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ) : pref?.repRangeMin != null || pref?.repRangeMax != null ? (
-                    <button
-                      type="button"
-                      onClick={enterRepRangeEdit}
-                      className="text-xs bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full"
-                    >
-                      {pref?.repRangeMin}–{pref?.repRangeMax} reps
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={enterRepRangeEdit}
-                      className="text-xs text-gray-400 hover:text-indigo-500"
-                    >
-                      + range
-                    </button>
-                  )}
-
-                  {/* AI Progressive Overload button */}
+      <div className="space-y-4">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <Link href="/workouts" className="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+            <ChevronLeft className="h-5 w-5" />
+          </Link>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl font-bold truncate">{workout.name ?? WORKOUT_TYPE_LABELS[workout.workoutType]}</h1>
+            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {parseDateLocal(String(workout.logDate).split('T')[0]).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+              </p>
+              {workoutStarted && (
+                <>
+                  <span className="text-xs text-gray-300 dark:text-gray-600">·</span>
+                  {/* Always-visible pause/resume pill */}
                   <button
                     type="button"
-                    onClick={() => setShowAiPanel(showAiPanel === exerciseId ? null : exerciseId)}
-                    className={`p-1 rounded-lg transition-colors ${showAiPanel === exerciseId ? 'text-indigo-600 bg-indigo-100 dark:bg-indigo-900/40' : 'text-gray-400 hover:text-indigo-500'}`}
-                    title="AI progressive overload"
+                    onClick={clockRunning ? pauseClock : resumeClock}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors ${
+                      clockRunning
+                        ? 'bg-indigo-100 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-200 dark:hover:bg-indigo-950/70'
+                        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                    }`}
+                    title={clockRunning ? 'Pause clock' : 'Resume clock'}
                   >
-                    <Sparkles className="h-3.5 w-3.5" />
+                    {clockRunning
+                      ? <Pause className="h-3 w-3 fill-indigo-600 dark:fill-indigo-300" />
+                      : <Play className="h-3 w-3 fill-gray-600 dark:fill-gray-300" />}
+                    <span className="font-mono">{durationDisplay}</span>
                   </button>
+                </>
+              )}
+            </div>
+          </div>
+          <button type="button" onClick={() => setShowRestTimer((v) => !v)}
+            className={`p-2 rounded-lg transition-colors ${showRestTimer ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+            title="Rest timer">
+            <Timer className="h-4 w-4" />
+          </button>
+          {/* Trash can — always visible in header */}
+          <button type="button" onClick={() => setShowDeleteModal(true)}
+            className="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
+            title="Delete workout">
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
 
-                  <span className="text-xs text-gray-500">{workingSets.length} sets</span>
-                </div>
-                <div className="px-3 py-1 divide-y divide-gray-50 dark:divide-gray-800">
-                  {(() => {
-                    let workingCount = 0;
-                    return sets.map((set) => {
-                      if (!set.isWarmup) workingCount++;
-                      return (
-                        <SetRow
-                          key={set.id}
-                          set={set}
-                          workoutId={id}
-                          setIndex={workingCount}
-                          units={units}
-                          onDeleted={() => queryClient.invalidateQueries({ queryKey: ['workout', id] })}
-                          onSetLogged={handleSetLogged}
-                        />
-                      );
-                    });
-                  })()}
-                </div>
-                <div className="px-3 pb-2 flex items-center gap-4 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => addSetMutation.mutate(exerciseId)}
-                    className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 font-medium flex items-center gap-1"
-                  >
-                    <Plus className="h-3 w-3" /> Add set
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => addWarmupMutation.mutate(exerciseId)}
-                    className="text-xs text-amber-600 dark:text-amber-400 hover:text-amber-800 font-medium flex items-center gap-1"
-                  >
-                    <Plus className="h-3 w-3" /> Add warmup
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => addWarmupLadderMutation.mutate(exerciseId)}
-                    disabled={addWarmupLadderMutation.isPending}
-                    className="text-xs text-amber-600 dark:text-amber-400 hover:text-amber-800 font-medium flex items-center gap-1 disabled:opacity-40"
-                  >
-                    <Flame className="h-3 w-3" /> Warmup ladder
-                  </button>
-                </div>
-                {showAiPanel === exerciseId && (
-                  <div className="px-3 pb-3">
-                    <ProgressiveOverloadPanel
-                      exerciseId={exerciseId}
-                      exerciseName={exerciseName}
-                      workoutId={id}
-                      units={units}
-                      repRangeMin={prefsQuery.data?.[exerciseId]?.repRangeMin}
-                      repRangeMax={prefsQuery.data?.[exerciseId]?.repRangeMax}
-                      onClose={() => setShowAiPanel(null)}
-                    />
+        {showRestTimer && (
+          <Card>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Rest Timer</p>
+            <RestTimer triggerStart={restTimerTrigger} />
+          </Card>
+        )}
+
+        {/* Start banner */}
+        {!workoutStarted && (
+          <button type="button" onClick={startClock}
+            className="w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white font-semibold text-base transition-all shadow-lg shadow-indigo-500/25">
+            <Play className="h-5 w-5 fill-white" />
+            Start Workout
+          </button>
+        )}
+
+        {/* Exercise slots */}
+        {slots.length === 0 ? (
+          <Card className="py-8 text-center">
+            <p className="font-semibold text-gray-700 dark:text-gray-200">No exercises yet</p>
+            <p className="text-sm text-gray-500 mt-1">Tap + to add your first exercise</p>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {slots.map((slot) => {
+              if (slot.type === 'single') {
+                return (
+                  <Card key={slot.exerciseId} className="p-0 overflow-hidden">
+                    {renderExerciseCard(slot.exerciseId, false)}
+                  </Card>
+                );
+              }
+
+              // Superset / circuit group
+              const color = supersetColor(slot.groupId);
+              const label = slot.exerciseIds.length > 2 ? 'Circuit' : 'Superset';
+              return (
+                <div key={slot.groupId} className="rounded-2xl overflow-hidden border-2"
+                  style={{ borderColor: color.border }}>
+                  {/* Group header */}
+                  <div className="flex items-center gap-2 px-3 py-1.5" style={{ backgroundColor: color.border + '18' }}>
+                    <Link2 className="h-3 w-3" style={{ color: color.border }} />
+                    <span className={`text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${color.badge}`}>
+                      {label}
+                    </span>
+                    <span className="text-[11px] text-gray-500 dark:text-gray-400 ml-auto">
+                      {slot.exerciseIds.length} exercises · alternate with no rest
+                    </span>
                   </div>
-                )}
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Add exercise */}
-      {showExerciseSearch ? (
-        <Card>
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-semibold">Add Exercise</p>
-            <button type="button" onClick={() => setShowExerciseSearch(false)} className="text-xs text-gray-500">Cancel</button>
+                  {/* Exercises within group */}
+                  <div className="bg-white dark:bg-gray-900 divide-y divide-gray-100 dark:divide-gray-800">
+                    {slot.exerciseIds.map((eid) => renderExerciseCard(eid, true))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-          <ExerciseSearchForm
-            onSelect={(ex) => {
-              setSelectedExercise(ex);
-              addSetMutation.mutate(ex.id);
-            }}
-          />
-        </Card>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowExerciseSearch(true)}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400 hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-all"
-        >
-          <Plus className="h-4 w-4" />
-          <span className="text-sm font-medium">Add Exercise</span>
-        </button>
-      )}
+        )}
 
-      <div className="flex items-center justify-between pt-2 pb-4">
-        <button
-          type="button"
-          onClick={() => {
-            if (confirm('Delete this workout? This cannot be undone.')) deleteMutation.mutate();
-          }}
-          disabled={deleteMutation.isPending}
-          className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1 disabled:opacity-40"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-          Delete
-        </button>
+        {/* Add exercise */}
+        {showExerciseSearch ? (
+          <Card>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold">Add Exercise</p>
+              <button type="button" onClick={() => setShowExerciseSearch(false)} className="text-xs text-gray-500">Cancel</button>
+            </div>
+            <ExerciseSearchForm
+              onSelect={(ex) => {
+                setSelectedExercise(ex);
+                addSetMutation.mutate(ex.id);
+              }}
+            />
+          </Card>
+        ) : (
+          <button type="button" onClick={() => setShowExerciseSearch(true)}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400 hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-all">
+            <Plus className="h-4 w-4" />
+            <span className="text-sm font-medium">Add Exercise</span>
+          </button>
+        )}
 
-        <button
-          type="button"
-          onClick={() => finishMutation.mutate()}
-          disabled={finishMutation.isPending}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-sm font-semibold transition-all disabled:opacity-40 shadow-lg shadow-indigo-500/20"
-        >
-          <Flag className="h-4 w-4" />
-          Finish Workout · {durationDisplay}
-        </button>
+        {/* Bottom bar */}
+        <div className="flex items-center justify-end pt-2 pb-4">
+          <button type="button" onClick={() => finishMutation.mutate()} disabled={finishMutation.isPending}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-sm font-semibold transition-all disabled:opacity-40 shadow-lg shadow-indigo-500/20">
+            <Flag className="h-4 w-4" />
+            Finish Workout{workoutStarted ? ` · ${durationDisplay}` : ''}
+          </button>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

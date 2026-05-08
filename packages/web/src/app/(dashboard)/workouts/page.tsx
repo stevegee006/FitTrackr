@@ -9,7 +9,7 @@ import { WORKOUT_TYPE_LABELS, WORKOUT_TYPE_COLORS, MUSCLE_GROUP_LABELS } from '@
 import type { Workout, WorkoutType, Exercise, MuscleGroup } from '@fittrackr/shared';
 import { todayString, parseDateLocal, formatDate } from '@/lib/utils';
 import Link from 'next/link';
-import { ChevronLeft, ChevronRight, Dumbbell, Clock, Sparkles, Camera, X, Check, ImageIcon } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Dumbbell, Clock, Sparkles, Camera, X, Check, ImageIcon, Plus } from 'lucide-react';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -88,8 +88,7 @@ export default function WorkoutsPage() {
   const [aiForm, setAiForm] = useState({ workoutType: '' as WorkoutType | '', preferences: '' });
   const [aiPreview, setAiPreview] = useState<AiWorkout | null>(null);
   const [aiError, setAiError] = useState('');
-  const [importImage, setImportImage] = useState<string | null>(null);
-  const [importFilename, setImportFilename] = useState('');
+  const [importImages, setImportImages] = useState<string[]>([]);
 
   const viewYear = new Date(todayDate.getFullYear(), todayDate.getMonth() + monthOffset, 1).getFullYear();
   const viewMonth = new Date(todayDate.getFullYear(), todayDate.getMonth() + monthOffset, 1).getMonth();
@@ -123,12 +122,12 @@ export default function WorkoutsPage() {
     onError: (err: any) => setAiError(err?.message || 'Generation failed. Check your AI API key in Settings.'),
   });
 
-  // AI import from screenshot
+  // AI import from screenshots (one or more)
   const aiImportMutation = useMutation({
-    mutationFn: (imageBase64: string) =>
+    mutationFn: (images: string[]) =>
       apiFetch<{ data: AiWorkout }>('/workouts/ai-import', {
         method: 'POST',
-        body: JSON.stringify({ imageBase64 }),
+        body: JSON.stringify({ images }),
       }),
     onSuccess: (res) => { setAiPreview(res.data); setAiError(''); },
     onError: (err: any) => setAiError(err?.message || 'Import failed. Check your AI API key in Settings.'),
@@ -198,21 +197,26 @@ export default function WorkoutsPage() {
     setFlowMode(null);
     setAiPreview(null);
     setAiError('');
-    setImportImage(null);
-    setImportFilename('');
+    setImportImages([]);
     setAiForm({ workoutType: '', preferences: '' });
   }
 
-  function handleImageFile(file: File) {
-    setImportFilename(file.name);
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const b64 = e.target?.result as string;
-      setImportImage(b64);
-      setAiPreview(null);
-      setAiError('');
-    };
-    reader.readAsDataURL(file);
+  function handleImageFiles(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    Array.from(files).forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const b64 = e.target?.result as string;
+        setImportImages((prev) => [...prev, b64]);
+        setAiPreview(null);
+        setAiError('');
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function removeImportImage(index: number) {
+    setImportImages((prev) => prev.filter((_, i) => i !== index));
   }
 
   const workouts = data?.data ?? [];
@@ -461,36 +465,58 @@ export default function WorkoutsPage() {
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
+                multiple
                 className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageFile(f); }}
+                onChange={(e) => { handleImageFiles(e.target.files); e.target.value = ''; }}
               />
-              {!importImage ? (
-                <button type="button" onClick={() => fileInputRef.current?.click()}
-                  className="w-full flex flex-col items-center gap-2 py-8 rounded-xl border-2 border-dashed border-purple-300 dark:border-purple-700 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/20 transition-colors">
-                  <ImageIcon className="h-8 w-8" />
-                  <span className="text-sm font-medium">Tap to select screenshot</span>
-                  <span className="text-xs text-gray-400">Whiteboard, app, book, handwritten notes…</span>
-                </button>
-              ) : (
-                <div className="space-y-2">
-                  <div className="relative rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={importImage} alt="Workout screenshot" className="w-full max-h-48 object-cover" />
-                    <button type="button" onClick={() => { setImportImage(null); setImportFilename(''); }}
-                      className="absolute top-2 right-2 p-1 rounded-full bg-black/50 text-white hover:bg-black/70">
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                  <p className="text-xs text-gray-500 truncate">{importFilename}</p>
+
+              {/* Uploaded images grid */}
+              {importImages.length > 0 && (
+                <div className="grid grid-cols-2 gap-2">
+                  {importImages.map((img, idx) => (
+                    <div key={idx} className="relative rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 aspect-video">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={img} alt={`Screenshot ${idx + 1}`} className="w-full h-full object-cover" />
+                      <button type="button" onClick={() => removeImportImage(idx)}
+                        className="absolute top-1 right-1 p-0.5 rounded-full bg-black/60 text-white hover:bg-black/80">
+                        <X className="h-3 w-3" />
+                      </button>
+                      <span className="absolute bottom-1 left-1 text-[10px] font-semibold text-white bg-black/50 rounded px-1">
+                        {idx + 1}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               )}
+
+              {/* Upload / Add more button */}
+              <button type="button" onClick={() => fileInputRef.current?.click()}
+                className={`w-full flex flex-col items-center gap-2 rounded-xl border-2 border-dashed text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/20 transition-colors ${
+                  importImages.length > 0 ? 'py-2.5 border-purple-200 dark:border-purple-800/50 flex-row justify-center gap-1.5' : 'py-8 border-purple-300 dark:border-purple-700'
+                }`}>
+                {importImages.length === 0 ? (
+                  <>
+                    <ImageIcon className="h-8 w-8" />
+                    <span className="text-sm font-medium">Tap to select screenshots</span>
+                    <span className="text-xs text-gray-400">Select multiple images at once</span>
+                  </>
+                ) : (
+                  <>
+                    <Plus className="h-3.5 w-3.5" />
+                    <span className="text-xs font-medium">Add more images</span>
+                  </>
+                )}
+              </button>
+
               {aiError && <p className="text-xs text-red-500">{aiError}</p>}
-              {importImage && (
-                <button type="button" onClick={() => aiImportMutation.mutate(importImage)}
+              {importImages.length > 0 && (
+                <button type="button" onClick={() => aiImportMutation.mutate(importImages)}
                   disabled={isAiLoading}
                   className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold transition-colors disabled:opacity-40">
                   {isAiLoading ? <Spinner /> : <Camera className="h-4 w-4" />}
-                  {isAiLoading ? 'Analysing image…' : 'Import Workout'}
+                  {isAiLoading
+                    ? 'Analysing images…'
+                    : `Import Workout${importImages.length > 1 ? ` (${importImages.length} images)` : ''}`}
                 </button>
               )}
             </div>

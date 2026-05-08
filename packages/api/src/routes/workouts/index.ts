@@ -163,26 +163,88 @@ Choose a specific workoutType that best fits the session.`;
     },
   });
 
-  // POST /workouts/ai-import — parse a workout from a screenshot image
+  // POST /workouts/ai-import — parse a workout from one or more screenshot images
   fastify.post('/workouts/ai-import', {
     preHandler: [fastify.authenticate],
     handler: async (req, reply) => {
-      const { imageBase64 } = req.body as { imageBase64: string };
-      if (!imageBase64) return reply.code(400).send({ error: { code: 'BAD_REQUEST', message: 'imageBase64 is required.' } });
+      const body = req.body as { images?: string[]; imageBase64?: string };
+      const allImages = body.images?.length ? body.images : body.imageBase64 ? [body.imageBase64] : [];
+      if (!allImages.length) return reply.code(400).send({ error: { code: 'BAD_REQUEST', message: 'images array is required.' } });
 
       const userPrompt = `Extract every exercise from this workout image. If the image shows a whiteboard, app screenshot, book page, or handwritten notes, capture all exercises visible. If sets/reps/weight aren't shown for an exercise, use sensible defaults. Determine the most appropriate workoutType for the overall session.`;
 
       try {
-        const result = await aiVisionCompletion(fastify, req.user.sub, WORKOUT_AI_SYSTEM, userPrompt, imageBase64, {
-          tier: 'vision',
-          maxTokens: 2000,
-          temperature: 0.2,
-        });
-        const parsed = JSON.parse(result.content);
-        return reply.send({ data: parsed });
+        const results = await Promise.all(
+          allImages.map((img) =>
+            aiVisionCompletion(fastify, req.user.sub, WORKOUT_AI_SYSTEM, userPrompt, img, {
+              tier: 'vision',
+              maxTokens: 2000,
+              temperature: 0.2,
+            })
+          )
+        );
+
+        // Merge exercises from all images, deduplicate by name
+        let workoutName: string | undefined;
+        let workoutType: string | undefined;
+        const mergedExercises: any[] = [];
+        const seen = new Set<string>();
+
+        for (const result of results) {
+          const parsed = JSON.parse(result.content);
+          if (!workoutName) workoutName = parsed.name;
+          if (!workoutType) workoutType = parsed.workoutType;
+          for (const ex of parsed.exercises ?? []) {
+            const key = String(ex.name ?? '').toLowerCase().trim();
+            if (key && !seen.has(key)) {
+              seen.add(key);
+              mergedExercises.push(ex);
+            }
+          }
+        }
+
+        return reply.send({ data: { name: workoutName, workoutType, exercises: mergedExercises } });
       } catch (err: any) {
         return reply.code(503).send({ error: { code: 'AI_UNAVAILABLE', message: err?.message || 'AI import failed.' } });
       }
+    },
+  });
+
+  // POST /workouts/:id/superset — group two or more exercises into a superset/circuit
+  fastify.post('/workouts/:id/superset', {
+    preHandler: [fastify.authenticate],
+    handler: async (req, reply) => {
+      const { id } = req.params as any;
+      const { exerciseIds } = req.body as { exerciseIds: string[] };
+      if (!exerciseIds || exerciseIds.length < 2) {
+        return reply.code(400).send({ error: { code: 'BAD_REQUEST', message: 'Provide at least 2 exerciseIds.' } });
+      }
+
+      // Reuse an existing group if any exercise is already in one
+      const existing = await fastify.prisma.workoutSet.findFirst({
+        where: { workoutId: id, exerciseId: { in: exerciseIds }, supersetGroupId: { not: null } },
+        select: { supersetGroupId: true },
+      });
+      const groupId = existing?.supersetGroupId ?? crypto.randomUUID();
+
+      await fastify.prisma.workoutSet.updateMany({
+        where: { workoutId: id, exerciseId: { in: exerciseIds } },
+        data: { supersetGroupId: groupId },
+      });
+      return reply.send({ data: { groupId } });
+    },
+  });
+
+  // DELETE /workouts/:id/superset/:groupId — dissolve a superset group
+  fastify.delete('/workouts/:id/superset/:groupId', {
+    preHandler: [fastify.authenticate],
+    handler: async (req, reply) => {
+      const { id, groupId } = req.params as any;
+      await fastify.prisma.workoutSet.updateMany({
+        where: { workoutId: id, supersetGroupId: groupId },
+        data: { supersetGroupId: null },
+      });
+      return reply.code(204).send();
     },
   });
 }
