@@ -21,7 +21,7 @@ import Link from 'next/link';
 
 function DeleteConfirmModal({ onConfirm, onCancel, isPending }: { onConfirm: () => void; onCancel: () => void; isPending: boolean }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 px-4 pb-4 sm:pb-0">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 px-4">
       <Card className="w-full max-w-sm space-y-4">
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-full bg-red-100 dark:bg-red-900/30 shrink-0">

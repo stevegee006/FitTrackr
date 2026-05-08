@@ -43,29 +43,32 @@ function makeSplashSvg(w, h) {
   const ty = cy - ico / 2 - 32;
   const fontSize = ico * 0.22;
   const textY = cy + ico / 2 + 16;
+  // Scale factor: barbell paths are designed for a 320-unit coordinate space (centred at 0,0)
+  // We map that into `ico` pixels by scaling ico/320
+  const s = ico / 320;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}">
   <rect width="${w}" height="${h}" fill="#030712"/>
-  <g transform="translate(${cx - ico/2},${ty})">
-    <svg width="${ico}" height="${ico}" viewBox="0 0 512 512">
-      <rect width="512" height="512" rx="112" fill="#4f46e5"/>
-      <g transform="translate(256,256)">
-        <rect x="-160" y="-56" width="36" height="112" rx="6" fill="#c7d2fe"/>
-        <rect x="-124" y="-74" width="46" height="148" rx="6" fill="#a5b4fc"/>
-        <rect x="-78"  y="-16" width="156" height="32"  rx="8" fill="#e0e7ff"/>
-        <rect x="78"   y="-74" width="46"  height="148" rx="6" fill="#a5b4fc"/>
-        <rect x="124"  y="-56" width="36"  height="112" rx="6" fill="#c7d2fe"/>
-        <rect x="-44"  y="-11" width="5"   height="22"  rx="2" fill="#818cf8"/>
-        <rect x="-32"  y="-11" width="5"   height="22"  rx="2" fill="#818cf8"/>
-        <rect x="-20"  y="-11" width="5"   height="22"  rx="2" fill="#818cf8"/>
-        <rect x="16"   y="-11" width="5"   height="22"  rx="2" fill="#818cf8"/>
-        <rect x="28"   y="-11" width="5"   height="22"  rx="2" fill="#818cf8"/>
-        <rect x="40"   y="-11" width="5"   height="22"  rx="2" fill="#818cf8"/>
-      </g>
-    </svg>
+  <!-- Barbell icon — no background box, paths rendered directly on dark bg -->
+  <g transform="translate(${cx},${ty + ico / 2}) scale(${s})">
+    <!-- outer plates -->
+    <rect x="-160" y="-56" width="36" height="112" rx="6" fill="#6366f1"/>
+    <rect x="124"  y="-56" width="36" height="112" rx="6" fill="#6366f1"/>
+    <!-- inner plates -->
+    <rect x="-124" y="-74" width="46" height="148" rx="6" fill="#818cf8"/>
+    <rect x="78"   y="-74" width="46" height="148" rx="6" fill="#818cf8"/>
+    <!-- bar -->
+    <rect x="-78"  y="-16" width="156" height="32" rx="8" fill="#e0e7ff"/>
+    <!-- knurling marks -->
+    <rect x="-44"  y="-11" width="5"   height="22" rx="2" fill="#a5b4fc"/>
+    <rect x="-32"  y="-11" width="5"   height="22" rx="2" fill="#a5b4fc"/>
+    <rect x="-20"  y="-11" width="5"   height="22" rx="2" fill="#a5b4fc"/>
+    <rect x="16"   y="-11" width="5"   height="22" rx="2" fill="#a5b4fc"/>
+    <rect x="28"   y="-11" width="5"   height="22" rx="2" fill="#a5b4fc"/>
+    <rect x="40"   y="-11" width="5"   height="22" rx="2" fill="#a5b4fc"/>
   </g>
   <text x="${cx}" y="${textY}" text-anchor="middle"
     font-family="system-ui,-apple-system,Helvetica,sans-serif"
-    font-size="${fontSize}" font-weight="700" fill="#e0e7ff" letter-spacing="1">FitTrackr</text>
+    font-size="${fontSize}" font-weight="700" fill="#e0e7ff" letter-spacing="2">FitTrackr</text>
 </svg>`;
 }
 
