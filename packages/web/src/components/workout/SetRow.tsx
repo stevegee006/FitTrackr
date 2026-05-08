@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { MathInput } from '@/components/ui/MathInput';
 import { PlateCalculator } from '@/components/workout/PlateCalculator';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -21,13 +21,29 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
   const queryClient = useQueryClient();
   const isImperial = units === 'IMPERIAL';
 
-  const displayWeight = set.weightKg != null
-    ? isImperial ? Math.round(set.weightKg * 2.20462 * 10) / 10 : set.weightKg
-    : null;
+  function toDisplayWeight(kg: number | null) {
+    if (kg == null) return '';
+    return String(isImperial ? Math.round(kg * 2.20462 * 10) / 10 : kg);
+  }
 
-  const [weightVal, setWeightVal] = useState(displayWeight != null ? String(displayWeight) : '');
+  const [weightVal, setWeightVal] = useState(() => toDisplayWeight(set.weightKg));
   const [repsVal, setRepsVal] = useState(set.reps != null ? String(set.reps) : '');
   const [rpeVal, setRpeVal] = useState(set.rpe != null ? String(set.rpe) : '');
+
+  // Re-sync displayed values whenever the stored data changes (after a save/refetch)
+  // or when units change (settings query may resolve after the workout query).
+  useEffect(() => {
+    setWeightVal(toDisplayWeight(set.weightKg));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [set.weightKg, isImperial]);
+
+  useEffect(() => {
+    setRepsVal(set.reps != null ? String(set.reps) : '');
+  }, [set.reps]);
+
+  useEffect(() => {
+    setRpeVal(set.rpe != null ? String(set.rpe) : '');
+  }, [set.rpe]);
   const [showCalc, setShowCalc] = useState(false);
   const [saved, setSaved] = useState(false);
 
