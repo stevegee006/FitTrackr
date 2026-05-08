@@ -9,7 +9,7 @@ import { WORKOUT_TYPE_LABELS, WORKOUT_TYPE_COLORS, MUSCLE_GROUP_LABELS } from '@
 import type { Workout, WorkoutType, Exercise, MuscleGroup } from '@fittrackr/shared';
 import { todayString, parseDateLocal, formatDate } from '@/lib/utils';
 import Link from 'next/link';
-import { ChevronLeft, ChevronRight, Dumbbell, Clock, Sparkles, Camera, X, Check, ImageIcon, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Dumbbell, Clock, Sparkles, Camera, X, Check, ImageIcon, Plus, Trash2 } from 'lucide-react';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -89,6 +89,7 @@ export default function WorkoutsPage() {
   const [aiPreview, setAiPreview] = useState<AiWorkout | null>(null);
   const [aiError, setAiError] = useState('');
   const [importImages, setImportImages] = useState<string[]>([]);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const viewYear = new Date(todayDate.getFullYear(), todayDate.getMonth() + monthOffset, 1).getFullYear();
   const viewMonth = new Date(todayDate.getFullYear(), todayDate.getMonth() + monthOffset, 1).getMonth();
@@ -108,6 +109,15 @@ export default function WorkoutsPage() {
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['workouts'] });
       window.location.href = `/workouts/${res.data.id}`;
+    },
+  });
+
+  const deleteWorkoutMutation = useMutation({
+    mutationFn: (workoutId: string) => apiFetch(`/workouts/${workoutId}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      setConfirmDeleteId(null);
+      queryClient.invalidateQueries({ queryKey: ['workouts'] });
+      queryClient.invalidateQueries({ queryKey: ['workout-volume'] });
     },
   });
 
@@ -243,6 +253,40 @@ export default function WorkoutsPage() {
   const isAiLoading = aiGenerateMutation.isPending || aiImportMutation.isPending;
 
   return (
+    <>
+    {/* Delete confirmation modal */}
+    {confirmDeleteId && (
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 px-4 pb-4 sm:pb-0">
+        <Card className="w-full max-w-sm space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-full bg-red-100 dark:bg-red-900/30 shrink-0">
+              <Trash2 className="h-5 w-5 text-red-600 dark:text-red-400" />
+            </div>
+            <div>
+              <p className="font-semibold text-gray-900 dark:text-white">Delete workout?</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">All sets will be permanently removed.</p>
+            </div>
+          </div>
+          <div className="flex gap-2.5">
+            <button
+              type="button"
+              onClick={() => setConfirmDeleteId(null)}
+              className="flex-1 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => deleteWorkoutMutation.mutate(confirmDeleteId)}
+              disabled={deleteWorkoutMutation.isPending}
+              className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition-colors disabled:opacity-40"
+            >
+              {deleteWorkoutMutation.isPending ? 'Deleting…' : 'Delete'}
+            </button>
+          </div>
+        </Card>
+      </div>
+    )}
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Workouts</h1>
@@ -317,32 +361,43 @@ export default function WorkoutsPage() {
               const color = WORKOUT_TYPE_COLORS[w.workoutType] ?? '#6b7280';
               const setCount = (w.sets ?? []).filter((s: any) => !s.isWarmup).length;
               return (
-                <Link key={w.id} href={`/workouts/${w.id}`}>
-                  <Card className="flex gap-0 p-0 overflow-hidden hover:shadow-md transition-shadow active:scale-[0.99]">
-                    <div className="w-1.5 shrink-0 rounded-l-2xl" style={{ backgroundColor: color }} />
-                    <div className="flex-1 px-3 py-2.5 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold truncate">{w.name ?? WORKOUT_TYPE_LABELS[w.workoutType]}</p>
-                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0"
-                          style={{ backgroundColor: color + '20', color }}>
-                          {WORKOUT_TYPE_LABELS[w.workoutType]}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3 mt-1">
-                        {setCount > 0 && (
-                          <span className="inline-flex items-center gap-1 text-xs text-gray-500">
-                            <Dumbbell className="h-3 w-3" />{setCount} sets
+                <div key={w.id} className="relative group">
+                  <Link href={`/workouts/${w.id}`}>
+                    <Card className="flex gap-0 p-0 overflow-hidden hover:shadow-md transition-shadow active:scale-[0.99]">
+                      <div className="w-1.5 shrink-0 rounded-l-2xl" style={{ backgroundColor: color }} />
+                      <div className="flex-1 px-3 py-2.5 min-w-0 pr-10">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-semibold truncate">{w.name ?? WORKOUT_TYPE_LABELS[w.workoutType]}</p>
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0"
+                            style={{ backgroundColor: color + '20', color }}>
+                            {WORKOUT_TYPE_LABELS[w.workoutType]}
                           </span>
-                        )}
-                        {w.durationMin && (
-                          <span className="inline-flex items-center gap-1 text-xs text-gray-500">
-                            <Clock className="h-3 w-3" />{w.durationMin}m
-                          </span>
-                        )}
+                        </div>
+                        <div className="flex items-center gap-3 mt-1">
+                          {setCount > 0 && (
+                            <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                              <Dumbbell className="h-3 w-3" />{setCount} sets
+                            </span>
+                          )}
+                          {w.durationMin && (
+                            <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                              <Clock className="h-3 w-3" />{w.durationMin}m
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </Card>
-                </Link>
+                    </Card>
+                  </Link>
+                  {/* Delete button — always visible on mobile, hover on desktop */}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.preventDefault(); setConfirmDeleteId(w.id); }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors sm:opacity-0 sm:group-hover:opacity-100"
+                    title="Delete workout"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -567,5 +622,6 @@ export default function WorkoutsPage() {
         </Card>
       )}
     </div>
+    </>
   );
 }

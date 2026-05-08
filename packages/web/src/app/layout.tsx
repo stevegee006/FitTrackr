@@ -6,7 +6,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'FitTrackr',
-  description: 'Track your macros, scan barcodes, and get AI-powered nutrition plans',
+  description: 'Track your workouts, log sets, and get AI-powered training programs',
   manifest: '/manifest.json',
   icons: {
     icon: '/favicon.svg',
@@ -26,7 +26,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: '#10b981',
+  themeColor: '#4f46e5',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 5,
