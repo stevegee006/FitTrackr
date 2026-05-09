@@ -295,6 +295,7 @@ model WorkoutSet {
   distanceM        Float?  @map("distance_m")
   rpe              Float?
   isWarmup         Boolean @default(false) @map("is_warmup")
+  isCompleted      Boolean @default(false) @map("is_completed")
   supersetGroupId  String? @map("superset_group_id") @db.Uuid
   notes            String? @db.Text
   createdAt        DateTime @default(now()) @map("created_at")

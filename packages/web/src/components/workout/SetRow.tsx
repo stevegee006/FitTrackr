@@ -6,7 +6,7 @@ import { PlateCalculator } from '@/components/workout/PlateCalculator';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api-client';
 import type { WorkoutSet } from '@fittrackr/shared';
-import { Calculator, Check, CheckCheck, Trash2 } from 'lucide-react';
+import { Calculator, Check, Trash2 } from 'lucide-react';
 
 interface SetRowProps {
   set: WorkoutSet;
@@ -45,10 +45,9 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
     setRpeVal(set.rpe != null ? String(set.rpe) : '');
   }, [set.rpe]);
   const [showCalc, setShowCalc] = useState(false);
-  const [saved, setSaved] = useState(false);
 
   const updateMutation = useMutation({
-    mutationFn: (data: { reps?: number; weightKg?: number; rpe?: number; isWarmup?: boolean }) =>
+    mutationFn: (data: { reps?: number; weightKg?: number; rpe?: number; isWarmup?: boolean; isCompleted?: boolean }) =>
       apiFetch(`/workouts/${workoutId}/sets/${set.id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['workout', workoutId] }),
   });
@@ -80,17 +79,22 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
     if (!isNaN(rpe) && rpe >= 1 && rpe <= 10) updateMutation.mutate({ rpe });
   }
 
-  function handleLogSet() {
-    commitWeight();
-    commitReps();
-    commitRpe();
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1200);
-    if (!set.isWarmup) onSetLogged?.();
+  function handleToggleComplete() {
+    const completing = !set.isCompleted;
+    if (completing) {
+      // Flush any pending edits, then mark complete
+      commitWeight();
+      commitReps();
+      commitRpe();
+      updateMutation.mutate({ isCompleted: true });
+      if (!set.isWarmup) onSetLogged?.();
+    } else {
+      updateMutation.mutate({ isCompleted: false });
+    }
   }
 
   return (
-    <div className={`flex flex-col ${set.isWarmup ? 'opacity-60' : ''}`}>
+    <div className={`flex flex-col transition-opacity ${set.isWarmup ? 'opacity-50' : set.isCompleted ? 'opacity-70' : ''}`}>
       <div className="flex items-center gap-2 py-1.5">
         <button
           type="button"
@@ -142,10 +146,15 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
 
         <button
           type="button"
-          onClick={handleLogSet}
-          className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400 transition-colors shrink-0"
+          onClick={handleToggleComplete}
+          title={set.isCompleted ? 'Mark incomplete' : 'Complete set'}
+          className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border-2 transition-all ${
+            set.isCompleted
+              ? 'bg-emerald-500 border-emerald-500 text-white'
+              : 'border-gray-300 dark:border-gray-600 text-transparent hover:border-emerald-400'
+          }`}
         >
-          {saved ? <CheckCheck className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
+          <Check className="h-3.5 w-3.5" />
         </button>
 
         <button

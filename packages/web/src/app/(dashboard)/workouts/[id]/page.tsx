@@ -83,6 +83,38 @@ export default function WorkoutDetailPage() {
   const [clockRunning, setClockRunning] = useState(false);
   const [workoutStarted, setWorkoutStarted] = useState(false);
   const startAnchorRef = useRef<number>(0);
+
+  // ── Timer localStorage persistence ──────────────────────────────────────────
+  // Key: fittrackr:timer:<workoutId>
+  // Value: { anchor: number; isRunning: boolean; pausedElapsed: number }
+  //   anchor = wall-clock origin such that elapsed = (Date.now() - anchor) / 1000
+  const timerKey = `fittrackr:timer:${id}`;
+
+  function saveTimerState(anchor: number, isRunning: boolean, pausedElapsed = 0) {
+    try { localStorage.setItem(timerKey, JSON.stringify({ anchor, isRunning, pausedElapsed })); } catch { /* ignore */ }
+  }
+  function clearTimerState() {
+    try { localStorage.removeItem(timerKey); } catch { /* ignore */ }
+  }
+
+  // Restore timer on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(timerKey);
+      if (!raw) return;
+      const { anchor, isRunning, pausedElapsed } = JSON.parse(raw) as { anchor: number; isRunning: boolean; pausedElapsed: number };
+      setWorkoutStarted(true);
+      if (isRunning) {
+        startAnchorRef.current = anchor;
+        setElapsed(Math.floor((Date.now() - anchor) / 1000));
+        setClockRunning(true);
+      } else {
+        setElapsed(pausedElapsed);
+        setClockRunning(false);
+      }
+    } catch { /* corrupt data — ignore */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
   const [editingRepRange, setEditingRepRange] = useState<Map<string, boolean>>(new Map());
@@ -203,6 +235,7 @@ export default function WorkoutDetailPage() {
   const deleteMutation = useMutation({
     mutationFn: () => apiFetch(`/workouts/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
+      clearTimerState();
       queryClient.invalidateQueries({ queryKey: ['workouts'] });
       queryClient.invalidateQueries({ queryKey: ['workout-volume'] });
       router.replace('/workouts');
@@ -216,6 +249,7 @@ export default function WorkoutDetailPage() {
         body: JSON.stringify({ durationMin: Math.max(1, Math.round(elapsed / 60)) }),
       }),
     onSuccess: () => {
+      clearTimerState();
       pauseClock();
       queryClient.invalidateQueries({ queryKey: ['workouts'] });
       queryClient.invalidateQueries({ queryKey: ['workout-volume'] });
@@ -256,17 +290,29 @@ export default function WorkoutDetailPage() {
   }, [clockRunning]);
 
   const startClock = useCallback(() => {
-    startAnchorRef.current = Date.now();
+    const anchor = Date.now();
+    startAnchorRef.current = anchor;
     setElapsed(0);
     setClockRunning(true);
     setWorkoutStarted(true);
-  }, []);
+    saveTimerState(anchor, true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timerKey]);
 
-  const pauseClock = useCallback(() => setClockRunning(false), []);
+  const pauseClock = useCallback(() => {
+    setClockRunning(false);
+    const currentElapsed = Math.floor((Date.now() - startAnchorRef.current) / 1000);
+    saveTimerState(startAnchorRef.current, false, currentElapsed);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timerKey]);
+
   const resumeClock = useCallback(() => {
-    startAnchorRef.current = Date.now() - elapsed * 1000;
+    const anchor = Date.now() - elapsed * 1000;
+    startAnchorRef.current = anchor;
     setClockRunning(true);
-  }, [elapsed]);
+    saveTimerState(anchor, true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [elapsed, timerKey]);
 
   if (isLoading) return <div className="flex justify-center py-12"><Spinner /></div>;
   if (!workout) return null;
