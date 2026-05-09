@@ -159,6 +159,7 @@ export async function updateSet(
       ...(data.distanceM !== undefined && { distanceM: data.distanceM }),
       ...(data.rpe !== undefined && { rpe: data.rpe }),
       ...(data.isWarmup !== undefined && { isWarmup: data.isWarmup }),
+      ...(data.isCompleted !== undefined && { isCompleted: data.isCompleted }),
       ...(data.notes !== undefined && { notes: data.notes }),
     },
     include: { exercise: { select: { id: true, name: true, primaryMuscle: true, equipment: true } } },
