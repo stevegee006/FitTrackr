@@ -651,6 +651,18 @@ function ExercisesTab() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+
+  const renameMutation = useMutation({
+    mutationFn: async ({ id, name }: { id: string; name: string }) => {
+      await apiFetch(`/admin/exercises/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-exercises'] });
+      setEditingId(null);
+    },
+  });
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-exercises', page, search],
@@ -695,31 +707,65 @@ function ExercisesTab() {
       ) : (
         <>
           {data?.data.map((item) => (
-            <Card key={item.id} className="flex items-start justify-between py-3">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{item.name}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {item.primaryMuscle} &middot; {item.equipment.toLowerCase().replace('_', ' ')} &middot;{' '}
-                  <span className="text-[10px] uppercase">{item.source}</span>
-                </p>
-              </div>
-              <div className="flex items-center shrink-0 ml-2">
-                <button
-                  onClick={() => {
-                    if (confirm(`Delete "${item.name}"? This cannot be undone.`)) {
-                      deleteMutation.mutate(item.id);
-                    }
-                  }}
-                  disabled={deletingId === item.id}
-                  className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center text-gray-400 hover:text-red-500 active:text-red-600 transition-colors rounded-lg hover:bg-red-50 dark:hover:bg-red-950"
-                >
-                  {deletingId === item.id ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Trash2 className="h-4 w-4" />
-                  )}
-                </button>
-              </div>
+            <Card key={item.id} className="py-3">
+              {editingId === item.id ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    autoFocus
+                    type="text"
+                    value={editName}
+                    onChange={e => setEditName(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') renameMutation.mutate({ id: item.id, name: editName });
+                      if (e.key === 'Escape') setEditingId(null);
+                    }}
+                    className="flex-1 text-sm rounded-lg border border-indigo-400 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-gray-800 dark:border-indigo-600"
+                  />
+                  <button
+                    onClick={() => renameMutation.mutate({ id: item.id, name: editName })}
+                    disabled={renameMutation.isPending || !editName.trim()}
+                    className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold disabled:opacity-40"
+                  >
+                    {renameMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Save'}
+                  </button>
+                  <button
+                    onClick={() => setEditingId(null)}
+                    className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{item.name}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {item.primaryMuscle} &middot; {item.equipment.toLowerCase().replace('_', ' ')} &middot;{' '}
+                      <span className="text-[10px] uppercase">{item.source}</span>
+                    </p>
+                  </div>
+                  <div className="flex items-center shrink-0 ml-2">
+                    <button
+                      onClick={() => { setEditingId(item.id); setEditName(item.name); }}
+                      className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center text-gray-400 hover:text-indigo-500 transition-colors rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950"
+                      title="Rename"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm(`Delete "${item.name}"? This cannot be undone.`)) {
+                          deleteMutation.mutate(item.id);
+                        }
+                      }}
+                      disabled={deletingId === item.id}
+                      className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center text-gray-400 hover:text-red-500 active:text-red-600 transition-colors rounded-lg hover:bg-red-50 dark:hover:bg-red-950"
+                    >
+                      {deletingId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+              )}
             </Card>
           ))}
 

@@ -50,6 +50,7 @@ export interface Workout {
   durationMin: number | null;
   workoutType: WorkoutType;
   notes: string | null;
+  exerciseOrder: string[];
   sets?: WorkoutSet[];
   createdAt: string;
   updatedAt: string;

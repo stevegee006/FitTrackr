@@ -116,6 +116,17 @@ export default async function workoutRoutes(fastify: FastifyInstance) {
     },
   });
 
+  // PATCH /workouts/:id/exercise-order
+  fastify.patch('/workouts/:id/exercise-order', {
+    preHandler: [fastify.authenticate],
+    handler: async (req) => {
+      const { id } = req.params as any;
+      const { exerciseOrder } = req.body as { exerciseOrder: string[] };
+      await workoutService.reorderExercises(fastify, req.user.sub, id, exerciseOrder);
+      return { ok: true };
+    },
+  });
+
   // PATCH /workouts/:id/sets/:setId
   fastify.patch('/workouts/:id/sets/:setId', {
     preHandler: [fastify.authenticate],

@@ -259,11 +259,12 @@ model Workout {
   userId      String      @map("user_id") @db.Uuid
   name        String?     @db.VarChar(255)
   logDate     DateTime    @map("log_date") @db.Date
-  durationMin Int?        @map("duration_min")
-  workoutType WorkoutType @map("workout_type")
-  notes       String?     @db.Text
-  createdAt   DateTime    @default(now()) @map("created_at")
-  updatedAt   DateTime    @updatedAt @map("updated_at")
+  durationMin   Int?        @map("duration_min")
+  workoutType   WorkoutType @map("workout_type")
+  notes         String?     @db.Text
+  exerciseOrder String[]    @default([]) @map("exercise_order")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
 
   user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   sets WorkoutSet[]

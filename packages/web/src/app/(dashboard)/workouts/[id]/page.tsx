@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api-client';
 import { useParams, useRouter } from 'next/navigation';
@@ -14,7 +14,7 @@ import { WORKOUT_TYPE_LABELS, MUSCLE_GROUP_COLORS } from '@fittrackr/shared';
 import type { Workout, WorkoutSet, Exercise } from '@fittrackr/shared';
 import { useAuth } from '@/providers/AuthProvider';
 import { parseDateLocal } from '@/lib/utils';
-import { ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Timer, Sparkles, Check, X, Flame, Pause, Play, Flag, Link2, Unlink2 } from 'lucide-react';
+import { ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Timer, Sparkles, Check, X, Flame, Pause, Play, Flag, Link2, Unlink2, ArrowUp, ArrowDown } from 'lucide-react';
 import Link from 'next/link';
 
 // ─── Delete confirmation modal ────────────────────────────────────────────────
@@ -284,6 +284,12 @@ export default function WorkoutDetailPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['workout', id] }),
   });
 
+  const reorderMutation = useMutation({
+    mutationFn: (exerciseOrder: string[]) =>
+      apiFetch(`/workouts/${id}/exercise-order`, { method: 'PATCH', body: JSON.stringify({ exerciseOrder }) }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['workout', id] }),
+  });
+
   // Tick when running
   useEffect(() => {
     if (!clockRunning) return;
@@ -370,6 +376,15 @@ export default function WorkoutDetailPage() {
     setRestTimerTrigger((t) => t + 1);
   }
 
+  function moveSlot(slotIndex: number, direction: -1 | 1, currentSlots: Slot[]) {
+    const newIndex = slotIndex + direction;
+    if (newIndex < 0 || newIndex >= currentSlots.length) return;
+    const reordered = [...currentSlots];
+    [reordered[slotIndex], reordered[newIndex]] = [reordered[newIndex], reordered[slotIndex]];
+    const newOrder = reordered.flatMap(s => s.type === 'single' ? [s.exerciseId] : s.exerciseIds);
+    reorderMutation.mutate(newOrder);
+  }
+
   // ─── Group sets by exercise ──────────────────────────────────────────────────
   const byExercise = new Map<string, WorkoutSet[]>();
   for (const set of workout.sets ?? []) {
@@ -397,7 +412,11 @@ export default function WorkoutDetailPage() {
 
   // ─── Build ordered rendering slots ──────────────────────────────────────────
   type Slot = { type: 'single'; exerciseId: string } | { type: 'group'; groupId: string; exerciseIds: string[] };
-  const exerciseOrder = [...byExercise.keys()];
+  // Use server-persisted order when available, fall back to insertion order
+  const savedOrder = workout.exerciseOrder ?? [];
+  const exerciseOrder = savedOrder.length > 0
+    ? [...savedOrder.filter(eid => byExercise.has(eid)), ...[...byExercise.keys()].filter(eid => !savedOrder.includes(eid))]
+    : [...byExercise.keys()];
   const renderedEids = new Set<string>();
   const slots: Slot[] = [];
   for (const eid of exerciseOrder) {
@@ -414,7 +433,7 @@ export default function WorkoutDetailPage() {
   }
 
   // ─── Exercise card body renderer ─────────────────────────────────────────────
-  function renderExerciseCard(exerciseId: string, isInGroup = false, collapseKey?: string) {
+  function renderExerciseCard(exerciseId: string, isInGroup = false, collapseKey?: string, moveButtons?: React.ReactNode) {
     const sets = byExercise.get(exerciseId) ?? [];
     const exerciseName = sets[0]?.exercise?.name ?? 'Exercise';
     const primaryMuscle = sets[0]?.exercise?.primaryMuscle ?? 'FULL_BODY';
@@ -540,6 +559,7 @@ export default function WorkoutDetailPage() {
               </button>
 
               <span className="text-xs text-gray-500">{workingSets.length} sets</span>
+              {moveButtons && <div onClick={e => e.stopPropagation()}>{moveButtons}</div>}
             </>
           )}
         </div>
@@ -721,11 +741,27 @@ export default function WorkoutDetailPage() {
           </Card>
         ) : (
           <div className="space-y-3">
-            {slots.map((slot) => {
+            {slots.map((slot, slotIdx) => {
+              // Shared move buttons
+              const MoveButtons = () => (
+                <div className="flex flex-col" onClick={e => e.stopPropagation()}>
+                  <button type="button" disabled={slotIdx === 0 || reorderMutation.isPending}
+                    onClick={() => moveSlot(slotIdx, -1, slots)}
+                    className="p-0.5 text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 disabled:opacity-0 transition-colors">
+                    <ArrowUp className="h-3 w-3" />
+                  </button>
+                  <button type="button" disabled={slotIdx === slots.length - 1 || reorderMutation.isPending}
+                    onClick={() => moveSlot(slotIdx, 1, slots)}
+                    className="p-0.5 text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 disabled:opacity-0 transition-colors">
+                    <ArrowDown className="h-3 w-3" />
+                  </button>
+                </div>
+              );
+
               if (slot.type === 'single') {
                 return (
                   <Card key={slot.exerciseId} className="p-0 overflow-hidden">
-                    {renderExerciseCard(slot.exerciseId, false, slot.exerciseId)}
+                    {renderExerciseCard(slot.exerciseId, false, slot.exerciseId, <MoveButtons />)}
                   </Card>
                 );
               }
@@ -755,13 +791,14 @@ export default function WorkoutDetailPage() {
                     </span>
                     {groupCollapsed ? (
                       groupComplete
-                        ? <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1 ml-auto"><Check className="h-3 w-3" />Done</span>
-                        : <span className="text-[11px] text-gray-500 dark:text-gray-400 ml-auto">{slot.exerciseIds.length} exercises</span>
+                        ? <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1 ml-auto mr-1"><Check className="h-3 w-3" />Done</span>
+                        : <span className="text-[11px] text-gray-500 dark:text-gray-400 ml-auto mr-1">{slot.exerciseIds.length} exercises</span>
                     ) : (
-                      <span className="text-[11px] text-gray-500 dark:text-gray-400 ml-auto">
+                      <span className="text-[11px] text-gray-500 dark:text-gray-400 ml-auto mr-1">
                         {slot.exerciseIds.length} exercises · alternate with no rest
                       </span>
                     )}
+                    <MoveButtons />
                   </div>
                   {/* Exercises within group */}
                   {groupCollapsed ? (

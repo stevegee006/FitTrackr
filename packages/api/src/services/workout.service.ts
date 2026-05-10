@@ -132,7 +132,27 @@ export async function addSet(
     await checkAndUpdatePersonalRecords(fastify, userId, set);
   }
 
+  // Maintain exerciseOrder — append this exercise if not already tracked
+  if (!workout.exerciseOrder.includes(data.exerciseId)) {
+    await fastify.prisma.workout.update({
+      where: { id: workoutId },
+      data: { exerciseOrder: [...workout.exerciseOrder, data.exerciseId] },
+    });
+  }
+
   return set;
+}
+
+export async function reorderExercises(
+  fastify: FastifyInstance,
+  userId: string,
+  workoutId: string,
+  exerciseOrder: string[],
+) {
+  const workout = await fastify.prisma.workout.findUnique({ where: { id: workoutId } });
+  if (!workout) throw new NotFoundError('Workout');
+  if (workout.userId !== userId) throw new ForbiddenError('Not your workout');
+  return fastify.prisma.workout.update({ where: { id: workoutId }, data: { exerciseOrder } });
 }
 
 export async function updateSet(
