@@ -15,9 +15,13 @@ interface SetRowProps {
   units: 'METRIC' | 'IMPERIAL';
   onDeleted: () => void;
   onSetLogged?: () => void;
+  isCardio?: boolean;
 }
 
-export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged }: SetRowProps) {
+const cardioInputCls =
+  'text-center text-sm bg-transparent border border-gray-200 dark:border-gray-700 rounded-lg px-1 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400';
+
+export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged, isCardio }: SetRowProps) {
   const queryClient = useQueryClient();
   const isImperial = units === 'IMPERIAL';
 
@@ -26,12 +30,24 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
     return String(isImperial ? Math.round(kg * 2.20462 * 10) / 10 : kg);
   }
 
+  function toDisplayDistance(m: number | null | undefined) {
+    if (m == null) return '';
+    if (isImperial) return String(Math.round((m / 1609.344) * 100) / 100);
+    return String(Math.round((m / 1000) * 100) / 100);
+  }
+
   const [weightVal, setWeightVal] = useState(() => toDisplayWeight(set.weightKg));
   const [repsVal, setRepsVal] = useState(set.reps != null ? String(set.reps) : '');
   const [rpeVal, setRpeVal] = useState(set.rpe != null ? String(set.rpe) : '');
 
-  // Re-sync displayed values whenever the stored data changes (after a save/refetch)
-  // or when units change (settings query may resolve after the workout query).
+  const [durationMinVal, setDurationMinVal] = useState(() =>
+    set.durationSec != null ? String(Math.floor(set.durationSec / 60)) : ''
+  );
+  const [durationSecVal, setDurationSecVal] = useState(() =>
+    set.durationSec != null ? String(set.durationSec % 60) : ''
+  );
+  const [distanceVal, setDistanceVal] = useState(() => toDisplayDistance(set.distanceM));
+
   useEffect(() => {
     setWeightVal(toDisplayWeight(set.weightKg));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -44,10 +60,29 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
   useEffect(() => {
     setRpeVal(set.rpe != null ? String(set.rpe) : '');
   }, [set.rpe]);
+
+  useEffect(() => {
+    setDurationMinVal(set.durationSec != null ? String(Math.floor(set.durationSec / 60)) : '');
+    setDurationSecVal(set.durationSec != null ? String(set.durationSec % 60) : '');
+  }, [set.durationSec]);
+
+  useEffect(() => {
+    setDistanceVal(toDisplayDistance(set.distanceM));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [set.distanceM, isImperial]);
+
   const [showCalc, setShowCalc] = useState(false);
 
   const updateMutation = useMutation({
-    mutationFn: (data: { reps?: number; weightKg?: number; rpe?: number; isWarmup?: boolean; isCompleted?: boolean }) =>
+    mutationFn: (data: {
+      reps?: number;
+      weightKg?: number;
+      rpe?: number;
+      isWarmup?: boolean;
+      isCompleted?: boolean;
+      durationSec?: number;
+      distanceM?: number;
+    }) =>
       apiFetch(`/workouts/${workoutId}/sets/${set.id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['workout', workoutId] }),
   });
@@ -79,12 +114,31 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
     if (!isNaN(rpe) && rpe >= 1 && rpe <= 10) updateMutation.mutate({ rpe });
   }
 
+  function commitDuration() {
+    const mins = parseInt(durationMinVal) || 0;
+    const secs = parseInt(durationSecVal) || 0;
+    const total = mins * 60 + secs;
+    if (total >= 0) updateMutation.mutate({ durationSec: total });
+  }
+
+  function commitDistance() {
+    const val = parseFloat(distanceVal);
+    if (!isNaN(val) && val >= 0) {
+      const meters = isImperial ? Math.round(val * 1609.344) : Math.round(val * 1000);
+      updateMutation.mutate({ distanceM: meters });
+    }
+  }
+
   function handleToggleComplete() {
     const completing = !set.isCompleted;
     if (completing) {
-      // Flush any pending edits, then mark complete
-      commitWeight();
-      commitReps();
+      if (isCardio) {
+        commitDuration();
+        commitDistance();
+      } else {
+        commitWeight();
+        commitReps();
+      }
       commitRpe();
       updateMutation.mutate({ isCompleted: true });
       if (!set.isWarmup) onSetLogged?.();
@@ -109,31 +163,64 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
           {set.isWarmup ? 'W' : setIndex}
         </button>
 
-        <MathInput
-          className="w-20 text-center text-sm"
-          placeholder={isImperial ? 'lbs' : 'kg'}
-          value={weightVal}
-          onChange={setWeightVal}
-          onBlur={commitWeight}
-          hideOps={true}
-        />
-
-        <button
-          type="button"
-          onClick={() => setShowCalc((v) => !v)}
-          className="p-1 text-gray-400 hover:text-indigo-500 transition-colors shrink-0"
-        >
-          <Calculator className="h-3.5 w-3.5" />
-        </button>
-
-        <MathInput
-          className="w-16 text-center text-sm"
-          placeholder="reps"
-          value={repsVal}
-          onChange={setRepsVal}
-          onBlur={commitReps}
-          hideOps={true}
-        />
+        {isCardio ? (
+          <>
+            <input
+              type="number"
+              inputMode="numeric"
+              className={`w-12 ${cardioInputCls}`}
+              placeholder="min"
+              value={durationMinVal}
+              onChange={e => setDurationMinVal(e.target.value)}
+              onBlur={commitDuration}
+            />
+            <span className="text-sm text-gray-400 shrink-0">:</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              className={`w-12 ${cardioInputCls}`}
+              placeholder="sec"
+              value={durationSecVal}
+              onChange={e => setDurationSecVal(e.target.value)}
+              onBlur={commitDuration}
+            />
+            <input
+              type="number"
+              inputMode="numeric"
+              className={`w-20 ${cardioInputCls}`}
+              placeholder={isImperial ? 'mi' : 'km'}
+              value={distanceVal}
+              onChange={e => setDistanceVal(e.target.value)}
+              onBlur={commitDistance}
+            />
+          </>
+        ) : (
+          <>
+            <MathInput
+              className="w-20 text-center text-sm"
+              placeholder={isImperial ? 'lbs' : 'kg'}
+              value={weightVal}
+              onChange={setWeightVal}
+              onBlur={commitWeight}
+              hideOps={true}
+            />
+            <button
+              type="button"
+              onClick={() => setShowCalc((v) => !v)}
+              className="p-1 text-gray-400 hover:text-indigo-500 transition-colors shrink-0"
+            >
+              <Calculator className="h-3.5 w-3.5" />
+            </button>
+            <MathInput
+              className="w-16 text-center text-sm"
+              placeholder="reps"
+              value={repsVal}
+              onChange={setRepsVal}
+              onBlur={commitReps}
+              hideOps={true}
+            />
+          </>
+        )}
 
         <MathInput
           className="w-14 text-center text-sm"
@@ -166,7 +253,7 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
         </button>
       </div>
 
-      {showCalc && (
+      {!isCardio && showCalc && (
         <PlateCalculator
           weightKg={set.weightKg}
           units={units}

@@ -14,7 +14,7 @@ import { WORKOUT_TYPE_LABELS, MUSCLE_GROUP_COLORS } from '@fittrackr/shared';
 import type { Workout, WorkoutSet, Exercise } from '@fittrackr/shared';
 import { useAuth } from '@/providers/AuthProvider';
 import { parseDateLocal } from '@/lib/utils';
-import { ChevronLeft, Plus, Trash2, Timer, Sparkles, Check, X, Flame, Pause, Play, Flag, Link2, Unlink2 } from 'lucide-react';
+import { ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Timer, Sparkles, Check, X, Flame, Pause, Play, Flag, Link2, Unlink2 } from 'lucide-react';
 import Link from 'next/link';
 
 // ─── Delete confirmation modal ────────────────────────────────────────────────
@@ -122,6 +122,9 @@ export default function WorkoutDetailPage() {
   const [showAiPanel, setShowAiPanel] = useState<string | null>(null);
   // Superset link mode: exerciseId that is currently waiting to be paired
   const [linkingExerciseId, setLinkingExerciseId] = useState<string | null>(null);
+  const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
+  const [userExpandedKeys, setUserExpandedKeys] = useState<Set<string>>(new Set());
+  const [cardioExercises, setCardioExercises] = useState<Set<string>>(new Set());
 
   const { data, isLoading } = useQuery({
     queryKey: ['workout', id],
@@ -314,6 +317,18 @@ export default function WorkoutDetailPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [elapsed, timerKey]);
 
+  useEffect(() => {
+    if (!workout?.sets?.length) return;
+    setCardioExercises(prev => {
+      const next = new Set(prev);
+      for (const s of workout.sets!) {
+        if ((s as any).durationSec != null || (s as any).distanceM != null) next.add(s.exerciseId);
+      }
+      return next;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workout?.id]);
+
   if (isLoading) return <div className="flex justify-center py-12"><Spinner /></div>;
   if (!workout) return null;
 
@@ -325,6 +340,30 @@ export default function WorkoutDetailPage() {
   const durationDisplay = hours > 0
     ? `${hours}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
     : `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+
+  // ─── Collapse helpers ────────────────────────────────────────────────────────
+  function isSlotComplete(eids: string[]): boolean {
+    const allSets = eids.flatMap(eid => byExercise.get(eid) ?? []);
+    const workingSets = allSets.filter(s => !s.isWarmup);
+    return workingSets.length > 0 && workingSets.every(s => s.isCompleted);
+  }
+
+  function isKeyCollapsed(key: string, eids: string[]): boolean {
+    if (collapsedKeys.has(key)) return true;
+    if (userExpandedKeys.has(key)) return false;
+    return isSlotComplete(eids); // auto-collapse when all done
+  }
+
+  function toggleCollapse(key: string, eids: string[]) {
+    const collapsed = isKeyCollapsed(key, eids);
+    if (collapsed) {
+      setUserExpandedKeys(prev => new Set([...prev, key]));
+      setCollapsedKeys(prev => { const n = new Set(prev); n.delete(key); return n; });
+    } else {
+      setCollapsedKeys(prev => new Set([...prev, key]));
+      setUserExpandedKeys(prev => { const n = new Set(prev); n.delete(key); return n; });
+    }
+  }
 
   function handleSetLogged() {
     setShowRestTimer(true);
@@ -375,7 +414,7 @@ export default function WorkoutDetailPage() {
   }
 
   // ─── Exercise card body renderer ─────────────────────────────────────────────
-  function renderExerciseCard(exerciseId: string, isInGroup = false) {
+  function renderExerciseCard(exerciseId: string, isInGroup = false, collapseKey?: string) {
     const sets = byExercise.get(exerciseId) ?? [];
     const exerciseName = sets[0]?.exercise?.name ?? 'Exercise';
     const primaryMuscle = sets[0]?.exercise?.primaryMuscle ?? 'FULL_BODY';
@@ -385,6 +424,10 @@ export default function WorkoutDetailPage() {
     const groupId = exerciseToGroup.get(exerciseId);
     const isLinking = linkingExerciseId === exerciseId;
     const otherExerciseIds = exerciseOrder.filter(e => e !== exerciseId);
+    const isCardio = cardioExercises.has(exerciseId);
+    const collapsed = collapseKey ? isKeyCollapsed(collapseKey, [exerciseId]) : false;
+    const workingSetsDone = sets.filter(s => !s.isWarmup && s.isCompleted).length;
+    const workingSetsTotal = sets.filter(s => !s.isWarmup).length;
 
     const enterRepRangeEdit = () => {
       setRepRangeEdits(prev => ({
@@ -415,142 +458,181 @@ export default function WorkoutDetailPage() {
       <div key={exerciseId} className={isInGroup ? 'border-b border-gray-100 dark:border-gray-800 last:border-b-0' : ''}>
         {/* Exercise header */}
         <div
-          className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 dark:border-gray-800"
+          className={`flex items-center gap-2 px-3 py-2 border-b border-gray-100 dark:border-gray-800 ${collapseKey ? 'cursor-pointer' : ''}`}
           style={{ borderLeftColor: (MUSCLE_GROUP_COLORS as any)[primaryMuscle], borderLeftWidth: 3 }}
+          onClick={collapseKey ? () => toggleCollapse(collapseKey, [exerciseId]) : undefined}
         >
+          {collapseKey && (
+            collapsed
+              ? <ChevronRight className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+              : <ChevronDown className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+          )}
+
           <p className="text-sm font-semibold flex-1">{exerciseName}</p>
 
-          {/* Rep range display / edit */}
-          {isEditingRange ? (
-            <div className="flex items-center gap-1">
-              <input
-                type="number" min={1}
-                value={repRangeEdits[exerciseId]?.min ?? ''}
-                onChange={e => setRepRangeEdits(prev => ({ ...prev, [exerciseId]: { ...prev[exerciseId]!, min: e.target.value } }))}
-                className="w-10 text-xs text-center border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 bg-white dark:bg-gray-800"
-                placeholder="min"
-              />
-              <span className="text-xs text-gray-400">–</span>
-              <input
-                type="number" min={1}
-                value={repRangeEdits[exerciseId]?.max ?? ''}
-                onChange={e => setRepRangeEdits(prev => ({ ...prev, [exerciseId]: { ...prev[exerciseId]!, max: e.target.value } }))}
-                className="w-10 text-xs text-center border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 bg-white dark:bg-gray-800"
-                placeholder="max"
-              />
-              <button type="button" onClick={saveRepRange} className="p-0.5 text-green-600 hover:text-green-800" title="Save">
-                <Check className="h-3.5 w-3.5" />
-              </button>
-              <button type="button" onClick={cancelRepRangeEdit} className="p-0.5 text-gray-400 hover:text-gray-600" title="Cancel">
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ) : pref?.repRangeMin != null || pref?.repRangeMax != null ? (
-            <button type="button" onClick={enterRepRangeEdit}
-              className="text-xs bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full">
-              {pref?.repRangeMin}–{pref?.repRangeMax} reps
-            </button>
-          ) : (
-            <button type="button" onClick={enterRepRangeEdit} className="text-xs text-gray-400 hover:text-indigo-500">
-              + range
-            </button>
+          {collapsed && (
+            workingSetsDone === workingSetsTotal && workingSetsTotal > 0
+              ? <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><Check className="h-3 w-3" />Done</span>
+              : <span className="text-xs text-gray-400">{workingSetsDone}/{workingSetsTotal}</span>
           )}
 
-          {/* AI Progressive Overload */}
-          <button type="button"
-            onClick={() => setShowAiPanel(showAiPanel === exerciseId ? null : exerciseId)}
-            className={`p-1 rounded-lg transition-colors ${showAiPanel === exerciseId ? 'text-indigo-600 bg-indigo-100 dark:bg-indigo-900/40' : 'text-gray-400 hover:text-indigo-500'}`}
-            title="AI progressive overload">
-            <Sparkles className="h-3.5 w-3.5" />
-          </button>
-
-          <span className="text-xs text-gray-500">{workingSets.length} sets</span>
-        </div>
-
-        {/* Sets */}
-        <div className="px-3 py-1 divide-y divide-gray-50 dark:divide-gray-800">
-          {(() => {
-            let workingCount = 0;
-            return sets.map((set) => {
-              if (!set.isWarmup) workingCount++;
-              return (
-                <SetRow key={set.id} set={set} workoutId={id} setIndex={workingCount} units={units}
-                  onDeleted={() => queryClient.invalidateQueries({ queryKey: ['workout', id] })}
-                  onSetLogged={handleSetLogged}
-                />
-              );
-            });
-          })()}
-        </div>
-
-        {/* Actions */}
-        <div className="px-3 pb-2 flex items-center gap-4 flex-wrap">
-          <button type="button" onClick={() => addSetMutation.mutate(exerciseId)}
-            className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 font-medium flex items-center gap-1">
-            <Plus className="h-3 w-3" /> Add set
-          </button>
-          <button type="button" onClick={() => addWarmupMutation.mutate(exerciseId)}
-            className="text-xs text-amber-600 dark:text-amber-400 hover:text-amber-800 font-medium flex items-center gap-1">
-            <Plus className="h-3 w-3" /> Add warmup
-          </button>
-          <button type="button" onClick={() => addWarmupLadderMutation.mutate(exerciseId)}
-            disabled={addWarmupLadderMutation.isPending}
-            className="text-xs text-amber-600 dark:text-amber-400 hover:text-amber-800 font-medium flex items-center gap-1 disabled:opacity-40">
-            <Flame className="h-3 w-3" /> Warmup ladder
-          </button>
-
-          {/* Superset / unlink */}
-          {groupId ? (
-            <button type="button"
-              onClick={() => deleteSupersetMutation.mutate(groupId)}
-              disabled={deleteSupersetMutation.isPending}
-              className="ml-auto text-xs text-orange-500 dark:text-orange-400 hover:text-orange-700 font-medium flex items-center gap-1">
-              <Unlink2 className="h-3 w-3" /> Unlink
-            </button>
-          ) : (
-            <button type="button"
-              onClick={() => setLinkingExerciseId(isLinking ? null : exerciseId)}
-              className={`ml-auto text-xs font-medium flex items-center gap-1 transition-colors ${isLinking ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400 hover:text-indigo-500'}`}>
-              <Link2 className="h-3 w-3" />
-              {isLinking ? 'Cancel' : 'Superset'}
-            </button>
-          )}
-        </div>
-
-        {/* Link picker */}
-        {isLinking && otherExerciseIds.length > 0 && (
-          <div className="px-3 pb-3 space-y-1.5">
-            <p className="text-[11px] font-medium text-gray-500">Pair with:</p>
-            <div className="flex flex-wrap gap-1.5">
-              {otherExerciseIds.map((tid) => {
-                const tSets = byExercise.get(tid) ?? [];
-                const tName = tSets[0]?.exercise?.name ?? 'Exercise';
-                return (
-                  <button key={tid} type="button"
-                    onClick={() => createSupersetMutation.mutate([exerciseId, tid])}
-                    disabled={createSupersetMutation.isPending}
-                    className="px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/50 text-xs font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-950/50 transition-colors disabled:opacity-40">
-                    {tName}
+          {!collapsed && (
+            <>
+              {/* Rep range display / edit */}
+              {isEditingRange ? (
+                <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                  <input
+                    type="number" min={1}
+                    value={repRangeEdits[exerciseId]?.min ?? ''}
+                    onChange={e => setRepRangeEdits(prev => ({ ...prev, [exerciseId]: { ...prev[exerciseId]!, min: e.target.value } }))}
+                    className="w-14 text-xs text-center border border-gray-300 dark:border-gray-600 rounded px-1 py-1.5 bg-white dark:bg-gray-800"
+                    placeholder="min"
+                  />
+                  <span className="text-xs text-gray-400">–</span>
+                  <input
+                    type="number" min={1}
+                    value={repRangeEdits[exerciseId]?.max ?? ''}
+                    onChange={e => setRepRangeEdits(prev => ({ ...prev, [exerciseId]: { ...prev[exerciseId]!, max: e.target.value } }))}
+                    className="w-14 text-xs text-center border border-gray-300 dark:border-gray-600 rounded px-1 py-1.5 bg-white dark:bg-gray-800"
+                    placeholder="max"
+                  />
+                  <button type="button" onClick={saveRepRange}
+                    className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold">
+                    Save
                   </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
+                  <button type="button" onClick={cancelRepRangeEdit}
+                    className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300">
+                    Cancel
+                  </button>
+                </div>
+              ) : pref?.repRangeMin != null || pref?.repRangeMax != null ? (
+                <button type="button" onClick={e => { e.stopPropagation(); enterRepRangeEdit(); }}
+                  className="text-xs bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full">
+                  {pref?.repRangeMin}–{pref?.repRangeMax} reps
+                </button>
+              ) : (
+                <button type="button" onClick={e => { e.stopPropagation(); enterRepRangeEdit(); }} className="text-xs text-gray-400 hover:text-indigo-500">
+                  + range
+                </button>
+              )}
 
-        {/* AI panel */}
-        {showAiPanel === exerciseId && (
-          <div className="px-3 pb-3">
-            <ProgressiveOverloadPanel
-              exerciseId={exerciseId}
-              exerciseName={exerciseName}
-              workoutId={id}
-              units={units}
-              repRangeMin={prefsQuery.data?.[exerciseId]?.repRangeMin}
-              repRangeMax={prefsQuery.data?.[exerciseId]?.repRangeMax}
-              onClose={() => setShowAiPanel(null)}
-            />
-          </div>
+              {/* AI Progressive Overload */}
+              <button type="button"
+                onClick={e => { e.stopPropagation(); setShowAiPanel(showAiPanel === exerciseId ? null : exerciseId); }}
+                className={`p-1 rounded-lg transition-colors ${showAiPanel === exerciseId ? 'text-indigo-600 bg-indigo-100 dark:bg-indigo-900/40' : 'text-gray-400 hover:text-indigo-500'}`}
+                title="AI progressive overload">
+                <Sparkles className="h-3.5 w-3.5" />
+              </button>
+
+              {/* Cardio toggle */}
+              <button type="button"
+                onClick={e => {
+                  e.stopPropagation();
+                  setCardioExercises(prev => {
+                    const n = new Set(prev);
+                    n.has(exerciseId) ? n.delete(exerciseId) : n.add(exerciseId);
+                    return n;
+                  });
+                }}
+                className={`p-1 rounded-lg transition-colors ${isCardio ? 'text-sky-600 bg-sky-100 dark:bg-sky-900/40' : 'text-gray-400 hover:text-sky-500'}`}
+                title={isCardio ? 'Switch to strength mode' : 'Switch to cardio mode'}>
+                <Timer className="h-3.5 w-3.5" />
+              </button>
+
+              <span className="text-xs text-gray-500">{workingSets.length} sets</span>
+            </>
+          )}
+        </div>
+
+        {!collapsed && (
+          <>
+            {/* Sets */}
+            <div className="px-3 py-1 divide-y divide-gray-50 dark:divide-gray-800">
+              {(() => {
+                let workingCount = 0;
+                return sets.map((set) => {
+                  if (!set.isWarmup) workingCount++;
+                  return (
+                    <SetRow key={set.id} set={set} workoutId={id} setIndex={workingCount} units={units}
+                      onDeleted={() => queryClient.invalidateQueries({ queryKey: ['workout', id] })}
+                      onSetLogged={handleSetLogged}
+                      isCardio={isCardio}
+                    />
+                  );
+                });
+              })()}
+            </div>
+
+            {/* Actions */}
+            <div className="px-3 pb-2 flex items-center gap-4 flex-wrap">
+              <button type="button" onClick={() => addSetMutation.mutate(exerciseId)}
+                className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 font-medium flex items-center gap-1">
+                <Plus className="h-3 w-3" /> Add set
+              </button>
+              <button type="button" onClick={() => addWarmupMutation.mutate(exerciseId)}
+                className="text-xs text-amber-600 dark:text-amber-400 hover:text-amber-800 font-medium flex items-center gap-1">
+                <Plus className="h-3 w-3" /> Add warmup
+              </button>
+              <button type="button" onClick={() => addWarmupLadderMutation.mutate(exerciseId)}
+                disabled={addWarmupLadderMutation.isPending}
+                className="text-xs text-amber-600 dark:text-amber-400 hover:text-amber-800 font-medium flex items-center gap-1 disabled:opacity-40">
+                <Flame className="h-3 w-3" /> Warmup ladder
+              </button>
+
+              {/* Superset / unlink */}
+              {groupId ? (
+                <button type="button"
+                  onClick={() => deleteSupersetMutation.mutate(groupId)}
+                  disabled={deleteSupersetMutation.isPending}
+                  className="ml-auto text-xs text-orange-500 dark:text-orange-400 hover:text-orange-700 font-medium flex items-center gap-1">
+                  <Unlink2 className="h-3 w-3" /> Unlink
+                </button>
+              ) : (
+                <button type="button"
+                  onClick={() => setLinkingExerciseId(isLinking ? null : exerciseId)}
+                  className={`ml-auto text-xs font-medium flex items-center gap-1 transition-colors ${isLinking ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400 hover:text-indigo-500'}`}>
+                  <Link2 className="h-3 w-3" />
+                  {isLinking ? 'Cancel' : 'Superset'}
+                </button>
+              )}
+            </div>
+
+            {/* Link picker */}
+            {isLinking && otherExerciseIds.length > 0 && (
+              <div className="px-3 pb-3 space-y-1.5">
+                <p className="text-[11px] font-medium text-gray-500">Pair with:</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {otherExerciseIds.map((tid) => {
+                    const tSets = byExercise.get(tid) ?? [];
+                    const tName = tSets[0]?.exercise?.name ?? 'Exercise';
+                    return (
+                      <button key={tid} type="button"
+                        onClick={() => createSupersetMutation.mutate([exerciseId, tid])}
+                        disabled={createSupersetMutation.isPending}
+                        className="px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/50 text-xs font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-950/50 transition-colors disabled:opacity-40">
+                        {tName}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* AI panel */}
+            {showAiPanel === exerciseId && (
+              <div className="px-3 pb-3">
+                <ProgressiveOverloadPanel
+                  exerciseId={exerciseId}
+                  exerciseName={exerciseName}
+                  workoutId={id}
+                  units={units}
+                  repRangeMin={prefsQuery.data?.[exerciseId]?.repRangeMin}
+                  repRangeMax={prefsQuery.data?.[exerciseId]?.repRangeMax}
+                  onClose={() => setShowAiPanel(null)}
+                />
+              </div>
+            )}
+          </>
         )}
       </div>
     );
@@ -643,7 +725,7 @@ export default function WorkoutDetailPage() {
               if (slot.type === 'single') {
                 return (
                   <Card key={slot.exerciseId} className="p-0 overflow-hidden">
-                    {renderExerciseCard(slot.exerciseId, false)}
+                    {renderExerciseCard(slot.exerciseId, false, slot.exerciseId)}
                   </Card>
                 );
               }
@@ -651,23 +733,48 @@ export default function WorkoutDetailPage() {
               // Superset / circuit group
               const color = supersetColor(slot.groupId);
               const label = slot.exerciseIds.length > 2 ? 'Circuit' : 'Superset';
+              const groupKey = slot.groupId;
+              const groupCollapsed = isKeyCollapsed(groupKey, slot.exerciseIds);
+              const groupComplete = isSlotComplete(slot.exerciseIds);
               return (
                 <div key={slot.groupId} className="rounded-2xl overflow-hidden border-2"
                   style={{ borderColor: color.border }}>
                   {/* Group header */}
-                  <div className="flex items-center gap-2 px-3 py-1.5" style={{ backgroundColor: color.border + '18' }}>
+                  <div
+                    className="flex items-center gap-2 px-3 py-1.5 cursor-pointer"
+                    style={{ backgroundColor: color.border + '18' }}
+                    onClick={() => toggleCollapse(groupKey, slot.exerciseIds)}
+                  >
+                    {groupCollapsed
+                      ? <ChevronRight className="h-3.5 w-3.5 shrink-0" style={{ color: color.border }} />
+                      : <ChevronDown className="h-3.5 w-3.5 shrink-0" style={{ color: color.border }} />
+                    }
                     <Link2 className="h-3 w-3" style={{ color: color.border }} />
                     <span className={`text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${color.badge}`}>
                       {label}
                     </span>
-                    <span className="text-[11px] text-gray-500 dark:text-gray-400 ml-auto">
-                      {slot.exerciseIds.length} exercises · alternate with no rest
-                    </span>
+                    {groupCollapsed ? (
+                      groupComplete
+                        ? <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1 ml-auto"><Check className="h-3 w-3" />Done</span>
+                        : <span className="text-[11px] text-gray-500 dark:text-gray-400 ml-auto">{slot.exerciseIds.length} exercises</span>
+                    ) : (
+                      <span className="text-[11px] text-gray-500 dark:text-gray-400 ml-auto">
+                        {slot.exerciseIds.length} exercises · alternate with no rest
+                      </span>
+                    )}
                   </div>
                   {/* Exercises within group */}
-                  <div className="bg-white dark:bg-gray-900 divide-y divide-gray-100 dark:divide-gray-800">
-                    {slot.exerciseIds.map((eid) => renderExerciseCard(eid, true))}
-                  </div>
+                  {groupCollapsed ? (
+                    <div className="bg-white dark:bg-gray-900 px-3 py-2">
+                      <p className="text-xs text-gray-500">
+                        {slot.exerciseIds.map(eid => (byExercise.get(eid)?.[0]?.exercise?.name ?? 'Exercise')).join(' → ')}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="bg-white dark:bg-gray-900 divide-y divide-gray-100 dark:divide-gray-800">
+                      {slot.exerciseIds.map((eid) => renderExerciseCard(eid, true))}
+                    </div>
+                  )}
                 </div>
               );
             })}
