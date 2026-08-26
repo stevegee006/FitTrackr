@@ -63,9 +63,14 @@ function makeSplashSvg(w, h) {
     <rect x="-164" y="-52" width="38"  height="104" rx="7" fill="#6366f1"/>
     <rect x="126"  y="-52" width="38"  height="104" rx="7" fill="#6366f1"/>
   </g>
+  <!-- Wordmark matches the login page: bold "Fit" + light "Trackr", in the
+       dark-mode greys (gray-100 / gray-500).
+       NOTE: font-family must name REAL families. librsvg (what sharp uses to
+       rasterise) does not resolve "system-ui", and silently fell back to a
+       monospace default — which is why the old splash looked like code. -->
   <text x="${cx}" y="${textY}" text-anchor="middle"
-    font-family="system-ui,-apple-system,Helvetica,sans-serif"
-    font-size="${fontSize}" font-weight="700" fill="#e0e7ff" letter-spacing="2">FitTrackr</text>
+    font-family="Segoe UI,Helvetica Neue,Helvetica,Arial,sans-serif"
+    font-size="${fontSize}"><tspan font-weight="700" fill="#f3f4f6">Fit</tspan><tspan font-weight="300" fill="#6b7280">Trackr</tspan></text>
 </svg>`;
 }
 
