@@ -257,6 +257,7 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
         <PlateCalculator
           weightKg={set.weightKg}
           units={units}
+          exerciseId={set.exerciseId}
           onClose={() => setShowCalc(false)}
           onApply={(kg) => {
             const display = isImperial ? Math.round(kg * 2.20462 * 10) / 10 : kg;

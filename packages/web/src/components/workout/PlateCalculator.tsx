@@ -33,8 +33,32 @@ const DEFAULT_PLATE_CONFIG: PlateConfig = {
 interface PlateCalculatorProps {
   weightKg: number | null;
   units: 'METRIC' | 'IMPERIAL';
+  /** Remembers the last bar used for this exercise, if given. */
+  exerciseId?: string;
   onApply: (weightKg: number) => void;
   onClose: () => void;
+}
+
+// Last bar used per exercise: { [exerciseId]: barName }. Keyed by NAME rather
+// than index because indices shift whenever a bar is added, removed, or
+// reordered in settings — an index would silently point at a different bar.
+const LAST_BAR_KEY = 'fittrackr_plate_last_bar';
+
+function loadLastBars(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(LAST_BAR_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function rememberLastBar(exerciseId: string, barName: string) {
+  try {
+    localStorage.setItem(LAST_BAR_KEY, JSON.stringify({ ...loadLastBars(), [exerciseId]: barName }));
+  } catch { /* ignore */ }
 }
 
 function loadConfig(): PlateConfig {
@@ -113,10 +137,23 @@ function plateWidth(plate: number, isImperial: boolean): string {
   }
 }
 
-export function PlateCalculator({ weightKg, units, onApply, onClose }: PlateCalculatorProps) {
+export function PlateCalculator({ weightKg, units, exerciseId, onApply, onClose }: PlateCalculatorProps) {
   const isImperial = units === 'IMPERIAL';
   const [config] = useState<PlateConfig>(() => loadConfig());
-  const [selectedBarIndex, setSelectedBarIndex] = useState(() => config.defaultBarIndex);
+  const [selectedBarIndex, setSelectedBarIndex] = useState(() => {
+    // Prefer the bar last used for this exercise; fall back to the default.
+    if (exerciseId) {
+      const remembered = loadLastBars()[exerciseId];
+      const idx = config.bars.findIndex((b) => b.name === remembered);
+      if (idx !== -1) return idx;
+    }
+    return config.defaultBarIndex;
+  });
+
+  function selectBar(i: number) {
+    setSelectedBarIndex(i);
+    if (exerciseId) rememberLastBar(exerciseId, config.bars[i].name);
+  }
 
   const toDisplay = (kg: number) =>
     isImperial ? Math.round(kg * 2.20462 * 10) / 10 : kg;
@@ -166,7 +203,7 @@ export function PlateCalculator({ weightKg, units, onApply, onClose }: PlateCalc
           <button
             key={i}
             type="button"
-            onClick={() => setSelectedBarIndex(i)}
+            onClick={() => selectBar(i)}
             className={`px-2 py-0.5 rounded-md text-xs font-medium transition-colors ${
               selectedBarIndex === i
                 ? 'bg-indigo-600 text-white'

@@ -1567,20 +1567,22 @@ function WatchReminderCard() {
           Show a reminder to start your watch when you start a workout.
         </p>
       </div>
+      {/* Knob is a padded flex child with an inline offset, not an absolutely
+          positioned span: `absolute` with no `left` resolves against the static
+          position, which pushed the knob outside the track. */}
       <button
         type="button"
         onClick={toggle}
         role="switch"
         aria-checked={enabled}
         aria-label="Start-your-watch reminder"
-        className={`shrink-0 relative h-6 w-11 rounded-full transition-colors ${
+        className={`shrink-0 flex items-center h-6 w-11 rounded-full p-0.5 transition-colors ${
           enabled ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-gray-600'
         }`}
       >
         <span
-          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-            enabled ? 'translate-x-[22px]' : 'translate-x-[2px]'
-          }`}
+          className="block h-5 w-5 rounded-full bg-white shadow-sm transition-transform"
+          style={{ transform: `translateX(${enabled ? 20 : 0}px)` }}
         />
       </button>
     </Card>

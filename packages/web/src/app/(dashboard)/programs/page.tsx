@@ -414,7 +414,28 @@ export default function ProgramsPage() {
                   </button>
                 </div>
 
-                {/* Week strip preview (always visible) */}
+                {/* Week selector sits ABOVE the day strip: you pick the week
+                    first, then the day within it. */}
+                {isExpanded && pd.weeks && pd.weeks.length > 1 && (
+                  <div className="px-4 pb-2 flex gap-1.5 overflow-x-auto scrollbar-none">
+                    {pd.weeks.map((w, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setExpanded((e) => e ? { ...e, weekIdx: i, dayOfWeek: null } : null)}
+                        className={`shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                          weekIdx === i
+                            ? 'bg-indigo-600 text-white'
+                            : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        Week {w.weekNumber}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Day strip for the selected week (always visible) */}
                 <div className="px-4 pb-3">
                   <div className="grid grid-cols-7 gap-1">
                     {DAY_SHORT.map((label, i) => {
@@ -453,26 +474,6 @@ export default function ProgramsPage() {
                 {/* Expanded content */}
                 {isExpanded && (
                   <div className="border-t border-gray-100 dark:border-gray-800">
-                    {/* Week selector */}
-                    {pd.weeks && pd.weeks.length > 1 && (
-                      <div className="px-4 py-2 flex gap-1.5 overflow-x-auto scrollbar-none border-b border-gray-100 dark:border-gray-800">
-                        {pd.weeks.map((w, i) => (
-                          <button
-                            key={i}
-                            type="button"
-                            onClick={() => setExpanded((e) => e ? { ...e, weekIdx: i, dayOfWeek: null } : null)}
-                            className={`shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                              weekIdx === i
-                                ? 'bg-indigo-600 text-white'
-                                : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
-                            }`}
-                          >
-                            Week {w.weekNumber}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
                     {/* Day exercise detail */}
                     {selectedDay ? (
                       <div className="px-4 py-3 space-y-3">
