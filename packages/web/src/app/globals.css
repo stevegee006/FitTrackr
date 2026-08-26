@@ -1,6 +1,16 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Backdrop colour for the status-bar scrim (see the dashboard layout). Matches
+   the page background at the very top of the viewport so the scrim reads as
+   part of the page rather than a band laid over it. */
+:root {
+  --scrim: #f9fafb;
+}
+.dark {
+  --scrim: #030712;
+}
+
 @utility pb-safe {
   padding-bottom: env(safe-area-inset-bottom, 0.5rem);
 }
