@@ -14,7 +14,7 @@ import { WORKOUT_TYPE_LABELS, MUSCLE_GROUP_COLORS } from '@fittrackr/shared';
 import type { Workout, WorkoutSet, Exercise } from '@fittrackr/shared';
 import { useAuth } from '@/providers/AuthProvider';
 import { parseDateLocal } from '@/lib/utils';
-import { ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Timer, Sparkles, Check, X, Flame, Pause, Play, Flag, Link2, Unlink2, ArrowUp, ArrowDown } from 'lucide-react';
+import { ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Timer, Sparkles, Check, X, Flame, Pause, Play, Flag, Link2, Unlink2, ArrowUp, ArrowDown, Watch } from 'lucide-react';
 import Link from 'next/link';
 
 // ─── Delete confirmation modal ────────────────────────────────────────────────
@@ -69,6 +69,22 @@ function supersetColor(groupId: string) {
   return SUPERSET_COLORS[Math.abs(hash) % SUPERSET_COLORS.length];
 }
 
+// ─── Watch reminder ───────────────────────────────────────────────────────────
+// Nudge to start a watch/tracker alongside the workout. Deliberately a
+// non-blocking banner rather than a modal — the logging flow is used one-handed
+// mid-set, so it must never require a tap to proceed.
+
+const WATCH_REMINDER_KEY = 'fittrackr_watch_reminder';
+const WATCH_REMINDER_MS = 12_000;
+
+function watchReminderEnabled(): boolean {
+  try {
+    return localStorage.getItem(WATCH_REMINDER_KEY) !== 'off';
+  } catch {
+    return true;
+  }
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function WorkoutDetailPage() {
@@ -82,7 +98,22 @@ export default function WorkoutDetailPage() {
   const [elapsed, setElapsed] = useState(0);
   const [clockRunning, setClockRunning] = useState(false);
   const [workoutStarted, setWorkoutStarted] = useState(false);
+  const [showWatchReminder, setShowWatchReminder] = useState(false);
   const startAnchorRef = useRef<number>(0);
+  const watchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear the auto-dismiss timer if the page unmounts while it's pending.
+  useEffect(() => () => {
+    if (watchTimeoutRef.current) clearTimeout(watchTimeoutRef.current);
+  }, []);
+
+  function dismissWatchReminder(permanently = false) {
+    if (watchTimeoutRef.current) clearTimeout(watchTimeoutRef.current);
+    setShowWatchReminder(false);
+    if (permanently) {
+      try { localStorage.setItem(WATCH_REMINDER_KEY, 'off'); } catch { /* ignore */ }
+    }
+  }
 
   // ── Timer localStorage persistence ──────────────────────────────────────────
   // Key: fittrackr:timer:<workoutId>
@@ -305,6 +336,12 @@ export default function WorkoutDetailPage() {
     setClockRunning(true);
     setWorkoutStarted(true);
     saveTimerState(anchor, true);
+    // Only on a fresh start — not on resume, which isn't "starting a workout".
+    if (watchReminderEnabled()) {
+      setShowWatchReminder(true);
+      if (watchTimeoutRef.current) clearTimeout(watchTimeoutRef.current);
+      watchTimeoutRef.current = setTimeout(() => setShowWatchReminder(false), WATCH_REMINDER_MS);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timerKey]);
 
@@ -731,6 +768,36 @@ export default function WorkoutDetailPage() {
             <Play className="h-5 w-5 fill-white" />
             Start Workout
           </button>
+        )}
+
+        {/* Watch reminder — non-blocking, auto-dismisses */}
+        {showWatchReminder && (
+          <div
+            role="status"
+            className="flex items-center gap-3 rounded-2xl border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/30 px-4 py-3"
+          >
+            <Watch className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                Start your watch
+              </p>
+              <button
+                type="button"
+                onClick={() => dismissWatchReminder(true)}
+                className="text-xs text-amber-700/80 dark:text-amber-400/80 hover:underline"
+              >
+                Don&apos;t remind me again
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => dismissWatchReminder()}
+              className="shrink-0 p-1.5 rounded-lg text-amber-600/70 dark:text-amber-400/70 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
+              aria-label="Dismiss reminder"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         )}
 
         {/* Exercise slots */}
