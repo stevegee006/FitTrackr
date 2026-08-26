@@ -70,7 +70,48 @@ async function resolveProviderAndKey(
     );
   }
 
-  return { provider, apiKey: decrypt(encryptedKey) };
+  // decrypt() throws a raw crypto error if the stored ciphertext can't be
+  // opened — most often because ENCRYPTION_KEY changed since the key was
+  // saved. Left unwrapped that surfaces as a bare 500, which tells the user
+  // nothing actionable.
+  let apiKey: string;
+  try {
+    apiKey = decrypt(encryptedKey);
+  } catch (err) {
+    logger.error(
+      { err: (err as Error)?.message, provider, userId },
+      'Failed to decrypt stored AI API key',
+    );
+    throw new ValidationError(
+      'Your saved API key could not be decrypted. This usually means the server ENCRYPTION_KEY changed. Please re-enter your API key in settings.',
+    );
+  }
+  if (!apiKey.trim()) {
+    throw new ValidationError('Your saved API key is empty. Please re-enter it in settings.');
+  }
+
+  return { provider, apiKey };
+}
+
+/**
+ * Per-provider maximum output tokens. Requesting more than the model allows is
+ * a hard API error, so callers' maxTokens is clamped to these.
+ */
+const MAX_OUTPUT_TOKENS: Record<AiProvider, number> = {
+  OPENAI: 16_384,
+  ANTHROPIC: 64_000,
+  GEMINI: 65_535,
+};
+
+/** Raised when the model hit its output ceiling and the JSON is truncated. */
+export class AiTruncatedError extends AppError {
+  constructor(provider: string) {
+    super(
+      502,
+      'AI_TRUNCATED',
+      `The ${provider} response was cut off before it finished. Try a shorter program (fewer weeks or fewer days per week).`,
+    );
+  }
 }
 
 // ─── OpenAI ───────────────────────────────────────────────
@@ -99,6 +140,7 @@ async function openaiChat(
 
   const content = completion.choices[0]?.message?.content;
   if (!content) throw new AppError(502, 'AI_ERROR', 'OpenAI returned an empty response');
+  if (completion.choices[0]?.finish_reason === 'length') throw new AiTruncatedError('OpenAI');
 
   return {
     content,
@@ -176,6 +218,7 @@ async function anthropicChat(
   const block = message.content[0];
   const content = block?.type === 'text' ? block.text : null;
   if (!content) throw new AppError(502, 'AI_ERROR', 'Anthropic returned an empty response');
+  if (message.stop_reason === 'max_tokens') throw new AiTruncatedError('Anthropic');
 
   return {
     content,
@@ -270,6 +313,9 @@ async function geminiChat(
   const result = await genModel.generateContent(userPrompt);
   const content = result.response.text();
   if (!content) throw new AppError(502, 'AI_ERROR', 'Gemini returned an empty response');
+  if (result.response.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+    throw new AiTruncatedError('Gemini');
+  }
 
   const usage = result.response.usageMetadata;
 
@@ -394,9 +440,9 @@ export async function aiChatCompletion(
   const tier = options.tier ?? 'light';
   const model = MODEL_MAP[provider][tier];
   const temperature = options.temperature ?? 0.3;
-  const maxTokens = options.maxTokens ?? 1000;
+  const maxTokens = Math.min(options.maxTokens ?? 1000, MAX_OUTPUT_TOKENS[provider]);
 
-  logger.info({ provider, model, tier }, 'AI chat completion');
+  logger.info({ provider, model, tier, maxTokens }, 'AI chat completion');
 
   try {
     let result!: AiResult;

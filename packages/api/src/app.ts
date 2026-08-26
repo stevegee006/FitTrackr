@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { randomUUID } from 'node:crypto';
 import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
@@ -64,9 +65,16 @@ export async function buildApp() {
       });
     }
 
-    request.log.error(error);
+    // Tag unexpected errors so the message shown in the browser can be matched
+    // to the stack trace in the container log. Without this, a 500 is
+    // undiagnosable from the client side.
+    const errorId = randomUUID().slice(0, 8);
+    request.log.error({ err: error, errorId }, 'Unhandled error');
     return reply.code(500).send({
-      error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' },
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: `An unexpected error occurred (ref ${errorId})`,
+      },
     });
   });
 
