@@ -1,10 +1,17 @@
 # HANDOFF — FitTrackr
 
-_Last updated: 2026-08-26. Written as a handoff for the next engineer (or AI
-session) picking this up. The user-facing feature list and setup instructions
-live in [README.md](README.md); **this file is about intent, state, and sharp
-edges** — the things you would otherwise have to rediscover by breaking
-something._
+_Last updated: 2026-08-26 (through `e47c397` — plate-calculator units and sled
+support, program generation rewritten to a week template, AI suggest's
+backwards deload fixed, RPE capped, watch reminder, logo and splash refresh,
+iOS layout fixes, and the project's first tests). Written as a handoff for the
+next engineer (or AI session) picking this up. The user-facing feature list and
+setup instructions live in [README.md](README.md); **this file is about intent,
+state, and sharp edges** — the things you would otherwise have to rediscover by
+breaking something._
+
+> **Read sharp edges #56–#64 before touching iOS layout, sharp asset
+> generation, AI prompts, or trusting any `git`/`gh`/preview command in this
+> workspace.** Those cost the most time to learn.
 
 ## Goal
 
@@ -694,6 +701,86 @@ is exactly why it is written down here.
     unaffected. To check a web change locally, read for
     `✓ Compiled successfully` and ignore the trailing EPERM.
 
+### iOS / PWA
+
+56. **`position: fixed` + `backdrop-filter` breaks on iOS Safari.** A fixed
+    element carrying `backdrop-blur-*` gets detached from the viewport during
+    scroll and drifts up the page. This is what made `BottomNav` float in the
+    middle of the screen mid-scroll, and it is very likely the same root cause
+    as the delete modal appearing off-screen (which was "fixed" back then by
+    raising `z-index`, i.e. never actually diagnosed). **Do not put
+    `backdrop-blur` on a fixed element.** The nav is now opaque with
+    `transform: translateZ(0)` to force its own compositing layer. Other
+    `Card`s keep `dark:backdrop-blur-sm` safely because they are not fixed.
+57. **`pt-safe*` does not protect scrolled content.** With
+    `viewportFit: 'cover'` the page paints into the status-bar inset; padding
+    only sets the *initial* offset, so anything scrolled up collides with the
+    clock/signal/battery. That needs a fixed scrim sized to
+    `env(safe-area-inset-top)` — there is one in the dashboard layout.
+58. **iOS caches `apple-touch-startup-image` against the installed app.** A
+    redeploy does not update the splash screen, and neither does a hard
+    refresh. The home-screen icon must be **deleted and re-added**. This cost
+    a long round of "it's still wrong" while the server was already serving
+    the correct file — verify with
+    `curl -s <host>/splash/v2-iPhone_16.png | wc -c` against the committed
+    byte count before believing a splash bug is in the code.
+59. **The splash wordmark's font is baked in at generation time.** It is
+    whatever the machine running `generate-icons.mjs` resolves (Segoe UI on
+    the author's Windows box), while the login page renders live and uses SF
+    Pro on iOS. They match on desktop and are close-but-not-identical on
+    iPhone. To make them truly identical the wordmark would have to be drawn
+    as vector paths.
+60. **librsvg does not resolve `system-ui`** — and sharp uses librsvg to
+    rasterise SVG. A `font-family` of `system-ui,-apple-system,…` silently
+    fell back to a **monospace** default, which is why the splash looked like
+    code for a long time. Verified by rendering `system-ui` and a deliberately
+    nonexistent font side by side: byte-for-byte identical output. **Name real
+    font families in anything sharp will rasterise.** Quoting is not the
+    issue; `Segoe UI` unquoted resolves fine.
+
+### AI prompting
+
+61. **A prompt that supplies data but no rules will invent the rules.** The
+    exercise ai-suggest endpoint was handed a rep range and a set history with
+    no statement of how they relate, and concluded that *exceeding* the range
+    (10 reps against a 6–8 target) meant drifting off-plan — recommending a
+    deload from 155 lb to 145 lb, i.e. undoing earned progress. Beating a rep
+    range is the signal to *add load*. The prompt now states double
+    progression explicitly, and the last-session-vs-range comparison is
+    computed in `preferences.ts` and passed in as an `ANALYSIS` line rather
+    than inferred. **When a decision is a rule, compute it; don't ask a
+    light-tier model to derive it.**
+62. **RPE progression plateaus rather than ramps.** `clampRpe` caps upward
+    movement at `RPE_CEILING` (9) and at `MAX_RPE_RISE` (+2) over the
+    template, which stops the "every exercise at RPE 10" bug. But if the
+    model returns a saturating `rpeDelta` curve (+0,+1,+2,+2,+2…) the result
+    is a flat 9 for the back half of the program. The ceiling is enforced;
+    the *shape* is still the model's call. The real fix, if it matters, is to
+    have the model emit an absolute per-week RPE or an explicit deload
+    cadence instead of a monotonic delta.
+
+### Tooling hazards in this workspace
+
+63. **The primary working directory is `D:\dev\MacroTracker`, not FitTrackr.**
+    This bites constantly and in ways that look like real bugs:
+    - The Bash cwd resets to MacroTracker between calls, so bare `git status`
+      can silently report the **wrong repository** (it once showed "behind 1,
+      nothing to push" against `MacroTrackr.git`). Use `git -C /d/dev/FitTrackr`
+      or `cd` first, and sanity-check `git remote -v`.
+    - `gh` resolves the wrong repo for the same reason. Pass
+      `-R stevegee006/FitTrackr` explicitly.
+    - `preview_start` resolves `.claude/launch.json` from the primary working
+      directory, so it boots **MacroTrackr's** dev server on :3000. A browser
+      check run that way is measuring the wrong app entirely.
+64. **Runtime-injected Tailwind classes prove nothing.** Tailwind only
+    generates utilities it finds in *source*, so testing a class by creating
+    an element in the page console and reading `getComputedStyle` reports
+    "not applied" for classes that work fine in the real build. For one-off
+    values prefer an inline `style` — an arbitrary class that fails to
+    generate fails *silently*. Both the safe-area scrim height and the nav's
+    `translateZ(0)` are inline for this reason, as is the settings toggle knob
+    offset.
+
 ## Recent work log (2026-08-26 session)
 
 Six changes, all driven by the author using the app in a gym. Recorded here
@@ -771,23 +858,68 @@ Then, same day, a second batch:
   `makeSplashSvg` in `generate-icons.mjs`, plus `logo.svg`/`favicon.svg` — and
   must be kept in sync by hand.
 
+And a third batch, after the author deployed and used it:
+
+- **AI suggest recommended a deload for beating the rep range** (`a2ed81c`) —
+  the headline bug of the session, see sharp edge #61. Fixed by stating double
+  progression in the prompt and computing the range comparison server-side.
+  Confirmed working on the real deployment: the same exercise now returns
+  "Increase Weight … add 5–10 lbs to move to 160–165 lbs".
+- **RPE progression capped** (`ff459c2`) — an 8-week program came back with
+  every exercise at RPE 10. See #62 for the residual plateau.
+- **First tests in the project** (`ff459c2`) —
+  `packages/api/test/program-expand.test.mjs`, 48 assertions. An earlier
+  commit message had referred to tests that only existed in a scratchpad and
+  were never committed; this makes that claim true.
+- **Splash wordmark font** (`a997701`) — see #60 for the librsvg cause and #58
+  for why it then *looked* unfixed for another hour.
+- **Watch reminder became blocking** (`4ff56b8`) — first shipped as a
+  non-blocking auto-dismissing banner on the reasoning in the Goal section
+  (never add a tap to the logging flow). The author asked for a modal that
+  gates the clock, which is right: it fires once, *before* logging starts, and
+  the point is that the watch and the clock start together. The
+  no-modals principle still holds for everything during set logging.
+- **Settings toggle knob rendered outside its track** (`4ff56b8`) — an
+  absolutely positioned span with no `left` resolves against its static
+  position. Now a padded flex child with an inline offset.
+- **Programs: week selector moved above the day strip** (`4ff56b8`) — days
+  were on top with weeks appearing below them only once expanded, which read
+  backwards.
+- **Plate calculator remembers the last bar per exercise** (`4ff56b8`), keyed
+  by bar *name* — indices shift when bars are added, removed, or reordered.
+- **Bottom nav pinned, status-bar scrim added** (`e47c397`) — see #56 and #57.
+  **Not device-verified.**
+
 ## Current state
 
 Deployed and in daily real use by the author against real workout data. The
 Docker Hub images track `main` automatically; the Portainer stack is updated
-by hand with "Pull and redeploy".
+by hand with "Pull and redeploy". Live host is `fittrackr.geehive.com` with
+the API on `fittrackr-api.geehive.com`.
 
-`main` is clean as of `cbfe6c7`. Migration `0005` is applied by the entrypoint
+`main` is clean as of `e47c397`. Migration `0005` is applied by the entrypoint
 on redeploy — no manual step outstanding.
 
-Known outstanding user-facing item: **any passkey registered before commit
-`8cf1540` is dead** (old eTLD+1 rpId) and must be deleted and re-registered.
+Known outstanding user-facing items:
 
-No known open bugs beyond the sharp edges above, none of which are currently
-blocking the author's use.
+- **Any passkey registered before commit `8cf1540` is dead** (old eTLD+1 rpId)
+  and must be deleted and re-registered.
+- **The bottom-nav and status-bar fixes in `e47c397` have not been checked on
+  a device.** Safe-area insets are always 0 in a desktop browser and the
+  affected screens are behind auth, so they were reasoned about rather than
+  observed. First thing to confirm on the next real-device pass.
+- **The splash screen will keep looking wrong until the PWA is reinstalled**
+  (#58). The server is serving the correct file; this is purely iOS cache.
+- Program generation's RPE curve plateaus rather than ramps (#62).
 
 ## Next steps (not built, roughly by value)
 
+0. **Confirm `e47c397` on a device** — the bottom-nav pinning and status-bar
+   scrim were reasoned about, not observed (see Current state). If the nav
+   still drifts, the next lever is removing the remaining translucency
+   (`bg-white/90` → opaque is already done; check for any other
+   `backdrop-filter` in the fixed subtree), and a local Docker stack would
+   allow logging in and driving the real page instead of guessing.
 1. **Optimistic updates in the workout logger** (#36). This is the one the
    user will actually feel — every set commit and completion checkbox
    currently round-trips. `onMutate` + `setQueryData` on the set PATCH is the
@@ -824,15 +956,35 @@ blocking the author's use.
     split and the three-way theme-color disagreement (#48).
 14. **Redis-backed rate limiting** (#10) — only matters if a second replica
     ever exists.
+15. **Have the AI emit absolute per-week RPE** instead of a monotonic delta
+    (#62), so programs ramp and deload rather than plateauing at the cap.
+16. **Draw the splash wordmark as vector paths** (#59) if the Segoe-UI-vs-SF-Pro
+    difference on iOS ever matters. Would also make the splash independent of
+    whatever fonts the generating machine happens to have.
+17. **A shared unit-display helper** (#53). Three unit bugs have shipped from
+    each component deciding conversion for itself; a single
+    `formatWeight(kg, units)` plus a `useUnits()` hook would end the class.
 
 ## Testing pattern used throughout
 
-There is **no test framework, no test suite, and no working linter.**
-Verification is manual:
-build (`pnpm build` catches the TypeScript strict-mode errors, which have
-broken CI more than once — see commits `c387af7`, `31ec8d5`, `c64a332`,
-`dc6cbcf`, `273dfae`), then drive the real UI, usually on a phone, against
-the deployed stack.
+There is **no test framework and no working linter**, and exactly **one** test
+file:
+
+```bash
+pnpm --filter @fittrackr/api test    # tsc && node test/program-expand.test.mjs
+```
+
+`packages/api/test/program-expand.test.mjs` — 48 assertions over the AI program
+expander (rep-range shifting, RPE capping, deloads, malformed model output). A
+plain node script with an exit code, no framework, matching the project's
+zero-dependency habit. It was written after a bug shipped in that exact code
+path. If you add pure logic worth protecting, extend it or add a sibling file
+next to it rather than reaching for a framework.
+
+Everything else is manual: build (`pnpm build` catches the TypeScript
+strict-mode errors, which have broken CI more than once — see commits
+`c387af7`, `31ec8d5`, `c64a332`, `dc6cbcf`, `273dfae`), then drive the real UI,
+usually on a phone, against the deployed stack.
 
 Practical consequences worth internalizing:
 
@@ -851,4 +1003,14 @@ Practical consequences worth internalizing:
   (install, splash, offline, iOS status bar) can only be tested against a
   built/deployed instance.
 - `generate-icons.mjs` is run by hand from the repo root after any icon or
-  splash change; nothing runs it for you.
+  splash change; nothing runs it for you. **Look at the rendered PNG
+  afterwards** — a font that fails to resolve (#60) or a sliver of bar showing
+  between plates are both invisible in the source and obvious in the output.
+- **When a fix "doesn't work", check what is actually deployed before
+  changing more code.** Two long detours this session came from not doing
+  that: an empty log grep that was really a wrong container name, and a
+  splash "bug" that was iOS cache over a correct file. `curl` the asset,
+  compare the byte count to the committed file, and check
+  `gh run list -R stevegee006/FitTrackr` for the build.
+- Beware the workspace tooling hazards in #63 — bare `git`, `gh`, and
+  `preview_start` can all silently address the *MacroTracker* project instead.
