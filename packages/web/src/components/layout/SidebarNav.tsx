@@ -17,7 +17,7 @@ export function SidebarNav() {
   return (
     <aside className="hidden lg:flex lg:w-64 lg:flex-col lg:fixed lg:inset-y-0 border-r border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
       <div className="flex h-16 items-center gap-2.5 px-6">
-        <img src="/logo-flame.svg" alt="" className="h-7 w-7" />
+        <img src="/logo.svg" alt="" className="h-7 w-7" />
         <span className="text-lg font-bold">
           <span className="text-gray-900 dark:text-gray-100">Fit</span>
           <span className="text-gray-400 dark:text-gray-500 font-light">Trackr</span>

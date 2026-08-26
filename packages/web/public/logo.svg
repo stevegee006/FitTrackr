@@ -1,23 +1,17 @@
-<svg viewBox="230 -15 220 220" xmlns="http://www.w3.org/2000/svg" role="img">
+<svg viewBox="-174 -86 348 172" xmlns="http://www.w3.org/2000/svg" role="img">
   <title>FitTrackr</title>
-  <g transform="translate(340, 95)">
-    <!-- Left smaller outer plate -->
-    <rect x="-110" y="-38" width="24" height="76" fill="#60a5fa"/>
-    <!-- Left larger inner plate -->
-    <rect x="-86"  y="-50" width="32" height="100" fill="#3b82f6"/>
-    <!-- Bar -->
-    <rect x="-54"  y="-10" width="108" height="20" fill="#3b82f6"/>
-    <!-- Right larger inner plate -->
-    <rect x="54"   y="-50" width="32" height="100" fill="#3b82f6"/>
-    <!-- Right smaller outer plate -->
-    <rect x="86"   y="-38" width="24" height="76"  fill="#60a5fa"/>
-    <!-- Left grip notches -->
-    <rect x="-30"  y="-7"  width="3"  height="14"  fill="#60a5fa"/>
-    <rect x="-22"  y="-7"  width="3"  height="14"  fill="#60a5fa"/>
-    <rect x="-14"  y="-7"  width="3"  height="14"  fill="#60a5fa"/>
-    <!-- Right grip notches -->
-    <rect x="11"   y="-7"  width="3"  height="14"  fill="#60a5fa"/>
-    <rect x="19"   y="-7"  width="3"  height="14"  fill="#60a5fa"/>
-    <rect x="27"   y="-7"  width="3"  height="14"  fill="#60a5fa"/>
+  <!--
+    Same geometry as the app icon in generate-icons.mjs (320-unit space): one
+    continuous square-ended bar with the plates stacked on top, no knurling.
+    This file renders on a transparent background in both light and dark mode,
+    so it uses mid-tone indigo rather than the icon's pale tints — those are
+    only legible against the icon's solid #4f46e5 tile.
+  -->
+  <g>
+    <rect x="-128" y="-16" width="256" height="32"  fill="#6366f1"/>
+    <rect x="-126" y="-76" width="48"  height="152" rx="7" fill="#4f46e5"/>
+    <rect x="78"   y="-76" width="48"  height="152" rx="7" fill="#4f46e5"/>
+    <rect x="-164" y="-52" width="38"  height="104" rx="7" fill="#818cf8"/>
+    <rect x="126"  y="-52" width="38"  height="104" rx="7" fill="#818cf8"/>
   </g>
 </svg>

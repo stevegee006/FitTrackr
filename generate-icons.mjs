@@ -19,20 +19,21 @@ for (const p of tryPaths) {
 }
 if (!sharp) { console.error('sharp not found'); process.exit(1); }
 
+// The bar is ONE continuous square-ended shaft drawn first, with the plates
+// stacked on top of it — so the mark reads as a single object rather than five
+// separate blocks. Knurling was removed: at favicon size those 5px marks merged
+// into a smudge. Same palette as before.
+//
+// Geometry lives in a 320-unit space centred on (0,0). makeSplashSvg reuses the
+// SAME numbers via a scale(ico/320) transform, so the two must stay in sync.
 const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" rx="112" fill="#4f46e5"/>
   <g transform="translate(256,256)">
-    <rect x="-160" y="-56" width="36" height="112" rx="6" fill="#c7d2fe"/>
-    <rect x="-124" y="-74" width="46" height="148" rx="6" fill="#a5b4fc"/>
-    <rect x="-78"  y="-16" width="156" height="32"  rx="8" fill="#e0e7ff"/>
-    <rect x="78"   y="-74" width="46"  height="148" rx="6" fill="#a5b4fc"/>
-    <rect x="124"  y="-56" width="36"  height="112" rx="6" fill="#c7d2fe"/>
-    <rect x="-44"  y="-11" width="5"   height="22"  rx="2" fill="#818cf8"/>
-    <rect x="-32"  y="-11" width="5"   height="22"  rx="2" fill="#818cf8"/>
-    <rect x="-20"  y="-11" width="5"   height="22"  rx="2" fill="#818cf8"/>
-    <rect x="16"   y="-11" width="5"   height="22"  rx="2" fill="#818cf8"/>
-    <rect x="28"   y="-11" width="5"   height="22"  rx="2" fill="#818cf8"/>
-    <rect x="40"   y="-11" width="5"   height="22"  rx="2" fill="#818cf8"/>
+    <rect x="-128" y="-16" width="256" height="32"  fill="#e0e7ff"/>
+    <rect x="-126" y="-76" width="48"  height="152" rx="7" fill="#a5b4fc"/>
+    <rect x="78"   y="-76" width="48"  height="152" rx="7" fill="#a5b4fc"/>
+    <rect x="-164" y="-52" width="38"  height="104" rx="7" fill="#c7d2fe"/>
+    <rect x="126"  y="-52" width="38"  height="104" rx="7" fill="#c7d2fe"/>
   </g>
 </svg>`;
 
@@ -48,23 +49,19 @@ function makeSplashSvg(w, h) {
   const s = ico / 320;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}">
   <rect width="${w}" height="${h}" fill="#030712"/>
-  <!-- Barbell icon — no background box, paths rendered directly on dark bg -->
+  <!-- Barbell icon — no background box, paths rendered directly on dark bg.
+       Same geometry as ICON_SVG; splash palette is brightened for the dark
+       backdrop (outer #6366f1 / inner #818cf8 vs the icon's pale tints). -->
   <g transform="translate(${cx},${ty + ico / 2}) scale(${s})">
-    <!-- outer plates -->
-    <rect x="-160" y="-56" width="36" height="112" rx="6" fill="#6366f1"/>
-    <rect x="124"  y="-56" width="36" height="112" rx="6" fill="#6366f1"/>
+    <!-- bar: one continuous square-ended shaft, drawn under the plates. Its
+         ends stop inside the outer plates so no sliver shows between plates. -->
+    <rect x="-128" y="-16" width="256" height="32"  fill="#e0e7ff"/>
     <!-- inner plates -->
-    <rect x="-124" y="-74" width="46" height="148" rx="6" fill="#818cf8"/>
-    <rect x="78"   y="-74" width="46" height="148" rx="6" fill="#818cf8"/>
-    <!-- bar -->
-    <rect x="-78"  y="-16" width="156" height="32" rx="8" fill="#e0e7ff"/>
-    <!-- knurling marks -->
-    <rect x="-44"  y="-11" width="5"   height="22" rx="2" fill="#a5b4fc"/>
-    <rect x="-32"  y="-11" width="5"   height="22" rx="2" fill="#a5b4fc"/>
-    <rect x="-20"  y="-11" width="5"   height="22" rx="2" fill="#a5b4fc"/>
-    <rect x="16"   y="-11" width="5"   height="22" rx="2" fill="#a5b4fc"/>
-    <rect x="28"   y="-11" width="5"   height="22" rx="2" fill="#a5b4fc"/>
-    <rect x="40"   y="-11" width="5"   height="22" rx="2" fill="#a5b4fc"/>
+    <rect x="-126" y="-76" width="48"  height="152" rx="7" fill="#818cf8"/>
+    <rect x="78"   y="-76" width="48"  height="152" rx="7" fill="#818cf8"/>
+    <!-- outer plates — butt directly against the inner plates -->
+    <rect x="-164" y="-52" width="38"  height="104" rx="7" fill="#6366f1"/>
+    <rect x="126"  y="-52" width="38"  height="104" rx="7" fill="#6366f1"/>
   </g>
   <text x="${cx}" y="${textY}" text-anchor="middle"
     font-family="system-ui,-apple-system,Helvetica,sans-serif"
