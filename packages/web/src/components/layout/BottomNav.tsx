@@ -10,7 +10,14 @@ export function BottomNav() {
   const centerIndex = Math.floor(navItems.length / 2);
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-gray-200/80 bg-white/90 backdrop-blur-md pb-safe dark:border-gray-700/60 dark:bg-gray-900/90 lg:hidden">
+    // iOS hardening: `backdrop-filter` on a position:fixed element makes Safari
+    // detach it during scroll, so the bar drifts up the page mid-scroll. The
+    // background is opaque and the blur is gone, and translate-z-0 forces its
+    // own compositing layer so it stays pinned.
+    <nav
+      style={{ transform: 'translateZ(0)' }}
+      className="fixed bottom-0 left-0 right-0 z-50 border-t border-gray-200/80 bg-white pb-safe dark:border-gray-700/60 dark:bg-gray-900 lg:hidden"
+    >
       <div className="flex items-center justify-around px-2 pt-1.5 pb-1">
         {navItems.map(({ href, label, icon: Icon }, index) => {
           const isActive = pathname === href || pathname.startsWith(href + '/');

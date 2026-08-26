@@ -38,9 +38,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="min-h-screen lg:flex">
+      {/* Status-bar scrim. viewport-fit=cover lets the page paint under the
+          clock/signal/battery, so scrolled content collided with them. This
+          covers exactly the top inset (0px height on devices without one). */}
+      <div
+        aria-hidden
+        style={{ height: 'env(safe-area-inset-top, 0px)' }}
+        className="fixed top-0 left-0 right-0 z-40 bg-gray-50 dark:bg-gray-950 lg:hidden"
+      />
       <SidebarNav />
       <div className="flex-1 lg:pl-64">
-        <main className="mx-auto max-w-lg lg:max-w-5xl px-4 lg:px-8 pt-safe-6 pb-24 lg:pb-6">{children}</main>
+        <main className="mx-auto max-w-lg lg:max-w-5xl px-4 lg:px-8 pt-safe-6 pb-28 lg:pb-6">{children}</main>
       </div>
       <BottomNav />
       <TutorialOverlay {...tutorial} />
