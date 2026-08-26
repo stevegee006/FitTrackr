@@ -4,10 +4,17 @@ import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 
 interface PlateConfig {
-  bars: Array<{ name: string; weightKg: number }>;
+  // perSide=false means the load is stacked on ONE side (sled, some machines),
+  // so the target isn't halved. Absent means true — a normal barbell.
+  bars: Array<{ name: string; weightKg: number; perSide?: boolean }>;
   defaultBarIndex: number;
   platesKg: number[];
   platesLbs: number[];
+}
+
+/** Absent perSide is a barbell — keeps configs saved before sleds existed working. */
+function isPerSide(bar: { perSide?: boolean }): boolean {
+  return bar.perSide !== false;
 }
 
 const DEFAULT_PLATE_CONFIG: PlateConfig = {
@@ -16,6 +23,7 @@ const DEFAULT_PLATE_CONFIG: PlateConfig = {
     { name: 'EZ Bar', weightKg: 6.8 },
     { name: "Women's Bar", weightKg: 15 },
     { name: 'No Bar', weightKg: 0 },
+    { name: 'Sled', weightKg: 0, perSide: false },
   ],
   defaultBarIndex: 0,
   platesKg: [25, 20, 15, 10, 5, 2.5, 1.25],
@@ -42,13 +50,21 @@ function loadConfig(): PlateConfig {
   }
 }
 
-function calcPlatesPerSide(totalWeight: number, barWeight: number, availablePlates: number[]): number[] {
+/**
+ * Greedy plate breakdown for one loadable end. `sides` is 2 for a barbell
+ * (target split across both ends) and 1 for a sled/machine.
+ */
+function calcPlates(
+  totalWeight: number,
+  barWeight: number,
+  availablePlates: number[],
+  sides: 1 | 2,
+): number[] {
   const remaining = totalWeight - barWeight;
   if (remaining <= 0) return [];
-  const perSide = remaining / 2;
   const sorted = [...availablePlates].sort((a, b) => b - a);
   const result: number[] = [];
-  let left = perSide;
+  let left = remaining / sides;
   for (const plate of sorted) {
     while (left >= plate - 0.001) {
       result.push(plate);
@@ -116,8 +132,9 @@ export function PlateCalculator({ weightKg, units, onApply, onClose }: PlateCalc
   const targetNum = parseFloat(targetInput);
   const validTarget = !isNaN(targetNum) && targetNum >= 0;
 
-  const plates = validTarget ? calcPlatesPerSide(targetNum, barDisplayWeight, availablePlates) : [];
-  const totalFromPlates = barDisplayWeight + plates.reduce((s, p) => s + p, 0) * 2;
+  const sides: 1 | 2 = isPerSide(bar) ? 2 : 1;
+  const plates = validTarget ? calcPlates(targetNum, barDisplayWeight, availablePlates, sides) : [];
+  const totalFromPlates = barDisplayWeight + plates.reduce((s, p) => s + p, 0) * sides;
 
   const barExceedsTarget = validTarget && barDisplayWeight > targetNum;
 
@@ -177,27 +194,30 @@ export function PlateCalculator({ weightKg, units, onApply, onClose }: PlateCalc
         )}
       </div>
 
+      {/* Bar is a single square-ended shaft — no collars, no rounded caps, so it
+          reads as one continuous piece rather than three stacked shapes. */}
       <div className="flex items-center justify-center mb-2 overflow-x-auto py-1">
         <div className="flex items-center">
-          <div className="flex items-center flex-row-reverse">
-            {plates.map((p, i) => (
-              <div
-                key={i}
-                className={`${plateWidth(p, isImperial)} h-10 rounded-sm mx-0.5 ${plateColor(p, isImperial)} opacity-90`}
-              />
-            ))}
-          </div>
-          <div className="w-2 h-4 bg-gray-400 dark:bg-gray-500 rounded-sm" />
-          <div className="w-16 h-2 bg-gray-500 dark:bg-gray-400 rounded-full" />
-          <div className="w-2 h-4 bg-gray-400 dark:bg-gray-500 rounded-sm" />
+          {sides === 2 && (
+            <div className="flex items-center flex-row-reverse">
+              {plates.map((p, i) => (
+                <div
+                  key={i}
+                  className={`${plateWidth(p, isImperial)} h-10 mx-0.5 ${plateColor(p, isImperial)} opacity-90`}
+                />
+              ))}
+            </div>
+          )}
+          <div className={`${sides === 2 ? 'w-20' : 'w-10'} h-2.5 bg-gray-500 dark:bg-gray-400`} />
           <div className="flex items-center">
             {plates.map((p, i) => (
               <div
                 key={i}
-                className={`${plateWidth(p, isImperial)} h-10 rounded-sm mx-0.5 ${plateColor(p, isImperial)} opacity-90`}
+                className={`${plateWidth(p, isImperial)} h-10 mx-0.5 ${plateColor(p, isImperial)} opacity-90`}
               />
             ))}
           </div>
+          {sides === 1 && <div className="w-3 h-5 bg-gray-500 dark:bg-gray-400" />}
         </div>
       </div>
 
@@ -205,11 +225,17 @@ export function PlateCalculator({ weightKg, units, onApply, onClose }: PlateCalc
         {barExceedsTarget ? (
           <span className="text-amber-500">Bar weight exceeds target</span>
         ) : plates.length === 0 ? (
-          <span>
-            Bar only ({bar.weightKg} kg / {Math.round(bar.weightKg * 2.20462 * 10) / 10} lbs)
-          </span>
+          bar.weightKg > 0 ? (
+            <span>
+              Bar only ({bar.weightKg} kg / {Math.round(bar.weightKg * 2.20462 * 10) / 10} lbs)
+            </span>
+          ) : (
+            <span>Unloaded</span>
+          )
         ) : (
-          <span>Each side: {plates.join(' + ')} {unitLabel}</span>
+          <span>
+            {sides === 2 ? 'Each side' : 'Load'}: {plates.join(' + ')} {unitLabel}
+          </span>
         )}
       </div>
 

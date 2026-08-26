@@ -936,7 +936,13 @@ function SettingsTab() {
       </div>
 
       <div className="lg:col-span-2">
-        <PlateSettingsCard />
+        {/* Follows the SAVED unit, not the toggle's local state, so this stays
+            consistent with what the in-workout PlateCalculator reads. */}
+        <PlateSettingsCard isImperial={data?.data?.preferredUnits === 'IMPERIAL'} />
+      </div>
+
+      <div className="lg:col-span-2">
+        <WatchReminderCard />
       </div>
 
       <div className="lg:col-span-2">
@@ -1531,10 +1537,62 @@ function PhotosTab() {
   );
 }
 
+// ─── Watch Reminder Card ──────────────────────────────────────
+// Mirrors WATCH_REMINDER_KEY in workouts/[id]/page.tsx. Exists so the
+// "Don't remind me again" link in that banner is reversible.
+
+const WATCH_REMINDER_KEY = 'fittrackr_watch_reminder';
+
+function WatchReminderCard() {
+  const [enabled, setEnabled] = useState(true);
+
+  useEffect(() => {
+    try { setEnabled(localStorage.getItem(WATCH_REMINDER_KEY) !== 'off'); } catch { /* ignore */ }
+  }, []);
+
+  function toggle() {
+    const next = !enabled;
+    setEnabled(next);
+    try {
+      if (next) localStorage.removeItem(WATCH_REMINDER_KEY);
+      else localStorage.setItem(WATCH_REMINDER_KEY, 'off');
+    } catch { /* ignore */ }
+  }
+
+  return (
+    <Card className="flex items-center gap-4">
+      <div className="flex-1 min-w-0">
+        <h3 className="font-semibold">Start-your-watch reminder</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Show a reminder to start your watch when you start a workout.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={toggle}
+        role="switch"
+        aria-checked={enabled}
+        aria-label="Start-your-watch reminder"
+        className={`shrink-0 relative h-6 w-11 rounded-full transition-colors ${
+          enabled ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-gray-600'
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+            enabled ? 'translate-x-[22px]' : 'translate-x-[2px]'
+          }`}
+        />
+      </button>
+    </Card>
+  );
+}
+
 // ─── Plate Settings Card ──────────────────────────────────────
 
 interface PlateConfig {
-  bars: Array<{ name: string; weightKg: number }>;
+  // perSide=false means the load goes on ONE side (sled, some machines), so the
+  // calculator doesn't halve the target. Absent means true — a normal barbell.
+  bars: Array<{ name: string; weightKg: number; perSide?: boolean }>;
   defaultBarIndex: number;
   platesKg: number[];
   platesLbs: number[];
@@ -1546,6 +1604,7 @@ const DEFAULT_PLATE_CONFIG: PlateConfig = {
     { name: 'EZ Bar', weightKg: 6.8 },
     { name: "Women's Bar", weightKg: 15 },
     { name: 'No Bar', weightKg: 0 },
+    { name: 'Sled', weightKg: 0, perSide: false },
   ],
   defaultBarIndex: 0,
   platesKg: [25, 20, 15, 10, 5, 2.5, 1.25],
@@ -1568,14 +1627,25 @@ function loadPlateConfig(): PlateConfig {
   }
 }
 
-function PlateSettingsCard() {
+function PlateSettingsCard({ isImperial }: { isImperial: boolean }) {
   const [config, setConfig] = useState<PlateConfig>(DEFAULT_PLATE_CONFIG);
+  // Bar weights are stored in kg but edited in the user's unit. Keep the raw
+  // keystrokes in a draft so converting on every change can't mangle typing.
+  const [barDrafts, setBarDrafts] = useState<Record<number, string>>({});
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       setConfig(loadPlateConfig());
     }
   }, []);
+
+  // Switching units invalidates any in-progress edit.
+  useEffect(() => {
+    setBarDrafts({});
+  }, [isImperial]);
+
+  const unitLabel = isImperial ? 'lbs' : 'kg';
+  const toDisplay = (kg: number) => (isImperial ? kgToLbs(kg) : kg);
 
   function save(next: PlateConfig) {
     setConfig(next);
@@ -1589,7 +1659,18 @@ function PlateSettingsCard() {
     save({ ...config, bars });
   }
 
-  function handleBarWeightChange(index: number, weightKg: number) {
+  function handleBarWeightCommit(index: number, raw: string) {
+    setBarDrafts((d) => {
+      const next = { ...d };
+      delete next[index];
+      return next;
+    });
+    const displayVal = parseFloat(raw) || 0;
+    // Display rounds to 1 decimal, so converting an unchanged value back would
+    // drift the stored kg (15 kg → 33.1 lb → 15.01 kg). Blur without an edit
+    // must be a no-op.
+    if (displayVal === toDisplay(config.bars[index].weightKg)) return;
+    const weightKg = isImperial ? Math.round(lbsToKg(displayVal) * 100) / 100 : displayVal;
     const bars = config.bars.map((b, i) => (i === index ? { ...b, weightKg } : b));
     save({ ...config, bars });
   }
@@ -1611,7 +1692,15 @@ function PlateSettingsCard() {
   }
 
   function handleAddBar() {
-    save({ ...config, bars: [...config.bars, { name: 'Custom Bar', weightKg: 20 }] });
+    // 20.41 kg == 45 lb, so a new bar reads as a round number in either unit.
+    save({ ...config, bars: [...config.bars, { name: 'Custom Bar', weightKg: isImperial ? 20.41 : 20 }] });
+  }
+
+  function handleToggleSides(index: number) {
+    const bars = config.bars.map((b, i) =>
+      i === index ? { ...b, perSide: b.perSide === false } : b,
+    );
+    save({ ...config, bars });
   }
 
   function togglePlateKg(plate: number) {
@@ -1663,14 +1752,31 @@ function PlateSettingsCard() {
               <div className="flex items-center gap-1 shrink-0">
                 <input
                   type="number"
-                  value={bar.weightKg}
-                  step="0.01"
+                  value={barDrafts[i] ?? String(toDisplay(bar.weightKg))}
+                  step={isImperial ? '0.1' : '0.01'}
                   min="0"
-                  onChange={(e) => handleBarWeightChange(i, parseFloat(e.target.value) || 0)}
+                  onChange={(e) => setBarDrafts((d) => ({ ...d, [i]: e.target.value }))}
+                  onBlur={(e) => handleBarWeightCommit(i, e.target.value)}
                   className="w-20 rounded-lg border border-gray-300 dark:border-gray-600 px-2 py-1.5 text-sm bg-white dark:bg-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
                 />
-                <span className="text-xs text-gray-400 dark:text-gray-500 w-5">kg</span>
+                <span className="text-xs text-gray-400 dark:text-gray-500 w-7">{unitLabel}</span>
               </div>
+              <button
+                type="button"
+                onClick={() => handleToggleSides(i)}
+                className={`shrink-0 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+                  bar.perSide === false
+                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+                    : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
+                }`}
+                title={
+                  bar.perSide === false
+                    ? 'Loads one side only — the calculator will not halve the target'
+                    : 'Loads both sides — the calculator splits the target in half'
+                }
+              >
+                {bar.perSide === false ? '1 side' : '2 sides'}
+              </button>
               <button
                 type="button"
                 onClick={() => handleDeleteBar(i)}
@@ -1692,53 +1798,31 @@ function PlateSettingsCard() {
         </button>
       </div>
 
-      <div className="space-y-4">
-        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Available Plates</h4>
-
-        <div className="space-y-2">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Metric (kg)</p>
-          <div className="flex flex-wrap gap-2">
-            {ALL_PLATES_KG.map((plate) => {
-              const active = config.platesKg.includes(plate);
-              return (
-                <button
-                  key={plate}
-                  type="button"
-                  onClick={() => togglePlateKg(plate)}
-                  className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
-                    active
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
-                  }`}
-                >
-                  {plate}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Imperial (lbs)</p>
-          <div className="flex flex-wrap gap-2">
-            {ALL_PLATES_LBS.map((plate) => {
-              const active = config.platesLbs.includes(plate);
-              return (
-                <button
-                  key={plate}
-                  type="button"
-                  onClick={() => togglePlateLbs(plate)}
-                  className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
-                    active
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
-                  }`}
-                >
-                  {plate}
-                </button>
-              );
-            })}
-          </div>
+      <div className="space-y-2">
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          Available Plates ({unitLabel})
+        </h4>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          Which plates you actually have on the rack, per side.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {(isImperial ? ALL_PLATES_LBS : ALL_PLATES_KG).map((plate) => {
+            const active = (isImperial ? config.platesLbs : config.platesKg).includes(plate);
+            return (
+              <button
+                key={plate}
+                type="button"
+                onClick={() => (isImperial ? togglePlateLbs(plate) : togglePlateKg(plate))}
+                className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+                  active
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
+                }`}
+              >
+                {plate}
+              </button>
+            );
+          })}
         </div>
       </div>
     </Card>
