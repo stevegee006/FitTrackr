@@ -189,7 +189,24 @@ export default async function exercisePreferenceRoutes(fastify: FastifyInstance)
   "targetWeight${isImperial ? 'Lbs' : 'Kg'}": number or null,
   "targetRepsRange": "e.g. '5' or '8-10'" or null
 }
-The "suggestion" field MUST be a non-empty string with specific advice. Do not leave it empty.`;
+The "suggestion" field MUST be a non-empty string with specific advice. Do not leave it empty.
+
+Apply DOUBLE PROGRESSION. These rules are not optional:
+- Reps climb within the target range at a fixed load. Once the athlete hits the
+  TOP of the range on all working sets, ADD WEIGHT and reset reps to the BOTTOM
+  of the range.
+- Reps AT OR ABOVE the top of the range mean the load is TOO LIGHT. That is
+  "increase_weight". Exceeding the rep range is a success, never a problem, and
+  never a reason to deload or to reduce weight.
+- Reps inside the range but below the top: "increase_reps" at the same load.
+- "deload" is ONLY for genuine stalling or regression — performance declining
+  across multiple sessions, or failing to reach the BOTTOM of the range at the
+  current load. Never deload an athlete who is meeting or beating the range.
+- "maintain" when the load changed very recently and needs another exposure.
+- Weight jumps should be realistic: ${isImperial ? '5–10 lbs for compounds, 2.5–5 lbs for isolation' : '2.5–5 kg for compounds, 1–2.5 kg for isolation'}.
+- targetWeight must never be BELOW the athlete's current working weight unless
+  the strategy is genuinely "deload".
+- targetRepsRange should normally stay inside the athlete's configured range.`;
 
       const historyLines = history
         .map((session: { date: Date; sets: WorkoutSetSummary[] }) => {
@@ -205,6 +222,32 @@ The "suggestion" field MUST be a non-empty string with specific advice. Do not l
         ? `${repRangeMin}–${repRangeMax} reps`
         : repRangeMin != null ? `${repRangeMin}+ reps` : 'not set';
 
+      // Read the most recent session against the rep range HERE rather than
+      // leaving the model to infer the relationship. It previously read
+      // "10 reps against a 6-8 target" as drifting off-plan and recommended a
+      // deload, when exceeding the range means the load is too light.
+      const lastWorking = (history[0]?.sets ?? []).filter(
+        (s: WorkoutSetSummary) => !s.isWarmup && s.weightKg != null && (s.reps ?? 0) > 0,
+      );
+      let rangeSignal = '';
+      if (lastWorking.length > 0) {
+        const reps = lastWorking.map((s: WorkoutSetSummary) => s.reps!);
+        const minReps = Math.min(...reps);
+        const maxReps = Math.max(...reps);
+        const topWeight = Math.max(
+          ...lastWorking.map((s: WorkoutSetSummary) => toDisplay(s.weightKg!)),
+        );
+        const at = `${minReps === maxReps ? minReps : `${minReps}–${maxReps}`} reps at ${topWeight}${unitLabel}`;
+
+        if (repRangeMax != null && minReps >= repRangeMax) {
+          rangeSignal = `ANALYSIS: every working set in the most recent session hit ${at} — at or ABOVE the top of the ${rangeStr} target. The load is too light. Strategy must be "increase_weight": add load and reset reps to the bottom of the range. Do NOT deload and do NOT reduce the weight.`;
+        } else if (repRangeMin != null && maxReps < repRangeMin) {
+          rangeSignal = `ANALYSIS: the most recent session topped out at ${at} — BELOW the bottom of the ${rangeStr} target, so the load may be too heavy. Hold the weight, or deload only if this has persisted across several sessions.`;
+        } else if (repRangeMax != null) {
+          rangeSignal = `ANALYSIS: the most recent session was ${at}, inside the ${rangeStr} target but not yet at the top on every set. Strategy should normally be "increase_reps" at the same load.`;
+        }
+      }
+
       const userPrompt = `Exercise: ${exerciseName}
 Target rep range: ${rangeStr}
 Target sets per session: ${targetSets ?? 'not set'}
@@ -212,7 +255,7 @@ Units: ${unitLabel}
 
 Recent history (most recent first):
 ${historyLines || 'No history yet.'}
-
+${rangeSignal ? `\n${rangeSignal}\n` : ''}
 Based on this progression, what should the athlete aim for in their next session? Provide the JSON response now.`;
 
       try {
