@@ -50,7 +50,11 @@ Return ONLY valid JSON with this structure:
 "progression" MUST contain exactly one entry per program week, in order.
   setsDelta / repsDelta / rpeDelta are integers applied to every exercise that week,
   relative to the template (so week 1 is normally all zeros).
-  Use negative values for deload weeks. Keep rpeDelta within -3..+2.
+  Use negative values for deload weeks.
+  Progress PRIMARILY through reps and sets, not RPE. Template RPE should sit
+  around 7-8, and rpeDelta must stay within -3..+2 — a program where every
+  exercise ends at RPE 9-10 is not usable. Reserve RPE 10 for nothing; the
+  server caps upward RPE progression at 9 and at +2 over the template.
 
 dayOfWeek: 1=Monday, 2=Tuesday, ..., 7=Sunday
 workoutType must be one of: PUSH, PULL, LEGS, UPPER, LOWER, FULL_BODY, CARDIO, CUSTOM

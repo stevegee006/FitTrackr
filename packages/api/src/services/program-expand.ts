@@ -13,9 +13,22 @@ export function shiftReps(reps: unknown, delta: number): string {
   return text; // e.g. "AMRAP", "30s" — leave alone
 }
 
+/**
+ * RPE 10 is a true grinding max. A whole week of every exercise at 10 is not a
+ * program, so upward progression is capped: never above RPE_CEILING, and never
+ * more than MAX_RPE_RISE over whatever the template asked for. Progression is
+ * meant to come mostly from reps and sets.
+ */
+export const RPE_CEILING = 9;
+export const MAX_RPE_RISE = 2;
+
 export function clampRpe(rpe: unknown, delta: number): number | undefined {
   if (typeof rpe !== 'number' || !Number.isFinite(rpe)) return undefined;
-  return Math.max(1, Math.min(10, Math.round(rpe + delta)));
+  // Template weeks (delta 0) and deloads (negative) pass through as designed —
+  // the cap exists to stop upward drift, not to rewrite the coach's intent.
+  if (delta <= 0) return Math.max(1, Math.min(10, Math.round(rpe + delta)));
+  const ceiling = Math.min(RPE_CEILING, rpe + MAX_RPE_RISE);
+  return Math.max(1, Math.min(ceiling, Math.round(rpe + delta)));
 }
 
 /**
