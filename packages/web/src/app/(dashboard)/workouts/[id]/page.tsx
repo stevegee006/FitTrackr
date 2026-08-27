@@ -9,6 +9,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { SetRow } from '@/components/workout/SetRow';
 import { RestTimerModal } from '@/components/workout/RestTimerModal';
 import { DurationEditModal, MAX_DURATION_MIN } from '@/components/workout/DurationEditModal';
+import { markCelebrate } from '@/components/workout/CelebrationBurst';
 import { ExerciseSearchForm } from '@/components/exercise/ExerciseSearchForm';
 import { ProgressiveOverloadPanel } from '@/components/workout/ProgressiveOverloadPanel';
 import { WORKOUT_TYPE_LABELS, MUSCLE_GROUP_COLORS } from '@fittrackr/shared';
@@ -342,7 +343,8 @@ export default function WorkoutDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['workouts'] });
       queryClient.invalidateQueries({ queryKey: ['workout-volume'] });
       queryClient.invalidateQueries({ queryKey: ['personal-records'] });
-      // Finishing lands on the recap rather than the list.
+      // Finishing lands on the recap rather than the list, with a celebration.
+      markCelebrate(id);
       router.replace(`/workouts/${id}/summary`);
     },
   });

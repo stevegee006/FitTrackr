@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { Button } from '@/components/ui/Button';
 import { DurationEditModal } from '@/components/workout/DurationEditModal';
+import { CelebrationBurst, consumeCelebrate } from '@/components/workout/CelebrationBurst';
 import { ChevronLeft, Trophy, TrendingUp, TrendingDown, Minus, Sparkles, Pencil } from 'lucide-react';
 import { WORKOUT_TYPE_LABELS } from '@fittrackr/shared';
 import { formatDuration } from '@/lib/utils';
@@ -62,6 +63,10 @@ export default function WorkoutSummaryPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [editDuration, setEditDuration] = useState(false);
+  const [celebrate, setCelebrate] = useState(false);
+
+  // Read once on mount; the flag is cleared as it's read so a reload is quiet.
+  useEffect(() => { if (consumeCelebrate(id)) setCelebrate(true); }, [id]);
 
   const { data: settingsData } = useQuery({
     queryKey: ['settings'],
@@ -100,6 +105,8 @@ export default function WorkoutSummaryPage() {
 
   return (
     <div className="space-y-4">
+      {celebrate && <CelebrationBurst onDone={() => setCelebrate(false)} />}
+
       <div className="flex items-center gap-3">
         <Link
           href="/workouts"

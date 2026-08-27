@@ -47,3 +47,37 @@
     font-size: 16px !important;
   }
 }
+
+/* Celebration burst (see components/workout/CelebrationBurst.tsx).
+   Launches from below the viewport, peaks around 50%, then falls back out the
+   bottom. Per-particle drift/height/spin come in as inline custom properties.
+   Keyframes have to live in CSS — the inline-style preference elsewhere in this
+   codebase can't express them. */
+@keyframes ft-celebrate {
+  0% {
+    transform: translate(0, 0) rotate(0deg);
+    opacity: 0;
+  }
+  6% {
+    opacity: 1;
+  }
+  50% {
+    transform: translate(calc(var(--ft-dx) * 0.5), calc(var(--ft-rise) * -1))
+      rotate(calc(var(--ft-rot) * 0.5));
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--ft-dx), 30vh) rotate(var(--ft-rot));
+    opacity: 0;
+  }
+}
+
+/* Honour the OS setting: no launch, no spin, nothing. */
+@media (prefers-reduced-motion: reduce) {
+  .ft-celebrate-particle {
+    animation: none !important;
+    display: none;
+  }
+}
