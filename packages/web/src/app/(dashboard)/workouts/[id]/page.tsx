@@ -7,7 +7,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { SetRow } from '@/components/workout/SetRow';
-import { RestTimer } from '@/components/workout/RestTimer';
+import { RestTimerModal } from '@/components/workout/RestTimerModal';
 import { ExerciseSearchForm } from '@/components/exercise/ExerciseSearchForm';
 import { ProgressiveOverloadPanel } from '@/components/workout/ProgressiveOverloadPanel';
 import { WORKOUT_TYPE_LABELS, MUSCLE_GROUP_COLORS } from '@fittrackr/shared';
@@ -128,7 +128,9 @@ export default function WorkoutDetailPage() {
   const queryClient = useQueryClient();
   const [showExerciseSearch, setShowExerciseSearch] = useState(false);
   const [showRestTimer, setShowRestTimer] = useState(false);
-  const [restTimerTrigger, setRestTimerTrigger] = useState(0);
+  // Bumped on every open so the modal remounts and restarts, even if one is
+  // already on screen from a previous set.
+  const [restTimerKey, setRestTimerKey] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [clockRunning, setClockRunning] = useState(false);
   const [workoutStarted, setWorkoutStarted] = useState(false);
@@ -443,9 +445,13 @@ export default function WorkoutDetailPage() {
     }
   }
 
-  function handleSetLogged() {
+  function openRestTimer() {
+    setRestTimerKey((k) => k + 1);
     setShowRestTimer(true);
-    setRestTimerTrigger((t) => t + 1);
+  }
+
+  function handleSetLogged() {
+    openRestTimer();
   }
 
   function moveSlot(slotIndex: number, direction: -1 | 1, currentSlots: Slot[]) {
@@ -732,6 +738,11 @@ export default function WorkoutDetailPage() {
 
   return (
     <>
+      {/* Rest countdown — opens on set completion, or from the header timer */}
+      {showRestTimer && (
+        <RestTimerModal key={restTimerKey} onClose={() => setShowRestTimer(false)} />
+      )}
+
       {/* Watch reminder — blocking; the clock does not start until acknowledged */}
       {showWatchReminder && (
         <WatchReminderModal
@@ -784,8 +795,8 @@ export default function WorkoutDetailPage() {
               )}
             </div>
           </div>
-          <button type="button" onClick={() => setShowRestTimer((v) => !v)}
-            className={`p-2 rounded-lg transition-colors ${showRestTimer ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+          <button type="button" onClick={openRestTimer}
+            className="p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             title="Rest timer">
             <Timer className="h-4 w-4" />
           </button>
@@ -797,12 +808,6 @@ export default function WorkoutDetailPage() {
           </button>
         </div>
 
-        {showRestTimer && (
-          <Card>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Rest Timer</p>
-            <RestTimer triggerStart={restTimerTrigger} />
-          </Card>
-        )}
 
         {/* Start banner */}
         {!workoutStarted && (

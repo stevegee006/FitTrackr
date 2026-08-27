@@ -55,7 +55,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'rest-timer',
     title: 'Rest Timer',
-    body: 'Tap the timer icon to open the rest timer. Choose a preset (60s, 90s, 2min, 3min) and you’ll get a notification when it’s time to lift again — even if you lock your phone.',
+    body: 'Check off a set and the rest timer pops up automatically — add or take off 10 seconds, or skip it. Choose a preset (60s, 90s, 2min, 3min) to set your default, or tap the timer icon any time to start a rest.',
     targetKey: null,
     placement: 'center',
   },
