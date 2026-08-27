@@ -7,7 +7,8 @@ export const createWorkoutSchema = z.object({
   workoutType: z.enum(workoutTypeValues),
   name: z.string().max(255).nullish(),
   notes: z.string().max(2000).nullish(),
-  durationMin: z.number().int().positive().nullish(),
+  // Capped at 24h. A corrupt client clock once wrote ~29.8 million minutes.
+  durationMin: z.number().int().positive().max(1440).nullish(),
   // Set when the session comes from a program day, so program adherence and
   // the program summary can be measured.
   programId: z.string().uuid().nullish(),

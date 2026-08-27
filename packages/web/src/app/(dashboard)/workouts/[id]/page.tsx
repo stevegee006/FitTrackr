@@ -8,13 +8,14 @@ import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { SetRow } from '@/components/workout/SetRow';
 import { RestTimerModal } from '@/components/workout/RestTimerModal';
+import { DurationEditModal, MAX_DURATION_MIN } from '@/components/workout/DurationEditModal';
 import { ExerciseSearchForm } from '@/components/exercise/ExerciseSearchForm';
 import { ProgressiveOverloadPanel } from '@/components/workout/ProgressiveOverloadPanel';
 import { WORKOUT_TYPE_LABELS, MUSCLE_GROUP_COLORS } from '@fittrackr/shared';
 import type { Workout, WorkoutSet, Exercise } from '@fittrackr/shared';
 import { useAuth } from '@/providers/AuthProvider';
 import { parseDateLocal } from '@/lib/utils';
-import { ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Timer, Sparkles, Check, Flame, Pause, Play, Flag, Link2, Unlink2, ArrowUp, ArrowDown, Watch } from 'lucide-react';
+import { ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Timer, Sparkles, Check, Flame, Pause, Play, Flag, Link2, Unlink2, ArrowUp, ArrowDown, Watch, Pencil } from 'lucide-react';
 import Link from 'next/link';
 
 // ─── Delete confirmation modal ────────────────────────────────────────────────
@@ -76,6 +77,13 @@ function supersetColor(groupId: string) {
 
 const WATCH_REMINDER_KEY = 'fittrackr_watch_reminder';
 
+/**
+ * Longest believable session. Used to reject corrupt persisted timer state:
+ * an anchor of 0 makes `Date.now() - anchor` read as ~56 years, which then got
+ * saved as the workout's duration.
+ */
+const MAX_WORKOUT_SECONDS = 24 * 60 * 60;
+
 function watchReminderEnabled(): boolean {
   try {
     return localStorage.getItem(WATCH_REMINDER_KEY) !== 'off';
@@ -135,6 +143,7 @@ export default function WorkoutDetailPage() {
   const [clockRunning, setClockRunning] = useState(false);
   const [workoutStarted, setWorkoutStarted] = useState(false);
   const [showWatchReminder, setShowWatchReminder] = useState(false);
+  const [showDurationEdit, setShowDurationEdit] = useState(false);
   const startAnchorRef = useRef<number>(0);
 
   // ── Timer localStorage persistence ──────────────────────────────────────────
@@ -150,22 +159,37 @@ export default function WorkoutDetailPage() {
     try { localStorage.removeItem(timerKey); } catch { /* ignore */ }
   }
 
-  // Restore timer on mount
+  // Restore timer on mount. Every value out of localStorage is validated: a
+  // missing or zero anchor previously produced a ~496627 hour clock, which then
+  // got written to the workout's durationMin on Finish.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(timerKey);
       if (!raw) return;
-      const { anchor, isRunning, pausedElapsed } = JSON.parse(raw) as { anchor: number; isRunning: boolean; pausedElapsed: number };
-      setWorkoutStarted(true);
-      if (isRunning) {
+      const parsed = JSON.parse(raw) as { anchor?: number; isRunning?: boolean; pausedElapsed?: number };
+
+      const anchor = Number(parsed.anchor);
+      const pausedElapsed = Number(parsed.pausedElapsed);
+      const sane = (n: number) => Number.isFinite(n) && n >= 0 && n <= MAX_WORKOUT_SECONDS;
+
+      if (parsed.isRunning) {
+        const fromAnchor = Number.isFinite(anchor) && anchor > 0
+          ? Math.floor((Date.now() - anchor) / 1000)
+          : NaN;
+        if (!sane(fromAnchor)) { clearTimerState(); return; }
         startAnchorRef.current = anchor;
-        setElapsed(Math.floor((Date.now() - anchor) / 1000));
+        setElapsed(fromAnchor);
         setClockRunning(true);
       } else {
+        if (!sane(pausedElapsed)) { clearTimerState(); return; }
+        startAnchorRef.current = Date.now() - pausedElapsed * 1000;
         setElapsed(pausedElapsed);
         setClockRunning(false);
       }
-    } catch { /* corrupt data — ignore */ }
+      setWorkoutStarted(true);
+    } catch {
+      clearTimerState();
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -302,11 +326,19 @@ export default function WorkoutDetailPage() {
     mutationFn: () =>
       apiFetch(`/workouts/${id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ durationMin: Math.max(1, Math.round(elapsed / 60)) }),
+        // Clamped: a corrupt clock must never be written as the duration.
+        body: JSON.stringify({
+          durationMin: Math.min(
+            MAX_DURATION_MIN,
+            Math.max(1, Math.round(Math.min(elapsed, MAX_WORKOUT_SECONDS) / 60)),
+          ),
+        }),
       }),
     onSuccess: () => {
+      // Stop the ticker WITHOUT persisting — pauseClock() saves, so calling it
+      // after clearTimerState() re-created the key it had just removed.
+      setClockRunning(false);
       clearTimerState();
-      pauseClock();
       queryClient.invalidateQueries({ queryKey: ['workouts'] });
       queryClient.invalidateQueries({ queryKey: ['workout-volume'] });
       queryClient.invalidateQueries({ queryKey: ['personal-records'] });
@@ -740,6 +772,25 @@ export default function WorkoutDetailPage() {
 
   return (
     <>
+      {/* Duration editor — also the escape hatch for a corrupt saved clock */}
+      {showDurationEdit && (
+        <DurationEditModal
+          workoutId={id}
+          currentMin={workout?.durationMin ?? (elapsed > 0 ? Math.round(elapsed / 60) : null)}
+          onClose={() => setShowDurationEdit(false)}
+          onSaved={(min) => {
+            // Re-anchor the local clock to the corrected value so the pill and
+            // the stored duration agree.
+            const secs = min * 60;
+            startAnchorRef.current = Date.now() - secs * 1000;
+            setElapsed(secs);
+            setClockRunning(false);
+            setWorkoutStarted(true);
+            saveTimerState(startAnchorRef.current, false, secs);
+          }}
+        />
+      )}
+
       {/* Rest countdown — opens on set completion, or from the header timer */}
       {showRestTimer && (
         <RestTimerModal key={restTimerKey} onClose={() => setShowRestTimer(false)} />
@@ -797,6 +848,13 @@ export default function WorkoutDetailPage() {
               )}
             </div>
           </div>
+          {/* Always available: a workout logged earlier may need its duration
+              corrected even though this session never started the clock. */}
+          <button type="button" onClick={() => setShowDurationEdit(true)}
+            className="p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            title="Edit duration" aria-label="Edit workout duration">
+            <Pencil className="h-4 w-4" />
+          </button>
           <button type="button" onClick={openRestTimer}
             className="p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             title="Rest timer">

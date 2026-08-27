@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
@@ -7,7 +8,8 @@ import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { Button } from '@/components/ui/Button';
-import { ChevronLeft, Trophy, TrendingUp, TrendingDown, Minus, Sparkles } from 'lucide-react';
+import { DurationEditModal } from '@/components/workout/DurationEditModal';
+import { ChevronLeft, Trophy, TrendingUp, TrendingDown, Minus, Sparkles, Pencil } from 'lucide-react';
 import { WORKOUT_TYPE_LABELS } from '@fittrackr/shared';
 
 const LB_PER_KG = 2.20462;
@@ -58,6 +60,7 @@ const PR_LABEL: Record<string, string> = {
 export default function WorkoutSummaryPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const [editDuration, setEditDuration] = useState(false);
 
   const { data: settingsData } = useQuery({
     queryKey: ['settings'],
@@ -103,14 +106,31 @@ export default function WorkoutSummaryPage() {
         >
           <ChevronLeft className="h-5 w-5" />
         </Link>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h1 className="text-xl font-bold truncate">{title} — Summary</h1>
           <p className="text-xs text-gray-500 dark:text-gray-400">
             {date}
             {s.workout.durationMin != null && ` · ${s.workout.durationMin} min`}
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => setEditDuration(true)}
+          className="shrink-0 p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          title="Edit duration"
+          aria-label="Edit workout duration"
+        >
+          <Pencil className="h-4 w-4" />
+        </button>
       </div>
+
+      {editDuration && (
+        <DurationEditModal
+          workoutId={id}
+          currentMin={s.workout.durationMin}
+          onClose={() => setEditDuration(false)}
+        />
+      )}
 
       {/* Session totals */}
       <Card>
