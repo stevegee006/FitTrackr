@@ -49,3 +49,26 @@ export function evalMathExpr(expr: string): number | null {
     return null;
   }
 }
+
+/**
+ * Format a duration in minutes as hours and minutes: 45 → "45m",
+ * 60 → "1h", 75 → "1h 15m". Durations are stored as total minutes; this is
+ * display only. Non-finite or negative input returns null so callers can
+ * render nothing rather than "NaNm".
+ */
+export function formatDuration(minutes: number | null | undefined): string | null {
+  if (minutes == null || !Number.isFinite(minutes) || minutes < 0) return null;
+  const total = Math.round(minutes);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+/** Split total minutes into { hours, minutes } for a two-field editor. */
+export function splitDuration(minutes: number | null | undefined): { hours: number; minutes: number } {
+  if (minutes == null || !Number.isFinite(minutes) || minutes < 0) return { hours: 0, minutes: 0 };
+  const total = Math.round(minutes);
+  return { hours: Math.floor(total / 60), minutes: total % 60 };
+}

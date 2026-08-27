@@ -7,7 +7,7 @@ import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { WORKOUT_TYPE_LABELS, WORKOUT_TYPE_COLORS, MUSCLE_GROUP_LABELS } from '@fittrackr/shared';
 import type { Workout, WorkoutType, Exercise, MuscleGroup } from '@fittrackr/shared';
-import { todayString, parseDateLocal, formatDate } from '@/lib/utils';
+import { todayString, parseDateLocal, formatDate, formatDuration } from '@/lib/utils';
 import Link from 'next/link';
 import { ChevronLeft, ChevronRight, Dumbbell, Clock, Sparkles, Camera, X, Check, ImageIcon, Plus, Trash2 } from 'lucide-react';
 
@@ -379,9 +379,9 @@ export default function WorkoutsPage() {
                               <Dumbbell className="h-3 w-3" />{setCount} sets
                             </span>
                           )}
-                          {w.durationMin && (
+                          {formatDuration(w.durationMin) && (
                             <span className="inline-flex items-center gap-1 text-xs text-gray-500">
-                              <Clock className="h-3 w-3" />{w.durationMin}m
+                              <Clock className="h-3 w-3" />{formatDuration(w.durationMin)}
                             </span>
                           )}
                         </div>

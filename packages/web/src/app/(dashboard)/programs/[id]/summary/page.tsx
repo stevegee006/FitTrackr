@@ -9,6 +9,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { Button } from '@/components/ui/Button';
 import { ChevronLeft, Trophy, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { MUSCLE_GROUP_LABELS } from '@fittrackr/shared';
+import { formatDuration } from '@/lib/utils';
 
 const LB_PER_KG = 2.20462;
 
@@ -140,7 +141,7 @@ export default function ProgramSummaryPage() {
                 { label: 'Sets', value: String(s.totals.sets) },
                 { label: 'Reps', value: String(s.totals.totalReps) },
                 { label: `Volume (${unit})`, value: vol(s.totals.volumeKg) },
-                { label: 'Minutes', value: String(s.totals.durationMin) },
+                { label: 'Time', value: formatDuration(s.totals.durationMin) ?? '—' },
               ].map((t) => (
                 <div key={t.label}>
                   <p className="text-xl font-bold text-gray-900 dark:text-white">{t.value}</p>

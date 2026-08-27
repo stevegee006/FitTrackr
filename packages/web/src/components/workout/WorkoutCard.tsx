@@ -5,6 +5,7 @@ import type { Workout } from '@fittrackr/shared';
 import { WORKOUT_TYPE_LABELS, WORKOUT_TYPE_COLORS, MUSCLE_GROUP_COLORS } from '@fittrackr/shared';
 import { Card } from '@/components/ui/Card';
 import { Clock, Dumbbell } from 'lucide-react';
+import { formatDuration } from '@/lib/utils';
 
 interface WorkoutCardProps {
   workout: Workout & { sets?: Array<{ exercise?: { primaryMuscle: string } }> };
@@ -45,10 +46,10 @@ export function WorkoutCard({ workout }: WorkoutCardProps) {
                 {setCount} sets
               </span>
             )}
-            {workout.durationMin && (
+            {formatDuration(workout.durationMin) && (
               <span className="inline-flex items-center gap-1 text-xs text-gray-500">
                 <Clock className="h-3 w-3" />
-                {workout.durationMin}m
+                {formatDuration(workout.durationMin)}
               </span>
             )}
           </div>

@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { DurationEditModal } from '@/components/workout/DurationEditModal';
 import { ChevronLeft, Trophy, TrendingUp, TrendingDown, Minus, Sparkles, Pencil } from 'lucide-react';
 import { WORKOUT_TYPE_LABELS } from '@fittrackr/shared';
+import { formatDuration } from '@/lib/utils';
 
 const LB_PER_KG = 2.20462;
 
@@ -110,7 +111,7 @@ export default function WorkoutSummaryPage() {
           <h1 className="text-xl font-bold truncate">{title} — Summary</h1>
           <p className="text-xs text-gray-500 dark:text-gray-400">
             {date}
-            {s.workout.durationMin != null && ` · ${s.workout.durationMin} min`}
+            {formatDuration(s.workout.durationMin) && ` · ${formatDuration(s.workout.durationMin)}`}
           </p>
         </div>
         <button
