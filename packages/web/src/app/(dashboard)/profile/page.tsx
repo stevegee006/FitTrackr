@@ -16,7 +16,7 @@ import { ACTIVITY_LABELS, TRAINING_GOAL_LABELS } from '@fittrackr/shared';
 import type { UserProfile, UserSettings, AiProvider } from '@fittrackr/shared';
 import Link from 'next/link';
 import { startRegistration } from '@simplewebauthn/browser';
-import { Activity, Camera, GraduationCap, HelpCircle, MessageSquare, Ruler, Shield, Settings, Trash2, ExternalLink, Trophy, User, X } from 'lucide-react';
+import { Activity, Camera, GraduationCap, HelpCircle, MessageSquare, Ruler, Search, Shield, Settings, Trash2, ExternalLink, Trophy, User, X } from 'lucide-react';
 import { compressImage } from '@/lib/image-utils';
 import { getApiUrl, getAccessToken } from '@/lib/api-client';
 import type { BodyMeasurement, ProgressPhotoMeta } from '@fittrackr/shared';
@@ -984,6 +984,8 @@ function PersonalRecordsTab({ isImperial }: { isImperial: boolean }) {
     queryKey: ['personal-records'],
     queryFn: () => apiFetch<{ data: PersonalRecordRow[] }>('/personal-records'),
   });
+  // Filters the already-fetched list, so no debounce is needed.
+  const [query, setQuery] = useState('');
 
   if (isLoading) return <div className="flex justify-center py-12"><Spinner /></div>;
 
@@ -1019,7 +1021,9 @@ function PersonalRecordsTab({ isImperial }: { isImperial: boolean }) {
       byExercise.set(r.exerciseId, { name, rows: [r], latest: at });
     }
   }
-  const groups = [...byExercise.values()].sort((a, b) => b.latest - a.latest);
+  const allGroups = [...byExercise.values()].sort((a, b) => b.latest - a.latest);
+  const q = query.trim().toLowerCase();
+  const groups = q ? allGroups.filter((g) => g.name.toLowerCase().includes(q)) : allGroups;
 
   return (
     <div className="space-y-3">
@@ -1027,6 +1031,39 @@ function PersonalRecordsTab({ isImperial }: { isImperial: boolean }) {
         Your best working set per exercise. Warmups don&apos;t count, and estimated 1RM is only
         calculated for sets of 12 reps or fewer.
       </p>
+
+      {/* Search. Rendered unconditionally so a re-render can never steal focus
+          mid-typing, and so clearing a no-match query is always possible. */}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Escape') setQuery(''); }}
+          placeholder={`Search ${allGroups.length} ${allGroups.length === 1 ? 'exercise' : 'exercises'}…`}
+          className="w-full rounded-xl border border-gray-300 bg-white py-2 pl-9 pr-9 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        />
+        {query && (
+          <button
+            type="button"
+            onClick={() => setQuery('')}
+            aria-label="Clear search"
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
+      {groups.length === 0 && (
+        <Card className="py-8 text-center space-y-1">
+          <p className="font-semibold text-gray-700 dark:text-gray-200">No matches</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Nothing matching &ldquo;{query}&rdquo;.
+          </p>
+        </Card>
+      )}
 
       {groups.map((g) => (
         <Card key={g.name} className="space-y-2">
