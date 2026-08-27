@@ -1,6 +1,7 @@
 # HANDOFF — FitTrackr
 
-_Last updated: 2026-08-26 (through `e47c397` — plate-calculator units and sled
+_Last updated: 2026-08-26 (through `a4a21bb` — workout summary, program
+summary, PR tracking; earlier: plate-calculator units and sled
 support, program generation rewritten to a week template, AI suggest's
 backwards deload fixed, RPE capped, watch reminder, logo and splash refresh,
 iOS layout fixes, and the project's first tests). Written as a handoff for the
@@ -9,9 +10,9 @@ setup instructions live in [README.md](README.md); **this file is about intent,
 state, and sharp edges** — the things you would otherwise have to rediscover by
 breaking something._
 
-> **Read sharp edges #56–#64 before touching iOS layout, sharp asset
-> generation, AI prompts, or trusting any `git`/`gh`/preview command in this
-> workspace.** Those cost the most time to learn.
+> **Read sharp edges #56–#69 before touching iOS layout, sharp asset
+> generation, AI prompts, summaries/PRs, or trusting any `git`/`gh`/preview
+> command in this workspace.** Those cost the most time to learn.
 
 ## Goal
 
@@ -193,6 +194,7 @@ Manually numbered, **not** Prisma's timestamp convention:
 | `0003_superset_group_id` | `workout_sets.superset_group_id UUID` nullable, no FK |
 | `0004_set_is_completed` | `workout_sets.is_completed BOOLEAN NOT NULL DEFAULT false` |
 | `0005_workout_exercise_order` | `workouts.exercise_order TEXT[] NOT NULL DEFAULT '{}'` |
+| `0006_workout_program_link` | `workouts.program_id` (FK, **SET NULL**) + `program_week` / `program_day` |
 
 Because the names are hand-numbered, **any migration you create with
 `prisma migrate dev` will get a timestamp name and sort after all of these** —
@@ -759,6 +761,38 @@ is exactly why it is written down here.
     have the model emit an absolute per-week RPE or an explicit deload
     cadence instead of a monotonic delta.
 
+### Summaries and PRs
+
+65. **Program adherence only works forward from migration `0006`.** Sessions
+    are matched to a program through `Workout.programId`, stamped when you
+    press Start Workout on a program day. Any workout logged before that
+    column existed, or started from the Workouts tab, has no `programId` and
+    is invisible to the program summary. The summary's empty state says so
+    explicitly rather than showing a bare 0% — **do not "fix" it by falling
+    back to a date-range match**, which would silently attribute unrelated
+    sessions to a program.
+66. **PRs were only checked when a set was created, never when edited.** Sets
+    are created carrying the previous session's weight and corrected
+    afterwards, so a genuine PR typed into an existing row was silently
+    dropped. `updateSet` now re-checks whenever weight, reps, or the warmup
+    flag change. If you add another way to mutate a set, it needs the same
+    call.
+67. **`MAX_1RM` is not recorded above 12 reps** (`MAX_1RM_REPS`). Epley
+    inflates badly past that, and an uncapped estimate from a high-rep set
+    would beat every genuine heavy single and then sit there permanently,
+    because PRs are stored one-row-per-type with no history (#3). Declining
+    to estimate is deliberate.
+68. **The workout summary compares per EXERCISE, not per workout.** "Last
+    time" for bench press is the most recent previous session containing bench
+    press, which may be several workouts ago. Same-day duplicate workouts
+    resolve arbitrarily. First-time exercises are flagged rather than shown as
+    an infinite improvement.
+69. **Volume needs both weight and reps.** `tally` counts a set toward `sets`
+    and `totalReps` but contributes no volume when either is null, so
+    bodyweight and cardio work does not read as zero-weight strength work.
+    "Best set" means highest volume, not heaviest weight — a 1x100 single does
+    not outrank 10x50. Both behaviours are pinned by tests.
+
 ### Tooling hazards in this workspace
 
 63. **The primary working directory is `D:\dev\MacroTracker`, not FitTrackr.**
@@ -890,6 +924,25 @@ And a third batch, after the author deployed and used it:
 - **Bottom nav pinned, status-bar scrim added** (`e47c397`) — see #56 and #57.
   **Not device-verified.**
 
+And a fourth batch — summaries and PR tracking:
+
+- **Workout summary** (`0ea66a7`) — `GET /workouts/:id/summary`, page at
+  `/workouts/[id]/summary`. Finishing lands there instead of the list. Session
+  totals, per-exercise comparison against the last session containing that
+  exercise (#68), and PRs earned. Tally arithmetic lives in
+  `workout-summary.ts` with 28 assertions (#69).
+- **PR tracking made trustworthy** (`0ea66a7`) — a PRs sub-tab under
+  Profile → Bio, plus three fixes needed before the numbers were worth
+  showing: PRs are re-checked on set *edit* (#66), `achievedAt` uses the
+  workout's `logDate` instead of the server's today, and `MAX_1RM` is no
+  longer estimated above 12 reps (#67).
+- **Program summary** (`a4a21bb`) — migration `0006` links a workout to the
+  program day it came from (`program_id` SET NULL, plus week/day).
+  `GET /programs/:id/summary` reports adherence, totals, per-exercise
+  first→last top weight, sets per muscle, and PRs in the window. Reachable
+  from the chart icon on each program card. **Only measures forward from this
+  migration** (#65).
+
 ## Current state
 
 Deployed and in daily real use by the author against real workout data. The
@@ -897,8 +950,10 @@ Docker Hub images track `main` automatically; the Portainer stack is updated
 by hand with "Pull and redeploy". Live host is `fittrackr.geehive.com` with
 the API on `fittrackr-api.geehive.com`.
 
-`main` is clean as of `e47c397`. Migration `0005` is applied by the entrypoint
-on redeploy — no manual step outstanding.
+`main` is clean as of `a4a21bb`. Migrations are applied by the entrypoint on
+redeploy — **`0006` ships with this batch and needs a redeploy to take
+effect**; until then the program summary route will error on the missing
+column.
 
 Known outstanding user-facing items:
 
@@ -911,6 +966,11 @@ Known outstanding user-facing items:
 - **The splash screen will keep looking wrong until the PWA is reinstalled**
   (#58). The server is serving the correct file; this is purely iOS cache.
 - Program generation's RPE curve plateaus rather than ramps (#62).
+- **The three summary/PR features are not device-verified.** They typecheck,
+  build, and the pure arithmetic is unit-tested, but no summary has been
+  rendered against real data yet. The program summary in particular will show
+  its empty state for every existing program (#65), which is correct but worth
+  seeing once.
 
 ## Next steps (not built, roughly by value)
 
@@ -971,15 +1031,21 @@ There is **no test framework and no working linter**, and exactly **one** test
 file:
 
 ```bash
-pnpm --filter @fittrackr/api test    # tsc && node test/program-expand.test.mjs
+pnpm --filter @fittrackr/api test    # tsc, then each test/*.test.mjs
 ```
 
-`packages/api/test/program-expand.test.mjs` — 48 assertions over the AI program
-expander (rep-range shifting, RPE capping, deloads, malformed model output). A
-plain node script with an exit code, no framework, matching the project's
-zero-dependency habit. It was written after a bug shipped in that exact code
-path. If you add pure logic worth protecting, extend it or add a sibling file
-next to it rather than reaching for a framework.
+Two files, 76 assertions, plain node scripts with exit codes — no framework,
+matching the project's zero-dependency habit:
+
+- `test/program-expand.test.mjs` (48) — the AI program expander: rep-range
+  shifting, RPE capping, deloads, malformed model output.
+- `test/workout-summary.test.mjs` (28) — summary tallies: volume needing both
+  weight and reps, bodyweight/cardio sets, best-set-by-volume, deltas.
+
+Both were written after a bug shipped in the code they cover. If you add pure
+logic worth protecting, extend these or add a sibling file rather than
+reaching for a framework — and remember to add it to the `test` script, which
+chains the files explicitly.
 
 Everything else is manual: build (`pnpm build` catches the TypeScript
 strict-mode errors, which have broken CI more than once — see commits
