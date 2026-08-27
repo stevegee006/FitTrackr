@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { CreateWorkoutInput, UpdateWorkoutInput, AddSetInput, UpdateSetInput } from '@fittrackr/shared';
 import { NotFoundError, ForbiddenError } from '../utils/errors.js';
-import { checkAndUpdatePersonalRecords } from './personal-record.service.js';
+import { checkAndUpdatePersonalRecords, getPRsForWorkout } from './personal-record.service.js';
+import { tally, diffTally } from './workout-summary.js';
 
 export async function createWorkout(
   fastify: FastifyInstance,
@@ -129,7 +130,7 @@ export async function addSet(
   });
 
   if (!set.isWarmup) {
-    await checkAndUpdatePersonalRecords(fastify, userId, set);
+    await checkAndUpdatePersonalRecords(fastify, userId, set, workout.logDate);
   }
 
   // Maintain exerciseOrder — append this exercise if not already tracked
@@ -169,7 +170,7 @@ export async function updateSet(
   const set = await fastify.prisma.workoutSet.findUnique({ where: { id: setId } });
   if (!set || set.workoutId !== workoutId) throw new NotFoundError('Set');
 
-  return fastify.prisma.workoutSet.update({
+  const updated = await fastify.prisma.workoutSet.update({
     where: { id: setId },
     data: {
       ...(data.reps !== undefined && { reps: data.reps }),
@@ -184,6 +185,15 @@ export async function updateSet(
     },
     include: { exercise: { select: { id: true, name: true, primaryMuscle: true, equipment: true } } },
   });
+
+  // Re-check PRs on edit. Sets are created with the previous session's weight
+  // and corrected afterwards, so only checking at creation meant a genuine PR
+  // typed into an existing row was never recorded.
+  if (data.weightKg !== undefined || data.reps !== undefined || data.isWarmup !== undefined) {
+    await checkAndUpdatePersonalRecords(fastify, userId, updated, workout.logDate);
+  }
+
+  return updated;
 }
 
 export async function deleteSet(
@@ -200,6 +210,100 @@ export async function deleteSet(
   if (!set || set.workoutId !== workoutId) throw new NotFoundError('Set');
 
   await fastify.prisma.workoutSet.delete({ where: { id: setId } });
+}
+
+/**
+ * End-of-workout summary: session totals, a per-exercise comparison against the
+ * most recent PREVIOUS session containing that exercise, and any PRs set today.
+ *
+ * "Previous" is per exercise, not per workout — if you last benched three
+ * sessions ago, that is what today is compared against.
+ */
+export async function getWorkoutSummary(
+  fastify: FastifyInstance,
+  userId: string,
+  workoutId: string,
+) {
+  const workout = await getWorkoutById(fastify, userId, workoutId);
+
+  const working = (workout.sets ?? []).filter((s) => !s.isWarmup);
+  const exerciseIds = [...new Set(working.map((s) => s.exerciseId))];
+
+  // One query for every prior appearance of today's exercises, newest first.
+  const priorSets = exerciseIds.length
+    ? await fastify.prisma.workoutSet.findMany({
+        where: {
+          exerciseId: { in: exerciseIds },
+          isWarmup: false,
+          workoutId: { not: workoutId },
+          workout: { userId, logDate: { lte: workout.logDate } },
+        },
+        select: {
+          exerciseId: true, reps: true, weightKg: true,
+          workoutId: true, workout: { select: { logDate: true } },
+        },
+        orderBy: [{ workout: { logDate: 'desc' } }, { setNumber: 'asc' }],
+      })
+    : [];
+
+  // Group each exercise's prior sets by the single most recent workout it appeared in.
+  const previousByExercise = new Map<string, { logDate: Date; sets: typeof priorSets }>();
+  for (const s of priorSets) {
+    const seen = previousByExercise.get(s.exerciseId);
+    if (!seen) {
+      previousByExercise.set(s.exerciseId, { logDate: s.workout.logDate, sets: [s] });
+    } else if (seen.sets[0].workoutId === s.workoutId) {
+      seen.sets.push(s);
+    }
+    // Sets from older workouts are ignored — the list is already date-ordered.
+  }
+
+  const exercises = exerciseIds.map((exerciseId) => {
+    const mine = working.filter((s) => s.exerciseId === exerciseId);
+    const current = tally(mine);
+    const prevEntry = previousByExercise.get(exerciseId);
+    const previous = prevEntry ? tally(prevEntry.sets) : null;
+
+    const delta = previous ? diffTally(current, previous) : null;
+
+    return {
+      exerciseId,
+      name: mine[0]?.exercise?.name ?? 'Exercise',
+      primaryMuscle: mine[0]?.exercise?.primaryMuscle ?? null,
+      current,
+      previous,
+      previousDate: prevEntry ? prevEntry.logDate.toISOString().split('T')[0] : null,
+      delta,
+      isFirstTime: previous == null,
+    };
+  });
+
+  const totals = tally(working);
+  const prs = await getPRsForWorkout(fastify, userId, workoutId);
+
+  return {
+    workout: {
+      id: workout.id,
+      name: workout.name,
+      workoutType: workout.workoutType,
+      logDate: workout.logDate.toISOString().split('T')[0],
+      durationMin: workout.durationMin,
+    },
+    totals: {
+      exercises: exerciseIds.length,
+      sets: totals.sets,
+      totalReps: totals.totalReps,
+      volumeKg: Math.round(totals.volumeKg),
+      warmupSets: (workout.sets ?? []).length - working.length,
+    },
+    exercises,
+    personalRecords: prs.map((p) => ({
+      exerciseId: p.exerciseId,
+      exerciseName: p.exercise?.name ?? 'Exercise',
+      recordType: p.recordType,
+      value: p.value,
+    })),
+  };
 }
 
 export async function getWeeklyVolume(

@@ -64,6 +64,16 @@ export default async function workoutRoutes(fastify: FastifyInstance) {
     },
   });
 
+  // GET /workouts/:id/summary — end-of-session recap vs the previous session
+  fastify.get('/workouts/:id/summary', {
+    preHandler: [fastify.authenticate],
+    handler: async (req) => {
+      const { id } = req.params as any;
+      const data = await workoutService.getWorkoutSummary(fastify, req.user.sub, id);
+      return { data };
+    },
+  });
+
   // GET /workouts/:id
   fastify.get('/workouts/:id', {
     preHandler: [fastify.authenticate],

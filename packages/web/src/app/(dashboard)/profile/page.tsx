@@ -16,7 +16,7 @@ import { ACTIVITY_LABELS, TRAINING_GOAL_LABELS } from '@fittrackr/shared';
 import type { UserProfile, UserSettings, AiProvider } from '@fittrackr/shared';
 import Link from 'next/link';
 import { startRegistration } from '@simplewebauthn/browser';
-import { Activity, Camera, GraduationCap, HelpCircle, MessageSquare, Ruler, Shield, Settings, Trash2, ExternalLink, User, X } from 'lucide-react';
+import { Activity, Camera, GraduationCap, HelpCircle, MessageSquare, Ruler, Shield, Settings, Trash2, ExternalLink, Trophy, User, X } from 'lucide-react';
 import { compressImage } from '@/lib/image-utils';
 import { getApiUrl, getAccessToken } from '@/lib/api-client';
 import type { BodyMeasurement, ProgressPhotoMeta } from '@fittrackr/shared';
@@ -105,7 +105,7 @@ export default function ProfilePage() {
 // ─── Biometrics Tab ────────────────────────────────────────────
 
 function BiometricsTab() {
-  const [bioTab, setBioTab] = useState<'profile' | 'measurements'>('profile');
+  const [bioTab, setBioTab] = useState<'profile' | 'measurements' | 'prs'>('profile');
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
@@ -207,6 +207,7 @@ function BiometricsTab() {
         {([
           { key: 'profile' as const, label: 'Profile', icon: User },
           { key: 'measurements' as const, label: 'Measurements', icon: Ruler },
+          { key: 'prs' as const, label: 'PRs', icon: Trophy },
         ]).map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -224,6 +225,8 @@ function BiometricsTab() {
       </div>
 
       {bioTab === 'measurements' && <MeasurementsTab />}
+
+      {bioTab === 'prs' && <PersonalRecordsTab isImperial={isImperial} />}
 
       {bioTab === 'profile' && (
       <div className="lg:grid lg:grid-cols-2 lg:gap-6 space-y-6 lg:space-y-0">
@@ -952,6 +955,102 @@ function SettingsTab() {
       <div className="lg:col-span-2">
         <FeedbackCard />
       </div>
+    </div>
+  );
+}
+
+// ─── Personal Records Tab ─────────────────────────────────────
+
+interface PersonalRecordRow {
+  id: string;
+  exerciseId: string;
+  recordType: 'MAX_WEIGHT' | 'MAX_REPS' | 'MAX_1RM' | 'MAX_VOLUME';
+  value: number;
+  achievedAt: string;
+  exercise?: { id: string; name: string; primaryMuscle?: string };
+}
+
+const PR_TYPE_LABEL: Record<string, string> = {
+  MAX_WEIGHT: 'Heaviest',
+  MAX_REPS: 'Most reps',
+  MAX_1RM: 'Est. 1RM',
+  MAX_VOLUME: 'Best volume',
+};
+// Display order; anything unlisted (MAX_VOLUME is never written) sorts last.
+const PR_TYPE_ORDER = ['MAX_WEIGHT', 'MAX_1RM', 'MAX_REPS', 'MAX_VOLUME'];
+
+function PersonalRecordsTab({ isImperial }: { isImperial: boolean }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['personal-records'],
+    queryFn: () => apiFetch<{ data: PersonalRecordRow[] }>('/personal-records'),
+  });
+
+  if (isLoading) return <div className="flex justify-center py-12"><Spinner /></div>;
+
+  const records = data?.data ?? [];
+  const unit = isImperial ? 'lbs' : 'kg';
+  const fmt = (r: PersonalRecordRow) =>
+    r.recordType === 'MAX_REPS'
+      ? `${Math.round(r.value)} reps`
+      : `${isImperial ? kgToLbs(r.value).toFixed(1) : r.value.toFixed(1)} ${unit}`;
+
+  if (records.length === 0) {
+    return (
+      <Card className="py-10 text-center space-y-2">
+        <Trophy className="h-8 w-8 mx-auto text-gray-300 dark:text-gray-600" />
+        <p className="font-semibold text-gray-700 dark:text-gray-200">No records yet</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Log a few working sets and your bests will show up here.
+        </p>
+      </Card>
+    );
+  }
+
+  // Group by exercise, most recently improved exercise first.
+  const byExercise = new Map<string, { name: string; rows: PersonalRecordRow[]; latest: number }>();
+  for (const r of records) {
+    const name = r.exercise?.name ?? 'Exercise';
+    const at = new Date(r.achievedAt).getTime();
+    const entry = byExercise.get(r.exerciseId);
+    if (entry) {
+      entry.rows.push(r);
+      entry.latest = Math.max(entry.latest, at);
+    } else {
+      byExercise.set(r.exerciseId, { name, rows: [r], latest: at });
+    }
+  }
+  const groups = [...byExercise.values()].sort((a, b) => b.latest - a.latest);
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        Your best working set per exercise. Warmups don&apos;t count, and estimated 1RM is only
+        calculated for sets of 12 reps or fewer.
+      </p>
+
+      {groups.map((g) => (
+        <Card key={g.name} className="space-y-2">
+          <p className="font-semibold truncate">{g.name}</p>
+          <div className="space-y-1">
+            {g.rows
+              .slice()
+              .sort((a, b) => PR_TYPE_ORDER.indexOf(a.recordType) - PR_TYPE_ORDER.indexOf(b.recordType))
+              .map((r) => (
+                <div key={r.id} className="flex items-baseline justify-between gap-3 text-sm">
+                  <span className="text-gray-500 dark:text-gray-400">
+                    {PR_TYPE_LABEL[r.recordType] ?? r.recordType}
+                  </span>
+                  <span className="flex items-baseline gap-2 shrink-0">
+                    <span className="font-semibold text-gray-900 dark:text-white">{fmt(r)}</span>
+                    <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                      {new Date(r.achievedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </span>
+                  </span>
+                </div>
+              ))}
+          </div>
+        </Card>
+      ))}
     </div>
   );
 }

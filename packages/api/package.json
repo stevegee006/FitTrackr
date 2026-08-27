@@ -6,7 +6,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "tsc && node test/program-expand.test.mjs",
+    "test": "tsc && node test/program-expand.test.mjs && node test/workout-summary.test.mjs",
     "lint": "eslint src/"
   },
   "dependencies": {

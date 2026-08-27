@@ -309,7 +309,9 @@ export default function WorkoutDetailPage() {
       pauseClock();
       queryClient.invalidateQueries({ queryKey: ['workouts'] });
       queryClient.invalidateQueries({ queryKey: ['workout-volume'] });
-      router.replace('/workouts');
+      queryClient.invalidateQueries({ queryKey: ['personal-records'] });
+      // Finishing lands on the recap rather than the list.
+      router.replace(`/workouts/${id}/summary`);
     },
   });
 
