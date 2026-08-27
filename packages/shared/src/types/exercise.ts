@@ -51,6 +51,9 @@ export interface Workout {
   workoutType: WorkoutType;
   notes: string | null;
   exerciseOrder: string[];
+  programId?: string | null;
+  programWeek?: number | null;
+  programDay?: number | null;
   sets?: WorkoutSet[];
   createdAt: string;
   updatedAt: string;

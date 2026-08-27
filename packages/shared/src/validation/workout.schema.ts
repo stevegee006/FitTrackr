@@ -8,6 +8,11 @@ export const createWorkoutSchema = z.object({
   name: z.string().max(255).nullish(),
   notes: z.string().max(2000).nullish(),
   durationMin: z.number().int().positive().nullish(),
+  // Set when the session comes from a program day, so program adherence and
+  // the program summary can be measured.
+  programId: z.string().uuid().nullish(),
+  programWeek: z.number().int().min(1).nullish(),
+  programDay: z.number().int().min(1).max(7).nullish(),
 });
 
 export const updateWorkoutSchema = createWorkoutSchema.partial();
