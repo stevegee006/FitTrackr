@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
@@ -8,7 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { WORKOUT_TYPE_LABELS } from '@fittrackr/shared';
 import type { Program, ProgramData, WorkoutType, Exercise, MuscleGroup } from '@fittrackr/shared';
-import { Sparkles, Calendar, Trash2, CheckCircle, ChevronDown, ChevronUp, Play } from 'lucide-react';
+import { Sparkles, Calendar, Trash2, CheckCircle, ChevronDown, ChevronUp, Play, BarChart3 } from 'lucide-react';
 import { todayString } from '@/lib/utils';
 
 /** Infer muscle group, equipment and category from an exercise name + workout type. */
@@ -137,9 +138,15 @@ export default function ProgramsPage() {
       workoutType,
       logDate,
       exercises,
+      programId,
+      programWeek,
+      programDay,
     }: {
       workoutType: WorkoutType;
       logDate: string;
+      programId?: string;
+      programWeek?: number;
+      programDay?: number;
       exercises: Array<{
         name: string;
         sets: number;
@@ -152,7 +159,10 @@ export default function ProgramsPage() {
     }) => {
       const res = await apiFetch<{ data: { id: string } }>('/workouts', {
         method: 'POST',
-        body: JSON.stringify({ logDate, workoutType, name: WORKOUT_TYPE_LABELS[workoutType] }),
+        body: JSON.stringify({
+          logDate, workoutType, name: WORKOUT_TYPE_LABELS[workoutType],
+          programId, programWeek, programDay,
+        }),
       });
       const workoutId = res.data.id;
 
@@ -397,6 +407,14 @@ export default function ProgramsPage() {
                     </div>
                     <p className="text-xs text-gray-500 mt-0.5">{p.durationWeeks} weeks · {p.aiModel}</p>
                   </div>
+                  <Link
+                    href={`/programs/${p.id}/summary`}
+                    className="p-1.5 text-gray-400 hover:text-indigo-500 transition-colors"
+                    aria-label="Program summary"
+                    title="Program summary"
+                  >
+                    <BarChart3 className="h-4 w-4" />
+                  </Link>
                   <button
                     type="button"
                     onClick={() => toggleProgram(p.id)}
@@ -486,7 +504,14 @@ export default function ProgramsPage() {
                           </div>
                           <button
                             type="button"
-                            onClick={() => startWorkoutMutation.mutate({ workoutType: selectedDay.workoutType, logDate: today, exercises: selectedDay.exercises })}
+                            onClick={() => startWorkoutMutation.mutate({
+                              workoutType: selectedDay.workoutType,
+                              logDate: today,
+                              exercises: selectedDay.exercises,
+                              programId: p.id,
+                              programWeek: currentWeek?.weekNumber ?? weekIdx + 1,
+                              programDay: selectedDayOfWeek ?? undefined,
+                            })}
                             disabled={startWorkoutMutation.isPending}
                             className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition-colors"
                           >

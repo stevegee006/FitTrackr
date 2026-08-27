@@ -11,6 +11,15 @@ export default async function programRoutes(fastify: FastifyInstance) {
     },
   });
 
+  fastify.get('/programs/:id/summary', {
+    preHandler: [fastify.authenticate],
+    handler: async (req) => {
+      const { id } = req.params as any;
+      const data = await programService.getProgramSummary(fastify, req.user.sub, id);
+      return { data };
+    },
+  });
+
   fastify.get('/programs/active', {
     preHandler: [fastify.authenticate],
     handler: async (req) => {

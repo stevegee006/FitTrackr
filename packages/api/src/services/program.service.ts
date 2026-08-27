@@ -174,6 +174,148 @@ export async function getActiveProgram(fastify: FastifyInstance, userId: string)
   });
 }
 
+/**
+ * How the program went: adherence against the plan, what was actually lifted,
+ * and any PRs set while it was running.
+ *
+ * Sessions are matched by `Workout.programId`, stamped when a workout is
+ * started from a program day. **Workouts logged before migration 0006 have no
+ * programId**, so a program that predates it will report 0 completed sessions
+ * even if it was followed — the numbers are only meaningful going forward.
+ */
+export async function getProgramSummary(
+  fastify: FastifyInstance,
+  userId: string,
+  programId: string,
+) {
+  const program = await fastify.prisma.program.findUnique({ where: { id: programId } });
+  if (!program) throw new NotFoundError('Program');
+  if (program.userId !== userId) throw new ForbiddenError('Not your program');
+
+  const workouts = await fastify.prisma.workout.findMany({
+    where: { userId, programId },
+    orderBy: { logDate: 'asc' },
+    include: {
+      sets: {
+        where: { isWarmup: false },
+        include: { exercise: { select: { id: true, name: true, primaryMuscle: true } } },
+      },
+    },
+  });
+
+  // Planned session count from the stored plan.
+  const data = program.programData as any;
+  const weeks: any[] = Array.isArray(data?.weeks) ? data.weeks : [];
+  const plannedSessions = weeks.reduce(
+    (n, w) => n + (Array.isArray(w?.days) ? w.days.length : 0),
+    0,
+  );
+
+  let totalSets = 0;
+  let totalReps = 0;
+  let totalVolumeKg = 0;
+  const setsByMuscle: Record<string, number> = {};
+  const weeksTouched = new Set<number>();
+  const perExercise = new Map<string, { name: string; sets: number; volumeKg: number }>();
+
+  for (const w of workouts) {
+    if (w.programWeek != null) weeksTouched.add(w.programWeek);
+    for (const s of w.sets) {
+      totalSets += 1;
+      totalReps += s.reps ?? 0;
+      if (s.weightKg != null && s.reps != null) totalVolumeKg += s.weightKg * s.reps;
+
+      const muscle = s.exercise?.primaryMuscle;
+      if (muscle) setsByMuscle[muscle] = (setsByMuscle[muscle] ?? 0) + 1;
+
+      const entry = perExercise.get(s.exerciseId) ?? {
+        name: s.exercise?.name ?? 'Exercise', sets: 0, volumeKg: 0,
+      };
+      entry.sets += 1;
+      if (s.weightKg != null && s.reps != null) entry.volumeKg += s.weightKg * s.reps;
+      perExercise.set(s.exerciseId, entry);
+    }
+  }
+
+  // Top weight per exercise per session, date-ascending, so "first vs last"
+  // compares whole sessions rather than individual sets.
+  const topByExerciseSession = new Map<string, Array<{ date: string; top: number }>>();
+  for (const w of workouts) {
+    const perEx = new Map<string, number>();
+    for (const s of w.sets) {
+      if (s.weightKg == null) continue;
+      perEx.set(s.exerciseId, Math.max(perEx.get(s.exerciseId) ?? 0, s.weightKg));
+    }
+    for (const [exId, top] of perEx) {
+      const arr = topByExerciseSession.get(exId) ?? [];
+      arr.push({ date: w.logDate.toISOString().split('T')[0], top });
+      topByExerciseSession.set(exId, arr);
+    }
+  }
+
+  const exercises = [...perExercise.entries()].map(([exerciseId, e]) => {
+    const sessions = topByExerciseSession.get(exerciseId) ?? [];
+    const firstTop = sessions.length ? sessions[0].top : null;
+    const lastTop = sessions.length ? sessions[sessions.length - 1].top : null;
+    return {
+      exerciseId,
+      name: e.name,
+      sessions: sessions.length,
+      sets: e.sets,
+      volumeKg: Math.round(e.volumeKg),
+      firstTopWeightKg: firstTop,
+      lastTopWeightKg: lastTop,
+      changeKg: firstTop != null && lastTop != null ? Math.round((lastTop - firstTop) * 100) / 100 : null,
+    };
+  }).sort((a, b) => b.volumeKg - a.volumeKg);
+
+  // PRs achieved during the program's date window.
+  const first = workouts[0]?.logDate;
+  const last = workouts[workouts.length - 1]?.logDate;
+  const prs = first && last
+    ? await fastify.prisma.personalRecord.findMany({
+        where: { userId, achievedAt: { gte: first, lte: last } },
+        include: { exercise: { select: { id: true, name: true } } },
+        orderBy: { achievedAt: 'asc' },
+      })
+    : [];
+
+  return {
+    program: {
+      id: program.id,
+      name: program.name,
+      durationWeeks: program.durationWeeks,
+      isActive: program.isActive,
+      aiModel: program.aiModel,
+    },
+    adherence: {
+      plannedSessions,
+      completedSessions: workouts.length,
+      // Null rather than a misleading 0% when the plan has no days at all.
+      percent: plannedSessions > 0
+        ? Math.round((workouts.length / plannedSessions) * 100)
+        : null,
+      weeksTrained: weeksTouched.size,
+      firstWorkout: first ? first.toISOString().split('T')[0] : null,
+      lastWorkout: last ? last.toISOString().split('T')[0] : null,
+    },
+    totals: {
+      sets: totalSets,
+      totalReps,
+      volumeKg: Math.round(totalVolumeKg),
+      durationMin: workouts.reduce((n, w) => n + (w.durationMin ?? 0), 0),
+    },
+    setsByMuscle,
+    exercises,
+    personalRecords: prs.map((p) => ({
+      exerciseName: p.exercise?.name ?? 'Exercise',
+      recordType: p.recordType,
+      value: p.value,
+      achievedAt: p.achievedAt.toISOString().split('T')[0],
+    })),
+  };
+}
+
 export async function deleteProgram(fastify: FastifyInstance, userId: string, id: string) {
   const program = await fastify.prisma.program.findUnique({ where: { id } });
   if (!program) throw new NotFoundError('Program');

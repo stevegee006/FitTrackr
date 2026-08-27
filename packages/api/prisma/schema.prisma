@@ -263,13 +263,20 @@ model Workout {
   workoutType   WorkoutType @map("workout_type")
   notes         String?     @db.Text
   exerciseOrder String[]    @default([]) @map("exercise_order")
+  // Set when the session was started from a program day, so adherence and the
+  // program summary can be measured. SetNull: deleting a program keeps history.
+  programId     String?     @map("program_id") @db.Uuid
+  programWeek   Int?        @map("program_week")
+  programDay    Int?        @map("program_day")
   createdAt     DateTime    @default(now()) @map("created_at")
   updatedAt     DateTime    @updatedAt @map("updated_at")
 
-  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sets WorkoutSet[]
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  program Program?     @relation(fields: [programId], references: [id], onDelete: SetNull)
+  sets    WorkoutSet[]
 
   @@index([userId, logDate])
+  @@index([programId])
   @@map("workouts")
 }
 
@@ -336,7 +343,8 @@ model Program {
   isActive      Boolean  @default(false) @map("is_active")
   createdAt     DateTime @default(now()) @map("created_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workouts Workout[]
 
   @@index([userId])
   @@map("programs")

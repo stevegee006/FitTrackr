@@ -17,6 +17,9 @@ export async function createWorkout(
       name: data.name ?? null,
       notes: data.notes ?? null,
       durationMin: data.durationMin ?? null,
+      programId: data.programId ?? null,
+      programWeek: data.programWeek ?? null,
+      programDay: data.programDay ?? null,
     },
     include: { sets: { include: { exercise: true }, orderBy: { setNumber: 'asc' } } },
   });
