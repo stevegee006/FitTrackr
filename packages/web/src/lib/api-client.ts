@@ -57,27 +57,66 @@ export function setRefreshToken(token: string | null) {
   }
 }
 
-async function refreshAccessToken(): Promise<string | null> {
+/**
+ * Called when the refresh token is definitively rejected, so the app can show
+ * the login screen instead of sitting in a logged-in-but-dead state where every
+ * request 401s and every mutation fails silently.
+ */
+type AuthFailureHandler = () => void;
+let onAuthFailure: AuthFailureHandler | null = null;
+export function setAuthFailureHandler(handler: AuthFailureHandler | null) {
+  onAuthFailure = handler;
+}
+
+/**
+ * In-flight refresh, shared by every caller.
+ *
+ * The server ROTATES refresh tokens: it deletes the presented one and issues a
+ * new pair. Without this single-flight guard, a burst of concurrent 401s (the
+ * workout logger fires several PATCHes per tap) each fired its own refresh with
+ * the same token — the first won, the rest presented an already-deleted token,
+ * got rejected, and wiped the refresh token that the winner had just stored.
+ * That is the "randomly logged out" bug.
+ */
+let refreshPromise: Promise<string | null> | null = null;
+
+async function performRefresh(): Promise<string | null> {
   const refreshToken = getRefreshToken();
   if (!refreshToken) return null;
   try {
-    const baseUrl = getApiUrl();
-    const res = await fetch(`${baseUrl}/auth/refresh`, {
+    const res = await fetch(`${getApiUrl()}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken }),
     });
+
     if (!res.ok) {
-      setRefreshToken(null);
+      // Only a definitive auth rejection means the token is dead. A 500 or a
+      // gateway blip must NOT log the user out — it used to clear on any
+      // non-2xx, so a momentary server error ended the session.
+      if (res.status === 401 || res.status === 403) {
+        setAccessToken(null);
+        setRefreshToken(null);
+        onAuthFailure?.();
+      }
       return null;
     }
+
     const data = await res.json();
     setAccessToken(data.data.accessToken);
     setRefreshToken(data.data.refreshToken);
     return data.data.accessToken;
   } catch {
+    // Network failure: keep the token and let the caller surface the error.
     return null;
   }
+}
+
+function refreshAccessToken(): Promise<string | null> {
+  if (!refreshPromise) {
+    refreshPromise = performRefresh().finally(() => { refreshPromise = null; });
+  }
+  return refreshPromise;
 }
 
 export async function apiFetch<T>(
@@ -102,39 +141,38 @@ export async function apiFetch<T>(
     headers['Authorization'] = `Bearer ${accessToken}`;
   }
 
-  // Use AbortSignal.timeout for requests that may take long (e.g. AI vision)
-  const signal = timeout ? AbortSignal.timeout(timeout) : undefined;
-
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      ...fetchOptions,
-      headers,
-      signal,
-    });
-  } catch (err: any) {
-    if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
-      throw new ApiError(0, 'TIMEOUT', 'Request timed out. Try again with a better connection.');
+  // A fresh signal per attempt: reusing one across the retry meant a request
+  // that had already timed out retried with an aborted signal and died instantly.
+  const send = async (): Promise<Response> => {
+    try {
+      return await fetch(url, {
+        ...fetchOptions,
+        headers,
+        signal: timeout ? AbortSignal.timeout(timeout) : undefined,
+      });
+    } catch (err: any) {
+      if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+        throw new ApiError(0, 'TIMEOUT', 'Request timed out. Try again with a better connection.');
+      }
+      throw new ApiError(0, 'NETWORK_ERROR', 'Could not reach the server. Check your connection and try again.');
     }
-    throw new ApiError(0, 'NETWORK_ERROR', 'Could not reach the server. Check your connection and try again.');
-  }
+  };
 
-  // If 401, try refreshing the token
-  if (res.status === 401 && accessToken) {
-    const newToken = await refreshAccessToken();
-    if (newToken) {
-      headers['Authorization'] = `Bearer ${newToken}`;
-      try {
-        res = await fetch(url, {
-          ...fetchOptions,
-          headers,
-          signal,
-        });
-      } catch (err: any) {
-        if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
-          throw new ApiError(0, 'TIMEOUT', 'Request timed out. Try again with a better connection.');
-        }
-        throw new ApiError(0, 'NETWORK_ERROR', 'Could not reach the server. Check your connection and try again.');
+  // Remember which token this attempt used, so a 401 can tell "my token is
+  // stale" from "someone else already refreshed while I was in flight".
+  const tokenUsed = accessToken;
+  let res = await send();
+
+  if (res.status === 401 && tokenUsed) {
+    if (accessToken && accessToken !== tokenUsed) {
+      // Another request refreshed already — just retry with the current token.
+      headers['Authorization'] = `Bearer ${accessToken}`;
+      res = await send();
+    } else {
+      const newToken = await refreshAccessToken();
+      if (newToken) {
+        headers['Authorization'] = `Bearer ${newToken}`;
+        res = await send();
       }
     }
   }

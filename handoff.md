@@ -10,9 +10,10 @@ setup instructions live in [README.md](README.md); **this file is about intent,
 state, and sharp edges** — the things you would otherwise have to rediscover by
 breaking something._
 
-> **Read sharp edges #56–#69 before touching iOS layout, sharp asset
-> generation, AI prompts, summaries/PRs, or trusting any `git`/`gh`/preview
-> command in this workspace.** Those cost the most time to learn.
+> **Read sharp edges #56–#71 before touching iOS layout, sharp asset
+> generation, AI prompts, summaries/PRs, the auth/refresh path, or trusting any
+> `git`/`gh`/preview command in this workspace.** Those cost the most time to
+> learn.
 
 ## Goal
 
@@ -619,17 +620,26 @@ is exactly why it is written down here.
 
 ### Frontend
 
-33. **Token refresh has no in-flight dedupe.** N concurrent 401s fire N
-    refreshes — and because the server *rotates* refresh tokens, those
-    requests can invalidate each other. The workout logger, which fires 3–4
-    PATCHes per tap, is exactly the shape of traffic that triggers this. A
-    mutex/single-flight promise around `refreshAccessToken()` is the fix.
-34. **Refresh failure doesn't notify `AuthProvider`** and doesn't clear the
-    access token, so the UI can sit logged-in-but-dead until a manual reload.
-    There is no global 401 → logout wiring in `QueryProvider` either.
-35. **The 401 retry reuses the same `AbortSignal`** — if the original request
-    timed out, the signal is already aborted and the retry dies instantly.
-    This bites the long-timeout AI calls specifically.
+33. ~~**Token refresh has no in-flight dedupe.**~~ **FIXED** — this was the
+    cause of the reported random logouts. N concurrent 401s each fired their
+    own refresh with the same token; the server rotates (deletes the presented
+    token and issues a new pair), so the first won and the rest were rejected
+    and **wiped the refresh token the winner had just stored**. Next mount:
+    logged out. `refreshAccessToken()` is now single-flight via a shared
+    `refreshPromise`, and a request whose token changed while it was in flight
+    retries with the current token instead of refreshing again. **Do not add
+    another refresh call path without going through it.**
+34. ~~**Refresh failure doesn't notify `AuthProvider`.**~~ **FIXED** — this was
+    the cause of the reported "app is unresponsive until I back out and go
+    back in". The app stayed nominally logged in with a dead token: every
+    request 401'd, every mutation failed, and `SetRow` had no `onError`, so a
+    tapped checkbox simply did nothing. `setAuthFailureHandler` now lets
+    `AuthProvider` drop the user so the guard redirects to login. Note the
+    corollary fix: refresh and `refreshUser` only clear tokens on **401/403**.
+    They previously cleared on *any* non-2xx, so a single 500 or dropped
+    connection ended the session.
+35. ~~**The 401 retry reuses the same `AbortSignal`.**~~ **FIXED** — each
+    attempt now builds its own signal.
 36. **No optimistic updates anywhere** (see the logger section). Biggest
     perceived-performance item in the product.
 37. **Dark-mode FOUC.** `ThemeProvider` applies `.dark` in a mount effect
@@ -792,6 +802,24 @@ is exactly why it is written down here.
     bodyweight and cardio work does not read as zero-weight strength work.
     "Best set" means highest volume, not heaviest weight — a 1x100 single does
     not outrank 10x50. Both behaviours are pinned by tests.
+
+### Request volume
+
+70. **The global rate limit was 100/min and a normal session exceeded it.**
+    Completing a set used to fire **four** PATCHes (weight, reps, RPE, then
+    the completion flag), each invalidating `['workout', id]` and triggering a
+    refetch — roughly eight requests per checkbox tap. Twelve sets was ~100
+    requests, so a dense session hit the limit, and the resulting 429 showed
+    up as a save that silently did nothing. Two changes: completion now sends
+    **one** PATCH carrying every field, and the limit is 600/min.
+    **Keying is per-IP and cannot be per-user** — the rate-limit hook runs
+    before `authPlugin`, so `request.user` is not populated yet. Don't "fix"
+    that with a `keyGenerator` reading `request.user`; it silently falls back
+    to IP for every request.
+71. **Mutations in the logger had no `onError`.** Every failure — 429, 401,
+    network — was invisible: the checkbox just didn't tick. `SetRow` now shows
+    the message inline. Any new mutation on the logging path needs the same,
+    or it will reproduce the "app is frozen" report.
 
 ### Tooling hazards in this workspace
 
@@ -984,9 +1012,6 @@ Known outstanding user-facing items:
    user will actually feel — every set commit and completion checkbox
    currently round-trips. `onMutate` + `setQueryData` on the set PATCH is the
    highest-value change in this list.
-2. **Single-flight the token refresh** (#33) and wire refresh failure back to
-   `AuthProvider` (#34). The logger's burst of PATCHes is the exact traffic
-   pattern that can rotate two refresh tokens into each other.
 3. **Make `docker-entrypoint.sh` fail hard** instead of falling through to
    `db push` and then starting anyway (sharp edge #1). Highest
    damage-per-effort item on the backend.

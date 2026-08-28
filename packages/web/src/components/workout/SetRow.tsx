@@ -72,6 +72,7 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
   }, [set.distanceM, isImperial]);
 
   const [showCalc, setShowCalc] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const updateMutation = useMutation({
     mutationFn: (data: {
@@ -84,7 +85,13 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
       distanceM?: number;
     }) =>
       apiFetch(`/workouts/${workoutId}/sets/${set.id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['workout', workoutId] }),
+    onSuccess: () => {
+      setSaveError(null);
+      queryClient.invalidateQueries({ queryKey: ['workout', workoutId] });
+    },
+    // Failures used to be completely silent: the checkbox simply didn't tick
+    // and nothing said why. Rate-limit (429) and auth errors both landed here.
+    onError: (err: any) => setSaveError(err?.message ?? 'Could not save.'),
   });
 
   const deleteMutation = useMutation({
@@ -96,51 +103,56 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
     },
   });
 
-  function commitWeight() {
+  // Field readers are pure so completing a set can send ONE request instead of
+  // one per field. Four PATCHes per tap, each invalidating the workout query,
+  // was ~8 requests per set — enough to trip the API rate limit during a dense
+  // session, at which point every save failed silently.
+  function weightPayload() {
     const lbsOrKg = parseFloat(weightVal);
-    if (!isNaN(lbsOrKg)) {
-      const weightKg = isImperial ? lbsOrKg / 2.20462 : lbsOrKg;
-      updateMutation.mutate({ weightKg: Math.round(weightKg * 100) / 100 });
-    }
+    if (isNaN(lbsOrKg)) return null;
+    const weightKg = isImperial ? lbsOrKg / 2.20462 : lbsOrKg;
+    return { weightKg: Math.round(weightKg * 100) / 100 };
   }
 
-  function commitReps() {
+  function repsPayload() {
     const reps = parseInt(repsVal);
-    if (!isNaN(reps)) updateMutation.mutate({ reps });
+    return isNaN(reps) ? null : { reps };
   }
 
-  function commitRpe() {
+  function rpePayload() {
     const rpe = parseFloat(rpeVal);
-    if (!isNaN(rpe) && rpe >= 1 && rpe <= 10) updateMutation.mutate({ rpe });
+    return !isNaN(rpe) && rpe >= 1 && rpe <= 10 ? { rpe } : null;
   }
 
-  function commitDuration() {
+  function durationPayload() {
     const mins = parseInt(durationMinVal) || 0;
     const secs = parseInt(durationSecVal) || 0;
     const total = mins * 60 + secs;
-    if (total >= 0) updateMutation.mutate({ durationSec: total });
+    return total >= 0 ? { durationSec: total } : null;
   }
 
-  function commitDistance() {
+  function distancePayload() {
     const val = parseFloat(distanceVal);
-    if (!isNaN(val) && val >= 0) {
-      const meters = isImperial ? Math.round(val * 1609.344) : Math.round(val * 1000);
-      updateMutation.mutate({ distanceM: meters });
-    }
+    if (isNaN(val) || val < 0) return null;
+    return { distanceM: isImperial ? Math.round(val * 1609.344) : Math.round(val * 1000) };
   }
+
+  function commitWeight() { const p = weightPayload(); if (p) updateMutation.mutate(p); }
+  function commitReps() { const p = repsPayload(); if (p) updateMutation.mutate(p); }
+  function commitRpe() { const p = rpePayload(); if (p) updateMutation.mutate(p); }
+  function commitDuration() { const p = durationPayload(); if (p) updateMutation.mutate(p); }
+  function commitDistance() { const p = distancePayload(); if (p) updateMutation.mutate(p); }
 
   function handleToggleComplete() {
-    const completing = !set.isCompleted;
-    if (completing) {
-      if (isCardio) {
-        commitDuration();
-        commitDistance();
-      } else {
-        commitWeight();
-        commitReps();
-      }
-      commitRpe();
-      updateMutation.mutate({ isCompleted: true });
+    if (!set.isCompleted) {
+      // One request carrying every field plus the completion flag.
+      updateMutation.mutate({
+        ...(isCardio
+          ? { ...durationPayload(), ...distancePayload() }
+          : { ...weightPayload(), ...repsPayload() }),
+        ...rpePayload(),
+        isCompleted: true,
+      });
       if (!set.isWarmup) onSetLogged?.();
     } else {
       updateMutation.mutate({ isCompleted: false });
@@ -252,6 +264,10 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>
+
+      {saveError && (
+        <p className="pl-8 pb-1 text-[11px] text-red-500">{saveError}</p>
+      )}
 
       {!isCardio && showCalc && (
         <PlateCalculator

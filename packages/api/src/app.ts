@@ -38,9 +38,14 @@ export async function buildApp() {
   await app.register(cors, corsOptions);
   await app.register(cookie);
   await app.register(helmet, { contentSecurityPolicy: false }); // CSP managed by Next.js
+  // 100/min was too tight for real use: logging a set fires a PATCH plus a
+  // refetch, and a dense session tripped the limit — a 429 then surfaced as a
+  // silently failed save. Keying is per-IP (the plugin default); it cannot be
+  // per-user, because this hook runs before authPlugin so request.user is not
+  // populated yet.
   await app.register(rateLimit, {
     global: true,
-    max: 100,
+    max: 600,
     timeWindow: '1 minute',
   });
   await app.register(prismaPlugin);

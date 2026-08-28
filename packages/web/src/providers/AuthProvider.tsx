@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
-import { apiFetch, setAccessToken, setRefreshToken, getRefreshToken } from '@/lib/api-client';
+import { apiFetch, setAccessToken, setRefreshToken, getRefreshToken, setAuthFailureHandler } from '@/lib/api-client';
 import type { User } from '@fittrackr/shared';
 
 interface AuthTokens {
@@ -34,11 +34,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const res = await apiFetch<{ data: User }>('/users/me');
       setUser(res.data);
-    } catch {
-      setUser(null);
-      setAccessToken(null);
-      setRefreshToken(null);
+    } catch (err: any) {
+      // Only an auth rejection ends the session. This used to clear the tokens
+      // on ANY failure, so a dropped connection or a 500 logged the user out.
+      const status = err?.status;
+      if (status === 401 || status === 403) {
+        setUser(null);
+        setAccessToken(null);
+        setRefreshToken(null);
+      }
     }
+  }, []);
+
+  // When the refresh token is definitively rejected, drop the user so the
+  // dashboard guard redirects to login. Without this the app stayed "logged in"
+  // with a dead token: every request 401'd and every mutation failed silently,
+  // which read as the app being frozen.
+  useEffect(() => {
+    setAuthFailureHandler(() => setUser(null));
+    return () => setAuthFailureHandler(null);
   }, []);
 
   useEffect(() => {
