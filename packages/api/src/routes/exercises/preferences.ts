@@ -82,6 +82,41 @@ export default async function exercisePreferenceRoutes(fastify: FastifyInstance)
     },
   });
 
+  // GET /exercises/:exerciseId/last-session
+  // The whole set list from the most recent session containing this exercise,
+  // so adding it to a workout can reproduce that session rather than dropping
+  // in a single blank set.
+  fastify.get('/exercises/:exerciseId/last-session', {
+    preHandler: [fastify.authenticate],
+    handler: async (req) => {
+      const { exerciseId } = req.params as any;
+      const { excludeWorkoutId } = req.query as any;
+      const userId = req.user.sub;
+
+      const where: Record<string, any> = { userId, sets: { some: { exerciseId, isWarmup: false } } };
+      if (excludeWorkoutId) where.id = { not: excludeWorkoutId };
+
+      const workout = await fastify.prisma.workout.findFirst({
+        where,
+        orderBy: { logDate: 'desc' },
+        select: {
+          logDate: true,
+          sets: {
+            where: { exerciseId, isWarmup: false },
+            orderBy: { setNumber: 'asc' },
+            select: {
+              setNumber: true, reps: true, weightKg: true, rpe: true,
+              durationSec: true, distanceM: true,
+            },
+          },
+        },
+      });
+
+      if (!workout || workout.sets.length === 0) return { data: null };
+      return { data: { logDate: workout.logDate, sets: workout.sets } };
+    },
+  });
+
   // GET /exercises/:exerciseId/history
   fastify.get('/exercises/:exerciseId/history', {
     preHandler: [fastify.authenticate],

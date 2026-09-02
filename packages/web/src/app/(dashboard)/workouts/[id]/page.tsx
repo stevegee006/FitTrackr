@@ -145,6 +145,7 @@ export default function WorkoutDetailPage() {
   const [workoutStarted, setWorkoutStarted] = useState(false);
   const [showWatchReminder, setShowWatchReminder] = useState(false);
   const [showDurationEdit, setShowDurationEdit] = useState(false);
+  const [addExerciseError, setAddExerciseError] = useState<string | null>(null);
   const startAnchorRef = useRef<number>(0);
 
   // ── Timer localStorage persistence ──────────────────────────────────────────
@@ -263,6 +264,89 @@ export default function WorkoutDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['workout', id] });
       setShowExerciseSearch(false);
       setSelectedExercise(null);
+    },
+  });
+
+  /**
+   * Adding an exercise reproduces the last session's working sets — the same
+   * number of sets, with reps, weight, RPE and any time/distance carried over —
+   * instead of dropping in a single blank set to fill in by hand.
+   *
+   * Falls back to the saved rep-range preference, then to one empty set.
+   */
+  const addExerciseMutation = useMutation({
+    mutationFn: async (exerciseId: string) => {
+      const existing = workout?.sets?.filter((s) => s.exerciseId === exerciseId) ?? [];
+      // Already in this workout — just append one set, the old behaviour.
+      if (existing.length > 0) {
+        const last = existing[existing.length - 1];
+        return apiFetch(`/workouts/${id}/sets`, {
+          method: 'POST',
+          body: JSON.stringify({
+            exerciseId, setNumber: existing.length + 1,
+            reps: last.reps ?? null, weightKg: last.weightKg ?? null, isWarmup: false,
+          }),
+        });
+      }
+
+      type PriorSet = {
+        reps: number | null; weightKg: number | null; rpe: number | null;
+        durationSec: number | null; distanceM: number | null;
+      };
+
+      let template: PriorSet[] = [];
+      try {
+        const res = await apiFetch<{ data: { sets: PriorSet[] } | null }>(
+          `/exercises/${exerciseId}/last-session?excludeWorkoutId=${id}`,
+        );
+        template = res.data?.sets ?? [];
+      } catch { /* no history — fall through */ }
+
+      if (template.length === 0) {
+        // No history: use the rep-range preference if one was set.
+        let targetSets = 1;
+        let reps: number | null = null;
+        try {
+          const pref = await apiFetch<{ data: { repRangeMin: number | null; targetSets: number | null } | null }>(
+            `/exercises/${exerciseId}/preference`,
+          );
+          targetSets = Math.min(Math.max(pref.data?.targetSets ?? 1, 1), 10);
+          reps = pref.data?.repRangeMin ?? null;
+        } catch { /* defaults */ }
+        template = Array.from({ length: targetSets }, () => ({
+          reps, weightKg: null, rpe: null, durationSec: null, distanceM: null,
+        }));
+      }
+
+      // Sequential so setNumber ordering is deterministic.
+      for (let i = 0; i < template.length; i++) {
+        const t = template[i];
+        await apiFetch(`/workouts/${id}/sets`, {
+          method: 'POST',
+          body: JSON.stringify({
+            exerciseId,
+            setNumber: i + 1,
+            reps: t.reps ?? null,
+            weightKg: t.weightKg ?? null,
+            rpe: t.rpe ?? null,
+            durationSec: t.durationSec ?? null,
+            distanceM: t.distanceM ?? null,
+            isWarmup: false,
+          }),
+        });
+      }
+    },
+    onSuccess: () => {
+      setAddExerciseError(null);
+      queryClient.invalidateQueries({ queryKey: ['workout', id] });
+      setShowExerciseSearch(false);
+      setSelectedExercise(null);
+    },
+    // Several sets are POSTed in sequence, so a failure can leave the exercise
+    // partly added. Say so rather than closing the panel as if it worked.
+    onError: (err: any) => {
+      queryClient.invalidateQueries({ queryKey: ['workout', id] });
+      setAddExerciseError(err?.message ?? 'Could not add the exercise. Check the sets below.');
     },
   });
 
@@ -1000,12 +1084,23 @@ export default function WorkoutDetailPage() {
               <p className="text-sm font-semibold">Add Exercise</p>
               <button type="button" onClick={() => setShowExerciseSearch(false)} className="text-xs text-gray-500">Cancel</button>
             </div>
-            <ExerciseSearchForm
-              onSelect={(ex) => {
-                setSelectedExercise(ex);
-                addSetMutation.mutate(ex.id);
-              }}
-            />
+            {addExerciseMutation.isPending ? (
+              <div className="flex items-center justify-center gap-2 py-6 text-sm text-gray-500 dark:text-gray-400">
+                <Spinner />
+                Adding sets from last time…
+              </div>
+            ) : (
+              <ExerciseSearchForm
+                onSelect={(ex) => {
+                  setAddExerciseError(null);
+                  setSelectedExercise(ex);
+                  addExerciseMutation.mutate(ex.id);
+                }}
+              />
+            )}
+            {addExerciseError && (
+              <p className="mt-2 text-xs text-red-500">{addExerciseError}</p>
+            )}
           </Card>
         ) : (
           <button type="button" onClick={() => setShowExerciseSearch(true)}
