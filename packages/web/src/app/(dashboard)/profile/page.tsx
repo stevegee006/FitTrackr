@@ -16,7 +16,8 @@ import { ACTIVITY_LABELS, TRAINING_GOAL_LABELS } from '@fittrackr/shared';
 import type { UserProfile, UserSettings, AiProvider } from '@fittrackr/shared';
 import Link from 'next/link';
 import { startRegistration } from '@simplewebauthn/browser';
-import { Activity, Camera, GraduationCap, HelpCircle, MessageSquare, Ruler, Search, Shield, Settings, Trash2, ExternalLink, Trophy, User, X } from 'lucide-react';
+import { AwardsTab } from '@/components/awards/AwardsTab';
+import { Activity, Camera, GraduationCap, HelpCircle, MessageSquare, Ruler, Award, Search, Shield, Settings, Trash2, ExternalLink, Trophy, User, X } from 'lucide-react';
 import { compressImage } from '@/lib/image-utils';
 import { getApiUrl, getAccessToken } from '@/lib/api-client';
 import type { BodyMeasurement, ProgressPhotoMeta } from '@fittrackr/shared';
@@ -105,7 +106,7 @@ export default function ProfilePage() {
 // ─── Biometrics Tab ────────────────────────────────────────────
 
 function BiometricsTab() {
-  const [bioTab, setBioTab] = useState<'profile' | 'measurements' | 'prs'>('profile');
+  const [bioTab, setBioTab] = useState<'profile' | 'measurements' | 'prs' | 'awards'>('profile');
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
@@ -211,6 +212,7 @@ function BiometricsTab() {
           { key: 'profile' as const, label: 'Profile', icon: User },
           { key: 'measurements' as const, label: 'Measurements', icon: Ruler },
           { key: 'prs' as const, label: 'PRs', icon: Trophy },
+          { key: 'awards' as const, label: 'Awards', icon: Award },
         ]).map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -230,6 +232,8 @@ function BiometricsTab() {
       {bioTab === 'measurements' && <MeasurementsTab />}
 
       {bioTab === 'prs' && <PersonalRecordsTab isImperial={isImperial} />}
+
+      {bioTab === 'awards' && <AwardsTab isImperial={isImperial} />}
 
       {bioTab === 'profile' && (
       <div className="lg:grid lg:grid-cols-2 lg:gap-6 space-y-6 lg:space-y-0">

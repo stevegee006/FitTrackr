@@ -26,6 +26,7 @@ import programRoutes from './routes/programs/index.js';
 import trainingGoalRoutes from './routes/training-goals/index.js';
 import personalRecordRoutes from './routes/personal-records/index.js';
 import coachRoutes from './routes/coach/index.js';
+import awardsRoutes from './routes/awards/index.js';
 import { AppError } from './utils/errors.js';
 import { logger } from './utils/logger.js';
 
@@ -112,6 +113,7 @@ export async function buildApp() {
       await api.register(trainingGoalRoutes);
       await api.register(personalRecordRoutes);
       await api.register(coachRoutes);
+      await api.register(awardsRoutes);
       // Body tracking
       await api.register(measurementRoutes);
       await api.register(progressPhotoRoutes);
