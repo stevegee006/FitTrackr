@@ -8,7 +8,7 @@ import { VolumeRings } from '@/components/volume/VolumeRings';
 import { WorkoutCard } from '@/components/workout/WorkoutCard';
 import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
-import { Plus } from 'lucide-react';
+import { Plus, Sparkles } from 'lucide-react';
 import type { Workout, UserProfile, TrainingGoal, MuscleGroup, WorkoutType } from '@fittrackr/shared';
 import { MUSCLE_GROUP_LABELS, WORKOUT_TYPE_LABELS } from '@fittrackr/shared';
 import Link from 'next/link';
@@ -174,16 +174,26 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <p className="text-xs font-medium text-indigo-600 dark:text-indigo-400 uppercase tracking-wide mb-0.5">
-          {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-        </p>
-        <h1 className="text-2xl font-bold tracking-tight">
-          Hi, {user?.displayName?.split(' ')[0] || 'there'}
-        </h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-          {greeting.emoji} {greeting.message}
-        </p>
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium text-indigo-600 dark:text-indigo-400 uppercase tracking-wide mb-0.5">
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+          </p>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Hi, {user?.displayName?.split(' ')[0] || 'there'}
+          </h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+            {greeting.emoji} {greeting.message}
+          </p>
+        </div>
+        <Link
+          href="/coach"
+          data-tutorial="ai-coach"
+          className="shrink-0 inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm shadow-indigo-500/20 hover:bg-indigo-700 active:scale-[0.98] transition-all"
+        >
+          <Sparkles className="h-4 w-4" />
+          AI Coach
+        </Link>
       </div>
 
       {/* Volume rings */}

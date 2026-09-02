@@ -29,6 +29,13 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     placement: 'bottom',
   },
   {
+    id: 'ai-coach',
+    title: 'AI Coach',
+    body: 'Tap AI Coach any time for a read on your last 30 days — what’s working, what’s lagging, and what to prioritise next week. It uses your own logged sets, so the advice is about you rather than generic tips.',
+    targetKey: 'ai-coach',
+    placement: 'bottom',
+  },
+  {
     id: 'start-workout',
     title: 'Start a Workout',
     body: 'Tap here to log your first workout, or use the quick-start buttons on the Workouts page to launch a Push, Pull, Legs, or Full Body session instantly.',
