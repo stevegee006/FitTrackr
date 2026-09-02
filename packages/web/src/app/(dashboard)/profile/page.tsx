@@ -132,6 +132,7 @@ function BiometricsTab() {
     sex: '' as string,
     activityLevel: '' as string,
     goal: '' as string,
+    weeklyFrequency: '' as string,
   });
 
   useEffect(() => {
@@ -153,6 +154,7 @@ function BiometricsTab() {
         sex: p.sex || '',
         activityLevel: p.activityLevel || '',
         goal: p.goal || '',
+        weeklyFrequency: p.weeklyFrequency?.toString() || '',
       });
     }
   }, [data]);
@@ -183,6 +185,7 @@ function BiometricsTab() {
       sex: form.sex || null,
       activityLevel: form.activityLevel || null,
       goal: form.goal || null,
+      weeklyFrequency: form.weeklyFrequency ? parseInt(form.weeklyFrequency) : null,
     };
 
     if (form.useBirthDate && form.birthDate) {
@@ -352,6 +355,25 @@ function BiometricsTab() {
                 <option key={key} value={key}>{label}</option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Training days per week
+            </label>
+            <select
+              value={form.weeklyFrequency}
+              onChange={(e) => setForm({ ...form, weeklyFrequency: e.target.value })}
+              className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
+            >
+              <option value="">Not set</option>
+              {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+                <option key={n} value={n}>{n} {n === 1 ? 'day' : 'days'}</option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Your dashboard streak counts weeks that hit this goal, so rest days don&apos;t break it.
+            </p>
           </div>
 
           <div>

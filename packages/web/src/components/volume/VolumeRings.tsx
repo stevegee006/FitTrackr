@@ -15,6 +15,10 @@ interface VolumeRingsProps {
   totalWeightKg?: number;
   units?: 'METRIC' | 'IMPERIAL';
   streak?: number;
+  /** Distinct training days so far in the current week. */
+  streakDaysThisWeek?: number;
+  /** Target training days per week. */
+  streakGoal?: number;
 }
 
 function Ring({
@@ -92,6 +96,8 @@ export function VolumeRings({
   totalWeightKg,
   units = 'METRIC',
   streak,
+  streakDaysThisWeek,
+  streakGoal,
 }: VolumeRingsProps) {
   const { isDark } = useTheme();
   const bgStroke = isDark ? '#374151' : '#e5e7eb';
@@ -162,14 +168,27 @@ export function VolumeRings({
         </div>
       )}
 
-      {streak != null && streak > 0 && (
+      {/* Shown even at zero weeks: progress toward this week's goal is the
+          useful part, and hiding it entirely on a fresh start is worse. */}
+      {(streak != null && streak > 0) || (streakDaysThisWeek != null && streakDaysThisWeek > 0) ? (
         <div className="flex justify-center mt-3 pt-2 border-t border-gray-100 dark:border-gray-800">
           <span className="inline-flex items-center gap-1 rounded-full bg-orange-50 dark:bg-orange-950/40 border border-orange-100 dark:border-orange-800/40 px-2.5 py-0.5 text-xs">
             <Flame className="h-3 w-3 text-orange-500" />
-            <span className="text-orange-700 dark:text-orange-400 font-medium">{streak} day streak</span>
+            <span className="text-orange-700 dark:text-orange-400 font-medium">
+              {streak != null && streak > 0
+                ? `${streak} week${streak === 1 ? '' : 's'} at goal`
+                : 'This week'}
+              {streakGoal != null && streakDaysThisWeek != null && (
+                <span className={streak != null && streak > 0 ? 'text-orange-600/70 dark:text-orange-400/70' : ''}>
+                  {streak != null && streak > 0 ? ' · ' : ' '}
+                  {streakDaysThisWeek}/{streakGoal}
+                  {streak != null && streak > 0 ? ' this week' : ' days'}
+                </span>
+              )}
+            </span>
           </span>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

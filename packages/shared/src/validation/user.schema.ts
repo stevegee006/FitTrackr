@@ -23,6 +23,9 @@ export const updateProfileSchema = z.object({
     .nullable()
     .optional(),
   goal: z.enum(['STRENGTH', 'HYPERTROPHY', 'ENDURANCE', 'WEIGHT_LOSS', 'GENERAL_FITNESS']).nullable().optional(),
+  // Target training days per week. Drives the dashboard streak, which counts
+  // weeks that met this goal rather than consecutive days.
+  weeklyFrequency: z.number().int().min(1).max(7).nullable().optional(),
   targetCalories: z.number().int().positive().max(10000).nullable().optional(),
   targetProteinG: z.number().int().nonnegative().max(1000).nullable().optional(),
   targetCarbsG: z.number().int().nonnegative().max(2000).nullable().optional(),

@@ -3,6 +3,7 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api-client';
 import { todayString, addDays } from '@/lib/utils';
+import { weeklyStreak } from '@/lib/streak';
 import { useAuth } from '@/providers/AuthProvider';
 import { VolumeRings } from '@/components/volume/VolumeRings';
 import { WorkoutCard } from '@/components/workout/WorkoutCard';
@@ -30,18 +31,18 @@ function getSmartGreeting(
     }
   }
 
-  // Streak milestones
-  if (streak >= 30) {
-    return { emoji: '🔥', message: `${streak}-day workout streak! You’re an absolute machine.` };
+  // Streak milestones — `streak` is consecutive WEEKS that hit the weekly goal.
+  if (streak >= 12) {
+    return { emoji: '🔥', message: `${streak} weeks straight at your goal. You’re an absolute machine.` };
   }
-  if (streak >= 14) {
-    return { emoji: '🚀', message: `${streak} days in a row! Incredible consistency.` };
+  if (streak >= 8) {
+    return { emoji: '🚀', message: `${streak} weeks hitting your goal! Incredible consistency.` };
   }
-  if (streak >= 7) {
-    return { emoji: '⭐', message: `${streak}-day streak! A full week of training — keep it up!` };
+  if (streak >= 4) {
+    return { emoji: '⭐', message: `${streak} weeks at your goal — a full month. Keep it up!` };
   }
-  if (streak >= 3) {
-    return { emoji: '💪', message: `${streak}-day streak! You’re building a great habit.` };
+  if (streak >= 2) {
+    return { emoji: '💪', message: `${streak} weeks at your goal! You’re building a great habit.` };
   }
 
   // Days since last workout feedback
@@ -114,11 +115,13 @@ export default function DashboardPage() {
   });
 
   // Last 30 days for streak
-  const thirtyDaysAgo = addDays(today, -30);
+  // Wide enough for the weekly streak to count a real run of weeks; the old
+  // 30-day window capped it at about four.
+  const streakWindowStart = addDays(today, -190);
   const { data: rangeData } = useQuery({
-    queryKey: ['workouts-range', thirtyDaysAgo, today],
+    queryKey: ['workouts-range', streakWindowStart, today],
     queryFn: () =>
-      apiFetch<{ data: { logDate: string }[] }>(`/workouts/range?from=${thirtyDaysAgo}&to=${today}`),
+      apiFetch<{ data: { logDate: string }[] }>(`/workouts/range?from=${streakWindowStart}&to=${today}`),
   });
 
   const { data: profileData } = useQuery({
@@ -141,18 +144,18 @@ export default function DashboardPage() {
     | undefined;
   const workouts = workoutsData?.data ?? [];
 
-  // Streak: consecutive days with a workout, ending today
+  // Streak: consecutive WEEKS that met the weekly training goal. Counting
+  // consecutive days reset on every rest day, which is meaningless for anyone
+  // training a fixed number of days per week.
   const workoutDates = new Set(
     (rangeData?.data ?? []).map((d) => d.logDate.split('T')[0]),
   );
-  let streak = 0;
-  for (let i = 0; i <= 30; i++) {
-    if (workoutDates.has(addDays(today, -i))) {
-      streak++;
-    } else {
-      break;
-    }
-  }
+  // Profile goal first (the one the user sets), then the active training goal,
+  // then a sane default.
+  const weeklyGoal =
+    profileData?.data?.weeklyFrequency ?? goalData?.data?.weeklyFrequency ?? 3;
+  const streakInfo = weeklyStreak(workoutDates, today, weeklyGoal);
+  const streak = streakInfo.weeks;
 
   // Days since last workout
   let daysSinceWorkout: number | null = null;
@@ -213,6 +216,8 @@ export default function DashboardPage() {
           totalWeightKg={volumeData?.data?.totalWeightKg}
           units={settingsData?.data?.preferredUnits}
           streak={streak}
+          streakDaysThisWeek={streakInfo.thisWeekDays}
+          streakGoal={streakInfo.goal}
         />
       </Card>
 
