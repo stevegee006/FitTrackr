@@ -4,6 +4,7 @@ import { useTheme } from '@/providers/ThemeProvider';
 import { MUSCLE_GROUP_LABELS, MUSCLE_GROUP_COLORS } from '@fittrackr/shared';
 import type { MuscleGroup } from '@fittrackr/shared';
 import { Flame } from 'lucide-react';
+import { earnedBadge, nextBadge } from '@/lib/streak';
 
 export type { MuscleGroup };
 
@@ -189,6 +190,31 @@ export function VolumeRings({
           </span>
         </div>
       ) : null}
+
+      {/* Consistency badge for consecutive weeks at the attendance goal. */}
+      {streak != null && streak > 0 && (() => {
+        const badge = earnedBadge(streak);
+        const next = nextBadge(streak);
+        if (!badge && !next) return null;
+        return (
+          <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
+            {badge && (
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${badge.className}`}
+                title={`${badge.weeks}+ consecutive weeks at your goal`}
+              >
+                <span aria-hidden>{badge.emoji}</span>
+                {badge.label}
+              </span>
+            )}
+            {next && (
+              <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                {next.weeks - streak} more week{next.weeks - streak === 1 ? '' : 's'} → {next.emoji} {next.label}
+              </span>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -82,3 +82,42 @@ export function weeklyStreak(
 
   return { weeks, thisWeekDays, goal: target, goalMetThisWeek };
 }
+
+// ─── Consistency badges ───────────────────────────────────────────────────────
+
+export interface StreakBadge {
+  /** Weeks required to earn it. */
+  weeks: number;
+  label: string;
+  emoji: string;
+  /** Tailwind classes for the chip. */
+  className: string;
+}
+
+/**
+ * Milestones for consecutive weeks at the weekly attendance goal. Deliberately
+ * front-loaded: the first badge lands at 2 weeks so there is something to earn
+ * early, then the gaps widen so later ones stay meaningful.
+ */
+export const STREAK_BADGES: StreakBadge[] = [
+  { weeks: 2,  label: 'Consistent',  emoji: '🌱', className: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/50' },
+  { weeks: 4,  label: 'One Month',   emoji: '⭐', className: 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50' },
+  { weeks: 8,  label: 'Two Months',  emoji: '🔥', className: 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-300 dark:border-orange-800/50' },
+  { weeks: 12, label: 'One Quarter', emoji: '💎', className: 'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-800/50' },
+  { weeks: 26, label: 'Half Year',   emoji: '🏆', className: 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/50' },
+  { weeks: 52, label: 'Full Year',   emoji: '👑', className: 'bg-yellow-50 text-yellow-800 border-yellow-300 dark:bg-yellow-950/40 dark:text-yellow-200 dark:border-yellow-700/50' },
+];
+
+/** Highest badge earned at this streak length, or null below the first. */
+export function earnedBadge(weeks: number): StreakBadge | null {
+  let best: StreakBadge | null = null;
+  for (const b of STREAK_BADGES) {
+    if (weeks >= b.weeks) best = b;
+  }
+  return best;
+}
+
+/** The next badge to aim for, or null once every one is earned. */
+export function nextBadge(weeks: number): StreakBadge | null {
+  return STREAK_BADGES.find((b) => weeks < b.weeks) ?? null;
+}
