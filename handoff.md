@@ -1,7 +1,8 @@
 # HANDOFF — FitTrackr
 
-_Last updated: 2026-08-26 (through `a4a21bb` — workout summary, program
-summary, PR tracking; earlier: plate-calculator units and sled
+_Last updated: 2026-08-27 (through `a9c8b57` — random-logout and frozen-app
+fixes, cardio/bodyweight handling, exercise replay, duration editing; earlier:
+workout and program summaries, PR tracking, plate-calculator units and sled
 support, program generation rewritten to a week template, AI suggest's
 backwards deload fixed, RPE capped, watch reminder, logo and splash refresh,
 iOS layout fixes, and the project's first tests). Written as a handoff for the
@@ -10,10 +11,13 @@ setup instructions live in [README.md](README.md); **this file is about intent,
 state, and sharp edges** — the things you would otherwise have to rediscover by
 breaking something._
 
-> **Read sharp edges #56–#71 before touching iOS layout, sharp asset
-> generation, AI prompts, summaries/PRs, the auth/refresh path, or trusting any
-> `git`/`gh`/preview command in this workspace.** Those cost the most time to
-> learn.
+> **Read sharp edges #56–#76 before touching iOS layout, sharp asset
+> generation, AI prompts, summaries/PRs, the auth/refresh path, persisted
+> timer state, cardio/bodyweight handling, or trusting any `git`/`gh`/preview
+> command in this workspace.** Those cost the most time to learn. If you only
+> read two: **#64a/#64b** (a scoped `git add` plus a stale `shared/dist` will
+> break CI while your local build stays green) and **#74** (filtering on
+> `weightKg` deletes cardio and bodyweight work — it has shipped twice).
 
 ## Goal
 
@@ -821,6 +825,50 @@ is exactly why it is written down here.
     the message inline. Any new mutation on the logging path needs the same,
     or it will reproduce the "app is frozen" report.
 
+### Persisted state and input
+
+72. **Anything read back from `localStorage` here needs range validation.**
+    The workout clock has now produced three separate bugs from trusting it.
+    The worst: `finishMutation` called `clearTimerState()` and *then*
+    `pauseClock()`, which persists — so finishing re-created the key it had
+    just deleted, with `anchor` still `0`. That restored as
+    `Date.now()/1000` ≈ **496627 hours**, and Finish wrote it to the workout
+    as ~29.8 million minutes. Restore now rejects a non-finite/zero/negative
+    anchor and any elapsed beyond 24 h, `durationMin` is clamped client-side,
+    and `createWorkoutSchema` caps it at 1440. **Validate on read; a writer
+    you didn't expect will eventually put junk in there.**
+73. **`inputMode="numeric"` has no decimal point.** A phone keypad in numeric
+    mode cannot type `1.5`, so the cardio distance field was unusable for any
+    fractional distance. Use `inputMode="decimal"` for anything fractional —
+    and pair it with `step="any"`, because `type="number"` defaults to
+    `step=1`, which *also* marks fractional values invalid. `MathInput`
+    already defaults to `decimal`; raw `<input type="number">` does not.
+
+### Cardio and bodyweight are not "missing data"
+
+74. **Filtering on `weightKg != null` silently deletes real work.** This has
+    now shipped twice. In the AI-suggest history builder it meant pull-ups
+    produced "(no working sets)" and the model had nothing to reason about;
+    in the summary `tally()` it meant a 9-minute walk read as "1 set, 1 rep"
+    because duration and distance were never accumulated. **A set is real if
+    it has reps OR duration OR distance** — weight is one dimension of it, not
+    a precondition. Both paths now branch on what the set actually contains,
+    and the AI prompt has an explicit bodyweight rule (progress by reps, then
+    added load or a harder variation, `targetWeight` null).
+75. **Rest starts after a ROUND, not after a set.** In a superset/circuit you
+    move straight to the next exercise, so firing the timer per set fired it
+    mid-round. `handleSetLogged(exerciseId, roundNumber)` waits until every
+    group member's set at that round is complete. Two details that are easy to
+    get wrong: the set that just fired the callback still reads incomplete in
+    the cache (its refetch is in flight, so treat it as done), and a member
+    with **no** set at that round must be skipped or an uneven group never
+    triggers the timer at all.
+76. **Multi-POST actions can partly succeed.** Adding an exercise replays the
+    last session by POSTing one set per historical set; the warmup ladder
+    POSTs three. Neither is transactional, so a mid-sequence failure leaves
+    real sets behind. Both surface the error rather than closing as though
+    they worked, but the honest fix is a bulk-create endpoint.
+
 ### Tooling hazards in this workspace
 
 63. **The primary working directory is `D:\dev\MacroTracker`, not FitTrackr.**
@@ -834,6 +882,18 @@ is exactly why it is written down here.
     - `preview_start` resolves `.claude/launch.json` from the primary working
       directory, so it boots **MacroTrackr's** dev server on :3000. A browser
       check run that way is measuring the wrong app entirely.
+64a. **NEVER scope `git add` to a subset of packages.** A commit staged with
+    `git add -A packages/api packages/web` silently dropped `packages/shared`,
+    so the API built in CI against a shared package missing the fields it
+    used — three `TS2339`s on `CreateWorkoutInput`. `packages/shared` is the
+    contract between the other two; stage the whole tree or explicit full
+    paths, and read `git status` before committing.
+64b. **A green local build proves nothing when `packages/shared/dist` is
+    stale.** The commit above passed locally precisely *because* `dist` had
+    already been rebuilt with the change — `tsc` happily resolved fields that
+    existed only on disk. For anything touching `packages/shared`:
+    `rm -rf packages/shared/dist && pnpm --filter @fittrackr/shared build`
+    before believing a typecheck.
 64. **Runtime-injected Tailwind classes prove nothing.** Tailwind only
     generates utilities it finds in *source*, so testing a class by creating
     an element in the page console and reading `getComputedStyle` reports
@@ -971,6 +1031,32 @@ And a fourth batch — summaries and PR tracking:
   from the chart icon on each program card. **Only measures forward from this
   migration** (#65).
 
+And a fifth batch — polish, then two real bug reports:
+
+- **PRs list search** (`fca28e4`) — client-side filter over the already-fetched
+  list.
+- **Corrupt workout clock** (`585c960`) — see #72. Duration is now editable
+  (pencil in the workout header and on the summary), which is also the repair
+  path for workouts already carrying a bad value.
+- **Duration in hours and minutes** (`cd8fb66`) — separate H/M fields, and
+  `formatDuration`/`splitDuration` in `lib/utils` now feed **every** display
+  (workout summary, program summary, workouts list, `WorkoutCard`). Four sites
+  had four different formats before.
+- **Finish celebration** (`8dfcb5c`) — `CelebrationBurst`, CSS keyframes, no
+  dependency. `pointer-events-none`, particles generated in an effect (not
+  during render, which would mismatch hydration), self-unmounting, and
+  disabled under `prefers-reduced-motion`. Fires once per finish via a
+  `sessionStorage` flag cleared as it's read.
+- **Random logouts + the frozen app** (`0d53807`) — the big one; see #33–35
+  and #70–71. Both symptoms were the refresh path.
+- **Decimal keypads, cardio summaries, superset rest timing, bodyweight AI**
+  (`cf7679d`) — see #73–75 and #74.
+- **Adding an exercise replays the last session** (`a9c8b57`) — new
+  `GET /exercises/:id/last-session`; recreates the same set count with reps,
+  weight, RPE and any time/distance. Falls back to the rep-range preference
+  (`targetSets` clamped 1–10), then one blank set. Adding an exercise already
+  in the workout still appends a single set. See #76.
+
 ## Current state
 
 Deployed and in daily real use by the author against real workout data. The
@@ -978,40 +1064,46 @@ Docker Hub images track `main` automatically; the Portainer stack is updated
 by hand with "Pull and redeploy". Live host is `fittrackr.geehive.com` with
 the API on `fittrackr-api.geehive.com`.
 
-`main` is clean as of `a4a21bb`. Migrations are applied by the entrypoint on
-redeploy — **`0006` ships with this batch and needs a redeploy to take
-effect**; until then the program summary route will error on the missing
-column.
+`main` is clean as of `a9c8b57`. Migrations are applied by the entrypoint on
+redeploy.
+
+**A redeploy is outstanding and carries a lot**: migration `0006`, the
+auth/refresh fixes, the rate-limit raise, the cardio summary work, the
+bodyweight AI fix, and exercise replay. Until it happens the program summary
+route errors on the missing `program_id` column, and the logout/freeze bugs
+are still live.
 
 Known outstanding user-facing items:
 
 - **Any passkey registered before commit `8cf1540` is dead** (old eTLD+1 rpId)
   and must be deleted and re-registered.
-- **The bottom-nav and status-bar fixes in `e47c397` have not been checked on
-  a device.** Safe-area insets are always 0 in a desktop browser and the
-  affected screens are behind auth, so they were reasoned about rather than
-  observed. First thing to confirm on the next real-device pass.
 - **The splash screen will keep looking wrong until the PWA is reinstalled**
   (#58). The server is serving the correct file; this is purely iOS cache.
+- **A workout may still carry a corrupt `durationMin`** from before `585c960`
+  (the author had one reading ~29.8 million minutes). The validation stops it
+  recurring but does not repair stored values — fix each with the duration
+  pencil.
 - Program generation's RPE curve plateaus rather than ramps (#62).
-- **The three summary/PR features are not device-verified.** They typecheck,
-  build, and the pure arithmetic is unit-tested, but no summary has been
-  rendered against real data yet. The program summary in particular will show
-  its empty state for every existing program (#65), which is correct but worth
-  seeing once.
+- **Most of the recent work is not device-verified.** It typechecks, builds,
+  and the pure logic is unit-tested, but the summaries have not been rendered
+  against real data and the auth fix has not been exercised against a real
+  15-minute token expiry. The program summary will show its empty state for
+  every existing program (#65) — correct, but worth seeing once.
+- If logouts persist after the redeploy, the remaining suspect is **two
+  clients** (installed PWA plus a browser tab) refreshing against each other:
+  single-flight guards one JS context, not two.
 
 ## Next steps (not built, roughly by value)
 
-0. **Confirm `e47c397` on a device** — the bottom-nav pinning and status-bar
-   scrim were reasoned about, not observed (see Current state). If the nav
-   still drifts, the next lever is removing the remaining translucency
-   (`bg-white/90` → opaque is already done; check for any other
-   `backdrop-filter` in the fixed subtree), and a local Docker stack would
-   allow logging in and driving the real page instead of guessing.
-1. **Optimistic updates in the workout logger** (#36). This is the one the
-   user will actually feel — every set commit and completion checkbox
-   currently round-trips. `onMutate` + `setQueryData` on the set PATCH is the
-   highest-value change in this list.
+0. **Redeploy, then confirm the batch on a device** — see Current state for
+   what is riding on it. The bottom-nav/status-bar fixes from `e47c397` were
+   confirmed by screenshot; the auth fix and the summaries have not been.
+1. **Optimistic updates in the workout logger** (#36). Still the one the user
+   will feel most: every set commit round-trips, and completing a set now
+   sends one PATCH but still waits for the refetch. `onMutate` +
+   `setQueryData` on the set PATCH is the highest-value change in this list.
+2. **A bulk set-create endpoint** (#76) so exercise replay and the warmup
+   ladder are one request instead of N, and cannot partly succeed.
 3. **Make `docker-entrypoint.sh` fail hard** instead of falling through to
    `db push` and then starting anyway (sharp edge #1). Highest
    damage-per-effort item on the backend.
@@ -1059,18 +1151,35 @@ file:
 pnpm --filter @fittrackr/api test    # tsc, then each test/*.test.mjs
 ```
 
-Two files, 76 assertions, plain node scripts with exit codes — no framework,
+Two files, 93 assertions, plain node scripts with exit codes — no framework,
 matching the project's zero-dependency habit:
 
 - `test/program-expand.test.mjs` (48) — the AI program expander: rep-range
   shifting, RPE capping, deloads, malformed model output.
-- `test/workout-summary.test.mjs` (28) — summary tallies: volume needing both
-  weight and reps, bodyweight/cardio sets, best-set-by-volume, deltas.
+- `test/workout-summary.test.mjs` (45) — summary tallies: volume needing both
+  weight and reps, cardio time/distance, bodyweight sets,
+  best-set-by-volume, deltas.
 
 Both were written after a bug shipped in the code they cover. If you add pure
 logic worth protecting, extend these or add a sibling file rather than
 reaching for a framework — and remember to add it to the `test` script, which
 chains the files explicitly.
+
+**Frontend logic is verified with throwaway harnesses**, since none of it is
+in a test runner. The pattern that has worked repeatedly: copy the pure part
+of the logic into a scratchpad `.mjs`, model the thing it talks to, and assert
+against the reported failure *plus* the cases that must still work. Recent
+examples worth imitating rather than re-deriving:
+
+- the rotating-refresh-token server, to prove 4 concurrent 401s refresh once
+  and don't log out — while a genuinely dead token still does;
+- the superset round gating (1-of-2 and 2-of-3 must NOT fire, uneven groups
+  must not stall);
+- corrupt persisted timer states, including the exact `496627:55:15` payload;
+- the add-exercise fallback chain.
+
+A guard that rejects everything, or a timer that never fires, passes a
+one-sided test — always assert the negative case too.
 
 Everything else is manual: build (`pnpm build` catches the TypeScript
 strict-mode errors, which have broken CI more than once — see commits
