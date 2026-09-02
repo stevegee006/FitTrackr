@@ -435,6 +435,9 @@ model ExercisePreference {
   repRangeMin Int?     @map("rep_range_min")
   repRangeMax Int?     @map("rep_range_max")
   targetSets  Int?     @map("target_sets")
+  // Null = infer (from the exercise category, then from whether existing sets
+  // carry duration/distance). Set once the user toggles the mode by hand.
+  isCardio      Boolean? @map("is_cardio")
   notes       String?  @db.Text
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")

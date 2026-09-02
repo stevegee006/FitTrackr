@@ -43,10 +43,10 @@ export function SetRowHeader({ units, isCardio }: { units: 'METRIC' | 'IMPERIAL'
       {isCardio ? (
         <>
           {/* cardio fields are plain inputs with real fixed widths */}
-          <span className={`w-12 ${cls}`}>Min</span>
+          <span className={`flex-1 min-w-0 ${cls}`}>Min</span>
           <span className="text-sm text-transparent shrink-0" aria-hidden>:</span>
-          <span className={`w-12 ${cls}`}>Sec</span>
-          <span className={`w-20 ${cls}`}>{isImperial ? 'Miles' : 'Km'}</span>
+          <span className={`flex-1 min-w-0 ${cls}`}>Sec</span>
+          <span className={`flex-1 min-w-0 ${cls}`}>{isImperial ? 'Miles' : 'Km'}</span>
         </>
       ) : (
         <>
@@ -59,7 +59,7 @@ export function SetRowHeader({ units, isCardio }: { units: 'METRIC' | 'IMPERIAL'
         </>
       )}
 
-      <span className={`flex-1 min-w-0 ${cls}`}>RPE</span>
+      {!isCardio && <span className={`flex-1 min-w-0 ${cls}`}>RPE</span>}
       {/* completion checkbox (w-7) and the trailing delete button (22px) */}
       <span className="w-7 shrink-0" />
       <span className="ml-auto shrink-0" style={{ width: 22 }} />
@@ -226,7 +226,7 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
             <input
               type="number"
               inputMode="numeric"
-              className={`w-12 ${cardioInputCls}`}
+              className={`flex-1 min-w-0 ${cardioInputCls}`}
               placeholder="min"
               value={durationMinVal}
               onChange={e => setDurationMinVal(e.target.value)}
@@ -236,7 +236,7 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
             <input
               type="number"
               inputMode="numeric"
-              className={`w-12 ${cardioInputCls}`}
+              className={`flex-1 min-w-0 ${cardioInputCls}`}
               placeholder="sec"
               value={durationSecVal}
               onChange={e => setDurationSecVal(e.target.value)}
@@ -249,7 +249,7 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
               type="number"
               inputMode="decimal"
               step="any"
-              className={`w-20 ${cardioInputCls}`}
+              className={`flex-1 min-w-0 ${cardioInputCls}`}
               placeholder={isImperial ? 'mi' : 'km'}
               value={distanceVal}
               onChange={e => setDistanceVal(e.target.value)}
@@ -292,16 +292,20 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
           </>
         )}
 
-        <div className="flex-1 min-w-0">
-          <MathInput
-            className="text-center text-sm"
-            placeholder="RPE"
-            value={rpeVal}
-            onChange={setRpeVal}
-            onBlur={commitRpe}
-            hideOps={true}
-          />
-        </div>
+        {/* No RPE for cardio: time, distance and RPE together squeezed every
+            field down on a phone, and RPE means little for a steady walk. */}
+        {!isCardio && (
+          <div className="flex-1 min-w-0">
+            <MathInput
+              className="text-center text-sm"
+              placeholder="RPE"
+              value={rpeVal}
+              onChange={setRpeVal}
+              onBlur={commitRpe}
+              hideOps={true}
+            />
+          </div>
+        )}
 
         <button
           type="button"

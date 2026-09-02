@@ -128,6 +128,16 @@ function WatchReminderModal({ onConfirm, onDisable }: { onConfirm: () => void; o
   );
 }
 
+interface ExercisePref {
+  repRangeMin: number | null;
+  repRangeMax: number | null;
+  targetSets: number | null;
+  /** User's explicit choice; null means infer. */
+  isCardio: boolean | null;
+  /** The exercise's own category, used when isCardio is null. */
+  categoryIsCardio?: boolean;
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function WorkoutDetailPage() {
@@ -222,12 +232,12 @@ export default function WorkoutDetailPage() {
     queryFn: async () => {
       const results = await Promise.all(
         exerciseIds.map(eid =>
-          apiFetch<{ data: { repRangeMin: number | null; repRangeMax: number | null; targetSets: number | null } | null }>(
+          apiFetch<{ data: ExercisePref | null }>(
             `/exercises/${eid}/preference`
           ).then(r => [eid, r.data] as const)
         )
       );
-      return Object.fromEntries(results) as Record<string, { repRangeMin: number | null; repRangeMax: number | null; targetSets: number | null } | null>;
+      return Object.fromEntries(results) as Record<string, ExercisePref | null>;
     },
     enabled: exerciseIds.length > 0,
   });
@@ -517,17 +527,30 @@ export default function WorkoutDetailPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [elapsed, timerKey]);
 
+  // Cardio mode comes from the saved preference first, then the exercise's own
+  // category, and only then from whether existing sets happen to carry
+  // duration/distance. Re-runs when preferences arrive, so a remembered choice
+  // applies to a brand-new exercise with no sets yet — previously the mode was
+  // inferred from set shape alone and had to be re-toggled every session.
   useEffect(() => {
-    if (!workout?.sets?.length) return;
+    const prefs = prefsQuery.data;
     setCardioExercises(prev => {
       const next = new Set(prev);
-      for (const s of workout.sets!) {
-        if ((s as any).durationSec != null || (s as any).distanceM != null) next.add(s.exerciseId);
+      for (const [eid, pref] of Object.entries(prefs ?? {})) {
+        if (pref?.isCardio === true) next.add(eid);
+        else if (pref?.isCardio === false) next.delete(eid);
+        else if (pref?.categoryIsCardio) next.add(eid);
+      }
+      for (const s of workout?.sets ?? []) {
+        const pref = prefs?.[s.exerciseId];
+        // An explicit "no" wins over the shape of the data.
+        if (pref?.isCardio === false) continue;
+        if (s.durationSec != null || s.distanceM != null) next.add(s.exerciseId);
       }
       return next;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workout?.id]);
+  }, [workout?.id, prefsQuery.data]);
 
   if (isLoading) return <div className="flex justify-center py-12"><Spinner /></div>;
   if (!workout) return null;
@@ -564,6 +587,15 @@ export default function WorkoutDetailPage() {
       setUserExpandedKeys(prev => { const n = new Set(prev); n.delete(key); return n; });
     }
   }
+
+  const cardioModeMutation = useMutation({
+    mutationFn: ({ exerciseId, isCardio }: { exerciseId: string; isCardio: boolean }) =>
+      apiFetch(`/exercises/${exerciseId}/preference`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isCardio }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['exercise-prefs'] }),
+  });
 
   function openRestTimer() {
     setRestTimerKey((k) => k + 1);
@@ -770,11 +802,14 @@ export default function WorkoutDetailPage() {
               <button type="button"
                 onClick={e => {
                   e.stopPropagation();
+                  const nowCardio = !isCardio;
                   setCardioExercises(prev => {
                     const n = new Set(prev);
-                    n.has(exerciseId) ? n.delete(exerciseId) : n.add(exerciseId);
+                    if (nowCardio) n.add(exerciseId); else n.delete(exerciseId);
                     return n;
                   });
+                  // Remembered per exercise, so a walk stays a walk next time.
+                  cardioModeMutation.mutate({ exerciseId, isCardio: nowCardio });
                 }}
                 className={`p-1 rounded-lg transition-colors ${isCardio ? 'text-sky-600 bg-sky-100 dark:bg-sky-900/40' : 'text-gray-400 hover:text-sky-500'}`}
                 title={isCardio ? 'Switch to strength mode' : 'Switch to cardio mode'}>

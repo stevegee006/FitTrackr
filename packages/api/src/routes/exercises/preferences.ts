@@ -25,10 +25,25 @@ export default async function exercisePreferenceRoutes(fastify: FastifyInstance)
 
       const pref = await fastify.prisma.exercisePreference.findUnique({
         where: { userId_exerciseId: { userId, exerciseId } },
-        select: { repRangeMin: true, repRangeMax: true, targetSets: true },
+        select: { repRangeMin: true, repRangeMax: true, targetSets: true, isCardio: true },
       });
 
-      return { data: pref ?? null };
+      // The exercise's own category is the fallback when the user has never
+      // toggled the mode by hand.
+      const exercise = await fastify.prisma.exercise.findUnique({
+        where: { id: exerciseId },
+        select: { category: true },
+      });
+
+      return {
+        data: {
+          repRangeMin: pref?.repRangeMin ?? null,
+          repRangeMax: pref?.repRangeMax ?? null,
+          targetSets: pref?.targetSets ?? null,
+          isCardio: pref?.isCardio ?? null,
+          categoryIsCardio: exercise?.category === 'CARDIO',
+        },
+      };
     },
   });
 
@@ -42,12 +57,22 @@ export default async function exercisePreferenceRoutes(fastify: FastifyInstance)
         repRangeMin?: number | null;
         repRangeMax?: number | null;
         targetSets?: number | null;
+        isCardio?: boolean | null;
+      };
+
+      // Map explicitly rather than spreading the request body into Prisma —
+      // the previous `update: body` would write any column a caller named.
+      const fields = {
+        ...(body.repRangeMin !== undefined && { repRangeMin: body.repRangeMin }),
+        ...(body.repRangeMax !== undefined && { repRangeMax: body.repRangeMax }),
+        ...(body.targetSets !== undefined && { targetSets: body.targetSets }),
+        ...(body.isCardio !== undefined && { isCardio: body.isCardio }),
       };
 
       const result = await fastify.prisma.exercisePreference.upsert({
         where: { userId_exerciseId: { userId, exerciseId } },
-        update: body,
-        create: { userId, exerciseId, ...body },
+        update: fields,
+        create: { userId, exerciseId, ...fields },
       });
 
       return { data: result };
