@@ -486,8 +486,33 @@ export default function WorkoutDetailPage() {
     setShowRestTimer(true);
   }
 
-  function handleSetLogged() {
-    openRestTimer();
+  /**
+   * Rest starts after a ROUND, not after every set.
+   *
+   * In a superset/circuit you move straight to the next exercise in the group,
+   * so firing the timer on each set was wrong — it fired mid-round. For a
+   * grouped exercise the timer waits until every member's set at this round
+   * number is complete. A member with no set at that round is skipped, so an
+   * uneven group can't leave the timer permanently un-triggered.
+   */
+  function handleSetLogged(exerciseId: string, roundNumber: number) {
+    const groupId = exerciseToGroup.get(exerciseId);
+    if (!groupId) {
+      openRestTimer();
+      return;
+    }
+
+    const members = (supersetGroupMap.get(groupId) ?? []).filter((e) => byExercise.has(e));
+    const roundComplete = members.every((eid) => {
+      // The set that just fired this callback — its refetch is still in flight,
+      // so the cached copy still reads incomplete.
+      if (eid === exerciseId) return true;
+      const working = (byExercise.get(eid) ?? []).filter((x) => !x.isWarmup);
+      const peer = working[roundNumber - 1];
+      return !peer || peer.isCompleted;
+    });
+
+    if (roundComplete) openRestTimer();
   }
 
   function moveSlot(slotIndex: number, direction: -1 | 1, currentSlots: Slot[]) {
@@ -686,10 +711,13 @@ export default function WorkoutDetailPage() {
                 let workingCount = 0;
                 return sets.map((set) => {
                   if (!set.isWarmup) workingCount++;
+                  // Snapshot: `workingCount` keeps incrementing, so a closure
+                  // reading it later would see the final total, not this row's.
+                  const roundNumber = workingCount;
                   return (
-                    <SetRow key={set.id} set={set} workoutId={id} setIndex={workingCount} units={units}
+                    <SetRow key={set.id} set={set} workoutId={id} setIndex={roundNumber} units={units}
                       onDeleted={() => queryClient.invalidateQueries({ queryKey: ['workout', id] })}
-                      onSetLogged={handleSetLogged}
+                      onSetLogged={() => handleSetLogged(set.exerciseId, roundNumber)}
                       isCardio={isCardio}
                     />
                   );

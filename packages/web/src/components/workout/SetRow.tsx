@@ -196,9 +196,13 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
               onChange={e => setDurationSecVal(e.target.value)}
               onBlur={commitDuration}
             />
+            {/* decimal, not numeric: a numeric keypad has no "." so 1.5 km
+                could not be typed. step="any" too — type=number defaults to
+                step=1, which marks any fractional value invalid. */}
             <input
               type="number"
-              inputMode="numeric"
+              inputMode="decimal"
+              step="any"
               className={`w-20 ${cardioInputCls}`}
               placeholder={isImperial ? 'mi' : 'km'}
               value={distanceVal}

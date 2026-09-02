@@ -243,6 +243,7 @@ export async function getWorkoutSummary(
         },
         select: {
           exerciseId: true, reps: true, weightKg: true,
+          durationSec: true, distanceM: true,
           workoutId: true, workout: { select: { logDate: true } },
         },
         orderBy: [{ workout: { logDate: 'desc' } }, { setNumber: 'asc' }],
@@ -297,6 +298,8 @@ export async function getWorkoutSummary(
       sets: totals.sets,
       totalReps: totals.totalReps,
       volumeKg: Math.round(totals.volumeKg),
+      durationSec: totals.durationSec,
+      distanceM: Math.round(totals.distanceM),
       warmupSets: (workout.sets ?? []).length - working.length,
     },
     exercises,

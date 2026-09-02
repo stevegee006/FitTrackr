@@ -1890,6 +1890,7 @@ function PlateSettingsCard({ isImperial }: { isImperial: boolean }) {
               <div className="flex items-center gap-1 shrink-0">
                 <input
                   type="number"
+                  inputMode="decimal"
                   value={barDrafts[i] ?? String(toDisplay(bar.weightKg))}
                   step={isImperial ? '0.1' : '0.01'}
                   min="0"

@@ -206,13 +206,26 @@ Apply DOUBLE PROGRESSION. These rules are not optional:
 - Weight jumps should be realistic: ${isImperial ? '5–10 lbs for compounds, 2.5–5 lbs for isolation' : '2.5–5 kg for compounds, 1–2.5 kg for isolation'}.
 - targetWeight must never be BELOW the athlete's current working weight unless
   the strategy is genuinely "deload".
-- targetRepsRange should normally stay inside the athlete's configured range.`;
+- targetRepsRange should normally stay inside the athlete's configured range.
+- BODYWEIGHT exercises (pull-ups, chin-ups, dips, push-ups) log reps with no
+  weight, shown as "N reps (bodyweight)". They are NOT missing data. Progress
+  them by reps first; once the top of the range is beaten, advise added
+  external load (weight belt, dumbbell between the feet) or a harder variation.
+  targetWeight must be null for these unless the athlete already uses added
+  load.`;
 
       const historyLines = history
         .map((session: { date: Date; sets: WorkoutSetSummary[] }) => {
+          // Bodyweight work (pull-ups, dips, push-ups) has no weightKg. Filtering
+          // on weight dropped every set, so the model was told "(no working
+          // sets)" and had nothing to reason about.
           const workingSets = session.sets
-            .filter((s: WorkoutSetSummary) => !s.isWarmup && s.weightKg != null)
-            .map((s: WorkoutSetSummary) => `${s.reps ?? '?'}×${toDisplay(s.weightKg!)}${unitLabel}`)
+            .filter((s: WorkoutSetSummary) => !s.isWarmup && (s.weightKg != null || (s.reps ?? 0) > 0))
+            .map((s: WorkoutSetSummary) =>
+              s.weightKg != null
+                ? `${s.reps ?? '?'}×${toDisplay(s.weightKg)}${unitLabel}`
+                : `${s.reps ?? '?'} reps (bodyweight)`,
+            )
             .join(', ');
           return `${session.date.toISOString().split('T')[0]}: ${workingSets || '(no working sets)'}`;
         })
@@ -226,21 +239,30 @@ Apply DOUBLE PROGRESSION. These rules are not optional:
       // leaving the model to infer the relationship. It previously read
       // "10 reps against a 6-8 target" as drifting off-plan and recommended a
       // deload, when exceeding the range means the load is too light.
+      // Same rule as the history lines: a bodyweight set still counts.
       const lastWorking = (history[0]?.sets ?? []).filter(
-        (s: WorkoutSetSummary) => !s.isWarmup && s.weightKg != null && (s.reps ?? 0) > 0,
+        (s: WorkoutSetSummary) => !s.isWarmup && (s.reps ?? 0) > 0,
       );
       let rangeSignal = '';
       if (lastWorking.length > 0) {
         const reps = lastWorking.map((s: WorkoutSetSummary) => s.reps!);
         const minReps = Math.min(...reps);
         const maxReps = Math.max(...reps);
-        const topWeight = Math.max(
-          ...lastWorking.map((s: WorkoutSetSummary) => toDisplay(s.weightKg!)),
-        );
-        const at = `${minReps === maxReps ? minReps : `${minReps}–${maxReps}`} reps at ${topWeight}${unitLabel}`;
+        const loaded = lastWorking.filter((s: WorkoutSetSummary) => s.weightKg != null);
+        const topWeight = loaded.length
+          ? Math.max(...loaded.map((s: WorkoutSetSummary) => toDisplay(s.weightKg!)))
+          : null;
+        const repsPart = minReps === maxReps ? `${minReps}` : `${minReps}–${maxReps}`;
+        // Bodyweight exercises progress by reps (or added load), not by moving
+        // a barbell number, so don't invent a weight to talk about.
+        const at = topWeight != null
+          ? `${repsPart} reps at ${topWeight}${unitLabel}`
+          : `${repsPart} reps at bodyweight`;
 
         if (repRangeMax != null && minReps >= repRangeMax) {
-          rangeSignal = `ANALYSIS: every working set in the most recent session hit ${at} — at or ABOVE the top of the ${rangeStr} target. The load is too light. Strategy must be "increase_weight": add load and reset reps to the bottom of the range. Do NOT deload and do NOT reduce the weight.`;
+          rangeSignal = topWeight != null
+            ? `ANALYSIS: every working set in the most recent session hit ${at} — at or ABOVE the top of the ${rangeStr} target. The load is too light. Strategy must be "increase_weight": add load and reset reps to the bottom of the range. Do NOT deload and do NOT reduce the weight.`
+            : `ANALYSIS: every working set in the most recent session hit ${at} — at or ABOVE the top of the ${rangeStr} target, unweighted. This is a BODYWEIGHT exercise, so progress by adding external load (weight belt, dumbbell between the feet) and resetting reps to the bottom of the range, or by advancing to a harder variation. Strategy "increase_weight". Do NOT deload.`;
         } else if (repRangeMin != null && maxReps < repRangeMin) {
           rangeSignal = `ANALYSIS: the most recent session topped out at ${at} — BELOW the bottom of the ${rangeStr} target, so the load may be too heavy. Hold the weight, or deload only if this has persisted across several sessions.`;
         } else if (repRangeMax != null) {

@@ -22,6 +22,8 @@ interface Tally {
   volumeKg: number;
   topWeightKg: number | null;
   bestSet: { reps: number; weightKg: number } | null;
+  durationSec: number;
+  distanceM: number;
 }
 
 interface SummaryExercise {
@@ -31,7 +33,10 @@ interface SummaryExercise {
   current: Tally;
   previous: Tally | null;
   previousDate: string | null;
-  delta: { sets: number; totalReps: number; volumeKg: number; topWeightKg: number | null } | null;
+  delta: {
+    sets: number; totalReps: number; volumeKg: number; topWeightKg: number | null;
+    durationSec: number; distanceM: number;
+  } | null;
   isFirstTime: boolean;
 }
 
@@ -43,7 +48,10 @@ interface WorkoutSummary {
     logDate: string;
     durationMin: number | null;
   };
-  totals: { exercises: number; sets: number; totalReps: number; volumeKg: number; warmupSets: number };
+  totals: {
+    exercises: number; sets: number; totalReps: number; volumeKg: number;
+    durationSec: number; distanceM: number; warmupSets: number;
+  };
   exercises: SummaryExercise[];
   personalRecords: Array<{
     exerciseId: string;
@@ -86,6 +94,21 @@ export default function WorkoutSummaryPage() {
     return Math.round(v * 10) / 10;
   };
   const vol = (kg: number) => Math.round(isImperial ? kg * LB_PER_KG : kg).toLocaleString();
+
+  /** m/s → the user's distance unit. */
+  const dist = (m: number) => {
+    const v = isImperial ? m / 1609.344 : m / 1000;
+    return `${Math.round(v * 100) / 100} ${isImperial ? 'mi' : 'km'}`;
+  };
+  const clock = (sec: number) => {
+    const total = Math.round(sec);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const ss = total % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return ss > 0 ? `${m}m ${ss}s` : `${m}m`;
+    return `${ss}s`;
+  };
 
   if (isLoading) return <div className="flex justify-center py-12"><Spinner /></div>;
   if (error || !data) {
@@ -155,6 +178,13 @@ export default function WorkoutSummaryPage() {
             </div>
           ))}
         </div>
+        {(s.totals.durationSec > 0 || s.totals.distanceM > 0) && (
+          <p className="mt-3 text-center text-xs text-gray-600 dark:text-gray-300">
+            {s.totals.durationSec > 0 && `${clock(s.totals.durationSec)} of timed work`}
+            {s.totals.durationSec > 0 && s.totals.distanceM > 0 && ' · '}
+            {s.totals.distanceM > 0 && `${dist(s.totals.distanceM)} covered`}
+          </p>
+        )}
         {s.totals.warmupSets > 0 && (
           <p className="mt-3 text-center text-[11px] text-gray-400 dark:text-gray-500">
             Plus {s.totals.warmupSets} warmup {s.totals.warmupSets === 1 ? 'set' : 'sets'} (not counted)
@@ -209,8 +239,13 @@ export default function WorkoutSummaryPage() {
                 )}
               </div>
 
+              {/* Time-based work (a walk, a row) has no meaningful rep count —
+                  showing "1 rep" for a 9 minute walk was the old behaviour. */}
               <p className="text-sm text-gray-600 dark:text-gray-300">
-                {ex.current.sets} {ex.current.sets === 1 ? 'set' : 'sets'} · {ex.current.totalReps} reps
+                {ex.current.sets} {ex.current.sets === 1 ? 'set' : 'sets'}
+                {ex.current.durationSec > 0 && ` · ${clock(ex.current.durationSec)}`}
+                {ex.current.distanceM > 0 && ` · ${dist(ex.current.distanceM)}`}
+                {ex.current.totalReps > 0 && ` · ${ex.current.totalReps} reps`}
                 {ex.current.topWeightKg != null && ` · top ${w(ex.current.topWeightKg)} ${unit}`}
                 {ex.current.volumeKg > 0 && ` · ${vol(ex.current.volumeKg)} ${unit} volume`}
               </p>
@@ -223,15 +258,28 @@ export default function WorkoutSummaryPage() {
                 <>
                   <div className="flex flex-wrap gap-x-4 gap-y-1">
                     <DeltaChip label="Top weight" value={ex.delta.topWeightKg} format={(v) => `${w(Math.abs(v))} ${unit}`} />
-                    <DeltaChip label="Reps" value={ex.delta.totalReps} format={(v) => String(Math.abs(v))} />
+                    {(ex.current.durationSec > 0 || ex.previous.durationSec > 0) && (
+                      <DeltaChip label="Time" value={ex.delta.durationSec} format={(v) => clock(Math.abs(v))} />
+                    )}
+                    {(ex.current.distanceM > 0 || ex.previous.distanceM > 0) && (
+                      <DeltaChip label="Distance" value={ex.delta.distanceM} format={(v) => dist(Math.abs(v))} />
+                    )}
+                    {(ex.current.totalReps > 0 || ex.previous.totalReps > 0) && (
+                      <DeltaChip label="Reps" value={ex.delta.totalReps} format={(v) => String(Math.abs(v))} />
+                    )}
                     <DeltaChip label="Sets" value={ex.delta.sets} format={(v) => String(Math.abs(v))} />
-                    <DeltaChip label="Volume" value={ex.delta.volumeKg} format={(v) => `${vol(Math.abs(v))} ${unit}`} />
+                    {(ex.current.volumeKg > 0 || ex.previous.volumeKg > 0) && (
+                      <DeltaChip label="Volume" value={ex.delta.volumeKg} format={(v) => `${vol(Math.abs(v))} ${unit}`} />
+                    )}
                   </div>
                   <p className="text-[11px] text-gray-400 dark:text-gray-500">
                     Last time
                     {ex.previousDate &&
                       ` (${new Date(ex.previousDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`}
-                    : {ex.previous.sets} × {ex.previous.totalReps} reps
+                    : {ex.previous.sets} {ex.previous.sets === 1 ? 'set' : 'sets'}
+                    {ex.previous.durationSec > 0 && ` · ${clock(ex.previous.durationSec)}`}
+                    {ex.previous.distanceM > 0 && ` · ${dist(ex.previous.distanceM)}`}
+                    {ex.previous.totalReps > 0 && ` · ${ex.previous.totalReps} reps`}
                     {ex.previous.topWeightKg != null && ` · top ${w(ex.previous.topWeightKg)} ${unit}`}
                   </p>
                 </>
