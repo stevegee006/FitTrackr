@@ -417,6 +417,18 @@ export default function WorkoutDetailPage() {
     },
   });
 
+  // MUST stay above the `if (isLoading) return` guards below — a hook declared
+  // after an early return runs conditionally and throws React error #310
+  // ("rendered more hooks than during the previous render").
+  const cardioModeMutation = useMutation({
+    mutationFn: ({ exerciseId, isCardio }: { exerciseId: string; isCardio: boolean }) =>
+      apiFetch(`/exercises/${exerciseId}/preference`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isCardio }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['exercise-prefs'] }),
+  });
+
   const finishMutation = useMutation({
     mutationFn: () =>
       apiFetch(`/workouts/${id}`, {
@@ -587,15 +599,6 @@ export default function WorkoutDetailPage() {
       setUserExpandedKeys(prev => { const n = new Set(prev); n.delete(key); return n; });
     }
   }
-
-  const cardioModeMutation = useMutation({
-    mutationFn: ({ exerciseId, isCardio }: { exerciseId: string; isCardio: boolean }) =>
-      apiFetch(`/exercises/${exerciseId}/preference`, {
-        method: 'PATCH',
-        body: JSON.stringify({ isCardio }),
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['exercise-prefs'] }),
-  });
 
   function openRestTimer() {
     setRestTimerKey((k) => k + 1);
