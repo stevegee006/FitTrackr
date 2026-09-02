@@ -79,6 +79,101 @@ export async function checkAndUpdatePersonalRecords(
   return achieved;
 }
 
+/**
+ * Rebuild personal records from the sets themselves.
+ *
+ * `checkAndUpdatePersonalRecords` only ever raises a record — by design, since
+ * a normal set shouldn't clear your best. But that means a record set from a
+ * MISTYPED value survives the correction forever: type 35 into the reps box,
+ * fix it to 10, and "Most reps 35" is stuck. Editing or deleting the set that
+ * produced a record therefore has to recompute rather than compare.
+ *
+ * Omit `exerciseId` to rebuild everything for the user.
+ */
+export async function recomputePersonalRecords(
+  fastify: FastifyInstance,
+  userId: string,
+  exerciseId?: string,
+) {
+  const sets = await fastify.prisma.workoutSet.findMany({
+    where: {
+      isWarmup: false,
+      workout: { userId },
+      ...(exerciseId ? { exerciseId } : {}),
+    },
+    select: {
+      id: true, exerciseId: true, reps: true, weightKg: true,
+      workout: { select: { logDate: true } },
+    },
+  });
+
+  type Best = { value: number; setId: string; achievedAt: Date };
+  // exerciseId -> recordType -> best
+  const best = new Map<string, Map<PrAchieved['recordType'], Best>>();
+
+  const consider = (
+    exId: string,
+    recordType: PrAchieved['recordType'],
+    value: number,
+    setId: string,
+    achievedAt: Date,
+  ) => {
+    if (!Number.isFinite(value) || value <= 0) return;
+    const byType = best.get(exId) ?? new Map<PrAchieved['recordType'], Best>();
+    const cur = byType.get(recordType);
+    if (!cur || value > cur.value) byType.set(recordType, { value, setId, achievedAt });
+    best.set(exId, byType);
+  };
+
+  for (const s of sets) {
+    const at = s.workout.logDate;
+    if (s.weightKg != null && s.weightKg > 0) {
+      consider(s.exerciseId, 'MAX_WEIGHT', s.weightKg, s.id, at);
+    }
+    if (s.reps != null && s.reps > 0) {
+      consider(s.exerciseId, 'MAX_REPS', s.reps, s.id, at);
+    }
+    if (
+      s.weightKg != null && s.reps != null &&
+      s.weightKg > 0 && s.reps > 0 && s.reps <= MAX_1RM_REPS
+    ) {
+      consider(s.exerciseId, 'MAX_1RM', epley1RM(s.weightKg, s.reps), s.id, at);
+    }
+  }
+
+  // Every exercise that currently HAS a record must be revisited too, or a
+  // record whose supporting sets are all gone would survive the rebuild.
+  const existing = await fastify.prisma.personalRecord.findMany({
+    where: { userId, ...(exerciseId ? { exerciseId } : {}) },
+    select: { id: true, exerciseId: true, recordType: true },
+  });
+
+  const touched = new Set<string>([...best.keys(), ...existing.map((e) => e.exerciseId)]);
+  let written = 0;
+  let removed = 0;
+
+  for (const exId of touched) {
+    const byType = best.get(exId) ?? new Map<PrAchieved['recordType'], Best>();
+    for (const recordType of ['MAX_WEIGHT', 'MAX_REPS', 'MAX_1RM'] as const) {
+      const key = { userId, exerciseId: exId, recordType: recordType as any };
+      const b = byType.get(recordType);
+      if (b) {
+        await fastify.prisma.personalRecord.upsert({
+          where: { userId_exerciseId_recordType: key },
+          create: { userId, exerciseId: exId, recordType: recordType as any, value: b.value, setId: b.setId, achievedAt: b.achievedAt },
+          update: { value: b.value, setId: b.setId, achievedAt: b.achievedAt },
+        });
+        written++;
+      } else {
+        const gone = await fastify.prisma.personalRecord.deleteMany({ where: key });
+        removed += gone.count;
+      }
+    }
+  }
+
+  return { exercises: touched.size, written, removed };
+}
+
 export async function getPersonalRecords(
   fastify: FastifyInstance,
   userId: string,

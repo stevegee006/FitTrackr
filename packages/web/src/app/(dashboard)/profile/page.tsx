@@ -1002,9 +1002,19 @@ const PR_TYPE_LABEL: Record<string, string> = {
 const PR_TYPE_ORDER = ['MAX_WEIGHT', 'MAX_1RM', 'MAX_REPS', 'MAX_VOLUME'];
 
 function PersonalRecordsTab({ isImperial }: { isImperial: boolean }) {
+  const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ['personal-records'],
     queryFn: () => apiFetch<{ data: PersonalRecordRow[] }>('/personal-records'),
+  });
+
+  // Records only ever rose, so one mistyped number could strand a bogus best
+  // permanently. This rebuilds them from the sets actually logged.
+  const recompute = useMutation({
+    mutationFn: () => apiFetch<{ data: { written: number; removed: number } }>(
+      '/personal-records/recompute', { method: 'POST', body: JSON.stringify({}) },
+    ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['personal-records'] }),
   });
   // Filters the already-fetched list, so no debounce is needed.
   const [query, setQuery] = useState('');
@@ -1049,10 +1059,30 @@ function PersonalRecordsTab({ isImperial }: { isImperial: boolean }) {
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-gray-500 dark:text-gray-400">
-        Your best working set per exercise. Warmups don&apos;t count, and estimated 1RM is only
-        calculated for sets of 12 reps or fewer.
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          Your best working set per exercise. Warmups don&apos;t count, and estimated 1RM is only
+          calculated for sets of 12 reps or fewer.
+        </p>
+        <button
+          type="button"
+          onClick={() => recompute.mutate()}
+          disabled={recompute.isPending}
+          className="shrink-0 text-xs text-indigo-600 dark:text-indigo-400 hover:underline disabled:opacity-40"
+          title="Rebuild records from your logged sets"
+        >
+          {recompute.isPending ? 'Recalculating…' : 'Recalculate'}
+        </button>
+      </div>
+      {recompute.isSuccess && (
+        <p className="text-xs text-emerald-600 dark:text-emerald-400">
+          Rebuilt from your logged sets
+          {recompute.data?.data?.removed ? ` · ${recompute.data.data.removed} stale removed` : ''}.
+        </p>
+      )}
+      {recompute.isError && (
+        <p className="text-xs text-red-500">{(recompute.error as any)?.message ?? 'Could not recalculate.'}</p>
+      )}
 
       {/* Search. Rendered unconditionally so a re-render can never steal focus
           mid-typing, and so clearing a no-match query is always possible. */}

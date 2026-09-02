@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { CreateWorkoutInput, UpdateWorkoutInput, AddSetInput, UpdateSetInput } from '@fittrackr/shared';
 import { NotFoundError, ForbiddenError } from '../utils/errors.js';
-import { checkAndUpdatePersonalRecords, getPRsForWorkout } from './personal-record.service.js';
+import { checkAndUpdatePersonalRecords, getPRsForWorkout, recomputePersonalRecords } from './personal-record.service.js';
 import { tally, diffTally } from './workout-summary.js';
 
 export async function createWorkout(
@@ -189,11 +189,10 @@ export async function updateSet(
     include: { exercise: { select: { id: true, name: true, primaryMuscle: true, equipment: true } } },
   });
 
-  // Re-check PRs on edit. Sets are created with the previous session's weight
-  // and corrected afterwards, so only checking at creation meant a genuine PR
-  // typed into an existing row was never recorded.
+  // Recompute rather than compare: an edit can LOWER a value, and the upward-
+  // only check could never retract a record set from a mistyped number.
   if (data.weightKg !== undefined || data.reps !== undefined || data.isWarmup !== undefined) {
-    await checkAndUpdatePersonalRecords(fastify, userId, updated, workout.logDate);
+    await recomputePersonalRecords(fastify, userId, updated.exerciseId);
   }
 
   return updated;
@@ -213,6 +212,9 @@ export async function deleteSet(
   if (!set || set.workoutId !== workoutId) throw new NotFoundError('Set');
 
   await fastify.prisma.workoutSet.delete({ where: { id: setId } });
+
+  // The deleted set may have been the one holding a record.
+  await recomputePersonalRecords(fastify, userId, set.exerciseId);
 }
 
 /**

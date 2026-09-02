@@ -11,6 +11,18 @@ export default async function personalRecordRoutes(fastify: FastifyInstance) {
     },
   });
 
+  // POST /personal-records/recompute — rebuild records from the logged sets.
+  // Repairs records stranded by the upward-only rule (e.g. a mistyped rep count
+  // that was corrected afterwards).
+  fastify.post('/personal-records/recompute', {
+    preHandler: [fastify.authenticate],
+    handler: async (req) => {
+      const { exerciseId } = (req.body ?? {}) as { exerciseId?: string };
+      const data = await prService.recomputePersonalRecords(fastify, req.user.sub, exerciseId);
+      return { data };
+    },
+  });
+
   fastify.get('/personal-records/recent', {
     preHandler: [fastify.authenticate],
     handler: async (req) => {
