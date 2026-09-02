@@ -13,13 +13,6 @@ import { ChevronLeft, ChevronRight, Dumbbell, Clock, Sparkles, Camera, X, Check,
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-function getMonthBounds(year: number, month: number) {
-  return {
-    firstDay: formatDate(new Date(year, month, 1)),
-    lastDay: formatDate(new Date(year, month + 1, 0)),
-  };
-}
-
 function mondayIndex(date: Date) {
   return (date.getDay() + 6) % 7;
 }
@@ -93,7 +86,31 @@ export default function WorkoutsPage() {
 
   const viewYear = new Date(todayDate.getFullYear(), todayDate.getMonth() + monthOffset, 1).getFullYear();
   const viewMonth = new Date(todayDate.getFullYear(), todayDate.getMonth() + monthOffset, 1).getMonth();
-  const { firstDay, lastDay } = getMonthBounds(viewYear, viewMonth);
+  // Whole Monday-first weeks, including the adjacent-month days that fill the
+  // first and last rows. `new Date(y, m, 1 - pad + i)` rolls over month and
+  // year boundaries on its own, so December/January needs no special case —
+  // and it is DST-safe. Do NOT "simplify" this to adding 86400000ms to a start
+  // date: across a DST transition that shifts by an hour and eventually skips
+  // or repeats a day.
+  const firstOfMonth = new Date(viewYear, viewMonth, 1);
+  const startPad = mondayIndex(firstOfMonth);
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const totalCells = Math.ceil((startPad + daysInMonth) / 7) * 7;
+  const calendarCells = Array.from({ length: totalCells }, (_, i) => {
+    const d = new Date(viewYear, viewMonth, 1 - startPad + i);
+    return {
+      dateStr: formatDate(d),
+      day: d.getDate(),
+      // The grid spans at most three consecutive months, and adjacent months
+      // always differ in getMonth(), so this needs no year check.
+      inMonth: d.getMonth() === viewMonth,
+    };
+  });
+
+  // Fetch the whole visible GRID, not just the month, so the dimmed
+  // adjacent-month days show real workout dots instead of looking empty.
+  const firstDay = calendarCells[0].dateStr;
+  const lastDay = calendarCells[calendarCells.length - 1].dateStr;
 
   const { data, isLoading } = useQuery({
     queryKey: ['workouts', firstDay, lastDay],
@@ -237,12 +254,6 @@ export default function WorkoutsPage() {
     byDate.get(d)!.push(w);
   }
 
-  const firstOfMonth = new Date(viewYear, viewMonth, 1);
-  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
-  const startPad = mondayIndex(firstOfMonth);
-  const cells: (number | null)[] = [...Array(startPad).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
-  while (cells.length % 7 !== 0) cells.push(null);
-
   const monthLabel = firstOfMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const selectedWorkouts = byDate.get(selectedDate) ?? [];
   const selectedDateObj = parseDateLocal(selectedDate);
@@ -315,12 +326,33 @@ export default function WorkoutsPage() {
           <div className="flex justify-center py-8"><Spinner /></div>
         ) : (
           <div className="grid grid-cols-7 gap-0.5">
-            {cells.map((day, i) => {
-              if (day === null) return <div key={`empty-${i}`} className="h-11" />;
-              const dateStr = formatDate(new Date(viewYear, viewMonth, day));
+            {calendarCells.map(({ dateStr, day, inMonth }) => {
               const dayWorkouts = byDate.get(dateStr) ?? [];
               const isSelected = dateStr === selectedDate;
               const isTodayCell = dateStr === today;
+
+              const dots = dayWorkouts.length > 0 && (
+                <div className="flex gap-0.5 mt-1 flex-wrap justify-center px-0.5">
+                  {dayWorkouts.slice(0, 3).map((w) => (
+                    <div key={w.id} className="w-1.5 h-1.5 rounded-full"
+                      style={{ backgroundColor: isSelected ? 'white' : (WORKOUT_TYPE_COLORS[w.workoutType] ?? '#6b7280') }} />
+                  ))}
+                </div>
+              );
+
+              // Adjacent-month days are shown for shape only — dimmed and not
+              // selectable. Making them tappable would have to change month,
+              // and forward navigation is deliberately capped at today.
+              if (!inMonth) {
+                return (
+                  <div key={dateStr} aria-hidden
+                    className="relative h-11 rounded-lg flex flex-col items-center justify-start pt-1 text-gray-300 dark:text-gray-600">
+                    <span className="text-xs leading-none">{day}</span>
+                    <div className="opacity-40">{dots}</div>
+                  </div>
+                );
+              }
+
               return (
                 <button key={dateStr} type="button" onClick={() => setSelectedDate(dateStr)}
                   className={`relative h-11 rounded-lg flex flex-col items-center justify-start pt-1 transition-all ${
@@ -329,14 +361,7 @@ export default function WorkoutsPage() {
                     : 'hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'
                   }`}>
                   <span className={`text-xs leading-none ${isTodayCell && !isSelected ? 'font-bold' : ''}`}>{day}</span>
-                  {dayWorkouts.length > 0 && (
-                    <div className="flex gap-0.5 mt-1 flex-wrap justify-center px-0.5">
-                      {dayWorkouts.slice(0, 3).map((w) => (
-                        <div key={w.id} className="w-1.5 h-1.5 rounded-full"
-                          style={{ backgroundColor: isSelected ? 'white' : (WORKOUT_TYPE_COLORS[w.workoutType] ?? '#6b7280') }} />
-                      ))}
-                    </div>
-                  )}
+                  {dots}
                 </button>
               );
             })}
