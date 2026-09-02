@@ -6,7 +6,7 @@ import { apiFetch } from '@/lib/api-client';
 import { useParams, useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
-import { SetRow } from '@/components/workout/SetRow';
+import { SetRow, SetRowHeader } from '@/components/workout/SetRow';
 import { RestTimerModal } from '@/components/workout/RestTimerModal';
 import { DurationEditModal, MAX_DURATION_MIN } from '@/components/workout/DurationEditModal';
 import { markCelebrate } from '@/components/workout/CelebrationBurst';
@@ -791,6 +791,7 @@ export default function WorkoutDetailPage() {
           <>
             {/* Sets */}
             <div className="px-3 py-1 divide-y divide-gray-50 dark:divide-gray-800">
+              {sets.length > 0 && <SetRowHeader units={units} isCardio={isCardio} />}
               {(() => {
                 let workingCount = 0;
                 return sets.map((set) => {

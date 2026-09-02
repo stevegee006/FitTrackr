@@ -21,6 +21,52 @@ interface SetRowProps {
 const cardioInputCls =
   'text-center text-sm bg-transparent border border-gray-200 dark:border-gray-700 rounded-lg px-1 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400';
 
+/**
+ * Column headers for a list of SetRows.
+ *
+ * Lives in this file, and mirrors the row's flex structure and widths exactly
+ * (w-6 index, w-20 weight + calculator button, w-16 reps, w-14 RPE, w-7 check,
+ * trailing delete). If a column width changes in SetRow it has to change here
+ * too — that is why the two are kept side by side rather than in separate files.
+ */
+export function SetRowHeader({ units, isCardio }: { units: 'METRIC' | 'IMPERIAL'; isCardio?: boolean }) {
+  const isImperial = units === 'IMPERIAL';
+  const cls = 'text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 text-center shrink-0';
+
+  return (
+    <div
+      aria-hidden
+      className="flex items-center gap-2 pb-1 border-b border-gray-100 dark:border-gray-800"
+    >
+      <span className={`w-6 ${cls}`}>Set</span>
+
+      {isCardio ? (
+        <>
+          {/* cardio fields are plain inputs with real fixed widths */}
+          <span className={`w-12 ${cls}`}>Min</span>
+          <span className="text-sm text-transparent shrink-0" aria-hidden>:</span>
+          <span className={`w-12 ${cls}`}>Sec</span>
+          <span className={`w-20 ${cls}`}>{isImperial ? 'Miles' : 'Km'}</span>
+        </>
+      ) : (
+        <>
+          <span className={`flex-1 min-w-0 ${cls}`}>{isImperial ? 'Lbs' : 'Kg'}</span>
+          {/* the plate-calculator button: p-1 + a 14px icon = 22px. Inline
+              style, not an arbitrary class — a w-[22px] that fails to generate
+              collapses to 0 and silently breaks the alignment. */}
+          <span className="shrink-0" style={{ width: 22 }} />
+          <span className={`flex-1 min-w-0 ${cls}`}>Reps</span>
+        </>
+      )}
+
+      <span className={`flex-1 min-w-0 ${cls}`}>RPE</span>
+      {/* completion checkbox (w-7) and the trailing delete button (22px) */}
+      <span className="w-7 shrink-0" />
+      <span className="ml-auto shrink-0" style={{ width: 22 }} />
+    </div>
+  );
+}
+
 export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged, isCardio }: SetRowProps) {
   const queryClient = useQueryClient();
   const isImperial = units === 'IMPERIAL';
@@ -212,14 +258,20 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
           </>
         ) : (
           <>
-            <MathInput
-              className="w-20 text-center text-sm"
-              placeholder={isImperial ? 'lbs' : 'kg'}
-              value={weightVal}
-              onChange={setWeightVal}
-              onBlur={commitWeight}
-              hideOps={true}
-            />
+            {/* Explicit flex columns so SetRowHeader can line up. MathInput
+                applies its className to the input, which already carries
+                w-full — and cn() is clsx with no tailwind-merge, so a w-20
+                here was silently dead. Size the wrapper instead. */}
+            <div className="flex-1 min-w-0">
+              <MathInput
+                className="text-center text-sm"
+                placeholder={isImperial ? 'lbs' : 'kg'}
+                value={weightVal}
+                onChange={setWeightVal}
+                onBlur={commitWeight}
+                hideOps={true}
+              />
+            </div>
             <button
               type="button"
               onClick={() => setShowCalc((v) => !v)}
@@ -227,25 +279,29 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
             >
               <Calculator className="h-3.5 w-3.5" />
             </button>
-            <MathInput
-              className="w-16 text-center text-sm"
-              placeholder="reps"
-              value={repsVal}
-              onChange={setRepsVal}
-              onBlur={commitReps}
-              hideOps={true}
-            />
+            <div className="flex-1 min-w-0">
+              <MathInput
+                className="text-center text-sm"
+                placeholder="reps"
+                value={repsVal}
+                onChange={setRepsVal}
+                onBlur={commitReps}
+                hideOps={true}
+              />
+            </div>
           </>
         )}
 
-        <MathInput
-          className="w-14 text-center text-sm"
-          placeholder="RPE"
-          value={rpeVal}
-          onChange={setRpeVal}
-          onBlur={commitRpe}
-          hideOps={true}
-        />
+        <div className="flex-1 min-w-0">
+          <MathInput
+            className="text-center text-sm"
+            placeholder="RPE"
+            value={rpeVal}
+            onChange={setRpeVal}
+            onBlur={commitRpe}
+            hideOps={true}
+          />
+        </div>
 
         <button
           type="button"
