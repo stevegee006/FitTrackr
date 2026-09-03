@@ -1,7 +1,9 @@
 # HANDOFF — FitTrackr
 
-_Last updated: 2026-08-27 (through `a9c8b57` — random-logout and frozen-app
-fixes, cardio/bodyweight handling, exercise replay, duration editing; earlier:
+_Last updated: 2026-09-02 (through `c10aba8` — Awards tab with struck medals,
+AI Coach, weekly-goal streak and consistency badges, PR recompute, set-row
+headers, cardio-mode memory; earlier: random-logout and frozen-app
+fixes, cardio/bodyweight handling, exercise replay, duration editing;
 workout and program summaries, PR tracking, plate-calculator units and sled
 support, program generation rewritten to a week template, AI suggest's
 backwards deload fixed, RPE capped, watch reminder, logo and splash refresh,
@@ -11,13 +13,16 @@ setup instructions live in [README.md](README.md); **this file is about intent,
 state, and sharp edges** — the things you would otherwise have to rediscover by
 breaking something._
 
-> **Read sharp edges #56–#76 before touching iOS layout, sharp asset
-> generation, AI prompts, summaries/PRs, the auth/refresh path, persisted
-> timer state, cardio/bodyweight handling, or trusting any `git`/`gh`/preview
-> command in this workspace.** Those cost the most time to learn. If you only
-> read two: **#64a/#64b** (a scoped `git add` plus a stale `shared/dist` will
+> **Read sharp edges #56–#82 before touching iOS layout, asset generation, AI
+> prompts, summaries/PRs/awards, the auth/refresh path, persisted timer state,
+> cardio/bodyweight handling, or trusting any `git`/`gh`/preview command in
+> this workspace.** Those cost the most time to learn. If you only read three:
+> **#77** (a hook below an early return took the whole workout page down in
+> production), **#64a/#64b** (a scoped `git add` plus a stale `shared/dist`
 > break CI while your local build stays green) and **#74** (filtering on
 > `weightKg` deletes cardio and bodyweight work — it has shipped twice).
+>
+> **Three test suites, 146 assertions:** `pnpm --filter @fittrackr/api test`.
 
 ## Goal
 
@@ -200,6 +205,7 @@ Manually numbered, **not** Prisma's timestamp convention:
 | `0004_set_is_completed` | `workout_sets.is_completed BOOLEAN NOT NULL DEFAULT false` |
 | `0005_workout_exercise_order` | `workouts.exercise_order TEXT[] NOT NULL DEFAULT '{}'` |
 | `0006_workout_program_link` | `workouts.program_id` (FK, **SET NULL**) + `program_week` / `program_day` |
+| `0007_exercise_pref_cardio` | `exercise_preferences.is_cardio BOOLEAN` (nullable = infer) |
 
 Because the names are hand-numbered, **any migration you create with
 `prisma migrate dev` will get a timestamp name and sort after all of these** —
@@ -653,9 +659,13 @@ is exactly why it is written down here.
     user's server-side setting, mutated separately from `/profile`. The
     provider **never reads the server value**, so they can silently diverge
     across devices.
-39. **Cardio inputs need a reload to appear on a fresh exercise** (see the
-    logger section) — inference is client-side and only recomputes on
-    workout id change.
+39. ~~**Cardio inputs need a reload to appear on a fresh exercise.**~~
+    **FIXED** (`3a72dcf`) — migration `0007` added
+    `exercise_preferences.is_cardio`, and the mode now resolves as: the saved
+    preference → the exercise's own `CARDIO` category → the old set-shape
+    inference. NULL preserves the previous behaviour for existing rows, and an
+    explicit "no" beats the inference so one duration logged against a barbell
+    lift can't flip its mode.
 40. **The warmup ladder is three unbatched POSTs with no rollback** — a
     partial failure leaves a half-built ladder.
 41. **`RestTimer` fires `new Notification(...)` but nothing ever calls
@@ -683,7 +693,14 @@ is exactly why it is written down here.
     is also split — `Button` primary / `Spinner` / `Input` focus are
     **emerald**, while nav and most page chrome are **indigo**.
 49. **`cn()` is clsx only — no `tailwind-merge`**, so conflicting utility
-    classes don't dedupe; last-in-DOM-order wins unpredictably.
+    classes don't dedupe and the winner is decided by **stylesheet order, not
+    class order**. This was not theoretical: `SetRow` passed `w-20`/`w-16`/
+    `w-14` into `MathInput`, which puts `className` on an `<input>` that
+    already carries `w-full`. `.w-full` appears later in the compiled CSS, so
+    it won and those widths were **silently dead** for months — the fields had
+    been flexing all along. Confirmed by grepping the built stylesheet for the
+    rule offsets. If a width looks ignored, check the compiled CSS before
+    assuming your class is wrong.
 50. **`evalMathExpr` uses `new Function` on user input** (regex-allowlisted
     to `+ - * / ( )` and digits, rejecting non-finite/negative results).
     Defensible, but flag it in any security review.
@@ -868,6 +885,52 @@ is exactly why it is written down here.
     POSTs three. Neither is transactional, so a mid-sequence failure leaves
     real sets behind. Both surface the error rather than closing as though
     they worked, but the honest fix is a bulk-create endpoint.
+
+### React and rendering
+
+77. **Every hook must sit ABOVE the component's early returns.** This shipped a
+    production crash (`4daa7a7`): a `useMutation` was added next to the
+    function that used it, which happened to be below
+    `if (isLoading) return …` / `if (!workout) return null`. The loading pass
+    registered N hooks, the loaded pass N+1, and React threw **error #310**
+    ("rendered more hooks than during the previous render") — every workout
+    detail page died with a blank client-side exception. **A green typecheck
+    and build prove nothing about hook order**; the only check is rendering
+    the page. `workouts/[id]/page.tsx` has ~20 hooks and two early returns
+    around line 567: put new hooks with the other hooks, not next to their
+    consumer.
+78. **SVG gradient ids must be unique per instance.** The Awards tab renders
+    ~23 `<Medal>` components, each defining its own `linearGradient`.
+    Hard-coded ids would make every medal render in the *first* medal's metal,
+    because ids are document-global. `Medal.tsx` suffixes them from the tier,
+    label and earned state.
+79. **Build calendar dates with `new Date(y, m, n)`, never millisecond
+    arithmetic.** Adding `i * 86400000` to a start date shifts by an hour
+    across a DST transition and eventually skips or repeats a day. The
+    workouts calendar relies on `new Date(viewYear, viewMonth, 1 - pad + i)`,
+    which handles both month/year rollover and DST. A test asserting
+    contiguity via epoch deltas *falsely fails* on all 14 US transitions —
+    compare calendar dates in UTC instead.
+
+### Awards and benchmarks
+
+80. **Benchmark matching is deliberately strict, and must stay that way.**
+    `classifyLift` in `awards-rules.ts` refuses incline/decline/dumbbell/
+    Smith/close-grip presses as a bench, front/goblet/hack squats as a squat,
+    and RDL/stiff-leg as a deadlift. The author's own log contains "Barbell
+    Incline Bench Press" and "Dumbbell Bench Press" — a loose matcher would
+    hand out a "225 lb bench" medal that was never earned, which makes the
+    entire tab worthless. Widen the include lists only with a matching
+    exclusion test.
+81. **Absolute thresholds are compared in POUNDS, not kg.** The plate-club
+    numbers (135/225/315/405) are plate math. Storage is kg, and a kg
+    round-trip can leave a genuine 225 lb lift a hair short of the threshold —
+    there is a test pinning exactly that. Relative tiers compare in kg, since
+    they are a ratio against bodyweight.
+82. **"Unknown" is not "zero".** A relative award with no bodyweight on file
+    reports `progress: null`, not `0` — a row of empty progress bars would
+    claim the athlete has made no progress when the app simply cannot tell.
+    The UI branches on null.
 
 ### Tooling hazards in this workspace
 
@@ -1057,6 +1120,40 @@ And a fifth batch — polish, then two real bug reports:
   (`targetSets` clamped 1–10), then one blank set. Adding an exercise already
   in the workout still appends a single set. See #76.
 
+And a sixth batch — coaching, awards, and one self-inflicted outage:
+
+- **Calendar fills its edges** (`628cc9a`) — leading/trailing days from the
+  adjacent months, dimmed and non-selectable. The workouts query widened to the
+  visible grid so those days still show real dots. See #79 for the DST trap.
+- **AI Coach** (`d0f8892`) — button in the dashboard header → `/coach`.
+  `GET /coach/review?days=30` gathers the window with no AI first (sessions,
+  sets per muscle vs goal, tonnage, top 12 exercises first→last top weight,
+  PRs), then asks for structured advice. Cached for the session so revisiting
+  doesn't re-spend a call; an empty window returns `NO_TRAINING_DATA` rather
+  than paying to be told there's nothing there.
+- **Streak is weekly, not daily** (`2c5b8fd`) — consecutive weeks meeting
+  `UserProfile.weeklyFrequency` (now editable in Profile → Bio; it existed in
+  the schema with no UI). The in-progress week doesn't break a run, only
+  extends it — otherwise the streak collapsed every Monday. Range query went
+  30 → 190 days. Logic in `lib/streak.ts`.
+- **Consistency badges** (`cfc14d4`) — 2/4/8/12/26/52 weeks, one array in
+  `lib/streak.ts`. Highest earned shows, next as a nudge.
+- **PRs can be corrected downward** (`18759b8`) — see #3. A mistyped rep count
+  had stranded "Most reps 35" permanently.
+- **Set-row column headers** (`bed5566`) — and the discovery behind #49: the
+  `w-20`/`w-16`/`w-14` widths had been dead all along.
+- **Cardio mode remembered + RPE dropped from cardio rows** (`3a72dcf`) —
+  migration `0007`, see #39.
+- **Workout page crashed with React error #310** (`4daa7a7`) — self-inflicted
+  by `3a72dcf`, see #77. Every workout detail page was blank until the fix
+  deployed.
+- **Awards tab** (`c10aba8`) — `GET /awards`, Profile → Bio → Awards. Plate
+  Club (absolute) + Relative Strength families, locked medals with progress,
+  and streak history (best run with dates, current, total weeks at goal).
+  `Medal.tsx` draws real struck medals in SVG — ribbon, milled rim, metal
+  gradient, engraved value, five metals, distinct locked state. See #78, #80,
+  #81, #82.
+
 ## Current state
 
 Deployed and in daily real use by the author against real workout data. The
@@ -1064,14 +1161,28 @@ Docker Hub images track `main` automatically; the Portainer stack is updated
 by hand with "Pull and redeploy". Live host is `fittrackr.geehive.com` with
 the API on `fittrackr-api.geehive.com`.
 
-`main` is clean as of `a9c8b57`. Migrations are applied by the entrypoint on
-redeploy.
+`main` is clean as of `c10aba8`. Migrations are applied by the entrypoint on
+redeploy — **`0006` and `0007` are both pending**.
 
-**A redeploy is outstanding and carries a lot**: migration `0006`, the
-auth/refresh fixes, the rate-limit raise, the cardio summary work, the
-bodyweight AI fix, and exercise replay. Until it happens the program summary
-route errors on the missing `program_id` column, and the logout/freeze bugs
-are still live.
+**A redeploy is outstanding and carries a great deal.** Until it happens:
+`/coach` and `/awards` return 404 (routes don't exist in the running image),
+the program summary errors on the missing `program_id` column, cardio mode
+won't persist (missing `is_cardio`), and the random-logout / frozen-app bugs
+are still live. In Portainer this is Stacks → the stack → **Update** with
+**"Re-pull image and redeploy" ON** — without that toggle it recreates the
+containers from the cached image and nothing changes. Then check the
+entrypoint actually migrated:
+`docker logs fittrackr-api-1 --since 5m 2>&1 | head -20` (see sharp edge #1
+for why its failure path matters).
+
+Two manual steps after redeploying:
+
+1. **Profile → Bio → PRs → Recalculate.** Nothing else retracts the bogus
+   "Most reps 35" record, and the Awards tab reads from the PR table, so the
+   Plate Club will look wrong until this runs.
+2. **Profile → Bio → Training days per week.** The weekly streak, the
+   consistency badges and the Awards streak history all key off it (falling
+   back to the training goal, then 3).
 
 Known outstanding user-facing items:
 
@@ -1084,26 +1195,34 @@ Known outstanding user-facing items:
   recurring but does not repair stored values — fix each with the duration
   pencil.
 - Program generation's RPE curve plateaus rather than ramps (#62).
-- **Most of the recent work is not device-verified.** It typechecks, builds,
-  and the pure logic is unit-tested, but the summaries have not been rendered
-  against real data and the auth fix has not been exercised against a real
-  15-minute token expiry. The program summary will show its empty state for
-  every existing program (#65) — correct, but worth seeing once.
+- **Almost none of the last two batches is device-verified.** Everything
+  typechecks, builds, and the pure logic is unit-tested (146 assertions), but
+  the summaries, `/coach`, the Awards tab and the medals have never been
+  rendered against real data, and the auth fix has not been exercised against
+  a real 15-minute token expiry. The medal artwork was reviewed by rendering
+  the same drawing code in isolation, not in the app.
+- The program summary shows its empty state for every existing program (#65).
+  Correct, not broken — but worth seeing once.
 - If logouts persist after the redeploy, the remaining suspect is **two
   clients** (installed PWA plus a browser tab) refreshing against each other:
   single-flight guards one JS context, not two.
 
 ## Next steps (not built, roughly by value)
 
-0. **Redeploy, then confirm the batch on a device** — see Current state for
-   what is riding on it. The bottom-nav/status-bar fixes from `e47c397` were
-   confirmed by screenshot; the auth fix and the summaries have not been.
+0. **Redeploy, run the two manual steps, then confirm on a device** — see
+   Current state. `/coach` and `/awards` do not exist in the running image,
+   and two migrations are pending. Nothing from the last two batches has been
+   seen against real data.
 1. **Optimistic updates in the workout logger** (#36). Still the one the user
    will feel most: every set commit round-trips, and completing a set now
    sends one PATCH but still waits for the refetch. `onMutate` +
    `setQueryData` on the set PATCH is the highest-value change in this list.
 2. **A bulk set-create endpoint** (#76) so exercise replay and the warmup
    ladder are one request instead of N, and cannot partly succeed.
+2b. **A frontend test runner.** `lib/streak.ts`, the duration helpers and the
+   api-client refresh logic are only covered by throwaway harnesses. The
+   React #310 crash (#77) would also have been caught by *any* render test —
+   that is the gap that actually hurt.
 3. **Make `docker-entrypoint.sh` fail hard** instead of falling through to
    `db push` and then starting anyway (sharp edge #1). Highest
    damage-per-effort item on the backend.
@@ -1139,8 +1258,22 @@ Known outstanding user-facing items:
     difference on iOS ever matters. Would also make the splash independent of
     whatever fonts the generating machine happens to have.
 17. **A shared unit-display helper** (#53). Three unit bugs have shipped from
-    each component deciding conversion for itself; a single
-    `formatWeight(kg, units)` plus a `useUnits()` hook would end the class.
+    each component deciding conversion for itself. `formatDuration` in
+    `lib/utils` is the pattern that worked for time — do the same for weight
+    and distance: `formatWeight(kg, units)` plus a `useUnits()` hook. Every
+    new page (summaries, coach, awards) has re-declared `LB_PER_KG` and its
+    own converter, so the duplication is now five deep.
+18. **Split `profile/page.tsx`** — it is past 2,100 lines and holds ~14
+    components. `AwardsTab` was put in its own file rather than added to it;
+    do that for the rest.
+19. **More award families.** The medal machinery is generic — only the tier
+    tables in `awards-rules.ts` decide what exists. Obvious additions: a
+    bodyweight pull-up/dip family (reps rather than load), total-volume
+    milestones, "logged N workouts". Each is one array entry plus a matcher
+    test.
+20. **Retire `emoji` from the award tiers.** It predates `Medal.tsx` and is
+    now a fallback nothing renders — check nothing reads it off the API
+    response first.
 
 ## Testing pattern used throughout
 
@@ -1151,14 +1284,22 @@ file:
 pnpm --filter @fittrackr/api test    # tsc, then each test/*.test.mjs
 ```
 
-Two files, 93 assertions, plain node scripts with exit codes — no framework,
-matching the project's zero-dependency habit:
+Three files, 146 assertions, plain node scripts with exit codes — no
+framework, matching the project's zero-dependency habit:
 
 - `test/program-expand.test.mjs` (48) — the AI program expander: rep-range
   shifting, RPE capping, deloads, malformed model output.
 - `test/workout-summary.test.mjs` (45) — summary tallies: volume needing both
   weight and reps, cardio time/distance, bodyweight sets,
   best-set-by-volume, deltas.
+- `test/awards-rules.test.mjs` (53) — benchmark matching (every variation that
+  must NOT count), absolute vs relative tiers, the pounds comparison, and
+  streak history.
+
+Note the frontend has no suite at all: `lib/streak.ts`, `lib/utils.ts`'s
+duration helpers and the api-client refresh logic are all verified with
+throwaway harnesses (below) rather than anything that runs in CI. Moving those
+into a real runner is the single biggest testing gap.
 
 Both were written after a bug shipped in the code they cover. If you add pure
 logic worth protecting, extend these or add a sibling file rather than
