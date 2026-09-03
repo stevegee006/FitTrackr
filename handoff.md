@@ -1,6 +1,9 @@
 # HANDOFF — FitTrackr
 
-_Last updated: 2026-09-02 (through `c10aba8` — Awards tab with struck medals,
+_Last updated: 2026-09-02 (through the editable-exercise-library commit — five
+new muscle groups, a full exercise editor in admin, whole-exercise delete in
+the logger; earlier: optimistic set updates so the logger no longer
+round-trips on every commit; Awards tab with struck medals,
 AI Coach, weekly-goal streak and consistency badges, PR recompute, set-row
 headers, cardio-mode memory; earlier: random-logout and frozen-app
 fixes, cardio/bodyweight handling, exercise replay, duration editing;
@@ -13,7 +16,7 @@ setup instructions live in [README.md](README.md); **this file is about intent,
 state, and sharp edges** — the things you would otherwise have to rediscover by
 breaking something._
 
-> **Read sharp edges #56–#82 before touching iOS layout, asset generation, AI
+> **Read sharp edges #56–#84 before touching iOS layout, asset generation, AI
 > prompts, summaries/PRs/awards, the auth/refresh path, persisted timer state,
 > cardio/bodyweight handling, or trusting any `git`/`gh`/preview command in
 > this workspace.** Those cost the most time to learn. If you only read three:
@@ -206,6 +209,19 @@ Manually numbered, **not** Prisma's timestamp convention:
 | `0005_workout_exercise_order` | `workouts.exercise_order TEXT[] NOT NULL DEFAULT '{}'` |
 | `0006_workout_program_link` | `workouts.program_id` (FK, **SET NULL**) + `program_week` / `program_day` |
 | `0007_exercise_pref_cardio` | `exercise_preferences.is_cardio BOOLEAN` (nullable = infer) |
+| `0008_muscle_groups` | `ALTER TYPE "MuscleGroup" ADD VALUE` ×5: `LATS`, `TRAPS`, `ADDUCTORS`, `ABDUCTORS`, `OBLIQUES` |
+
+**Adding a muscle group** (or any enum value) is `ALTER TYPE … ADD VALUE`, and
+it is **additive only** — you cannot remove or rename a value while any row
+references it, which is why `FULL_BODY` was fixed by rendering a *label* rather
+than renaming the enum member. The TypeScript side has one source of truth,
+`muscleGroupValues` in `packages/shared/src/validation/exercise.schema.ts`: the
+`MuscleGroup` union is derived from it, `MUSCLE_GROUP_LABELS` /
+`MUSCLE_GROUP_COLORS` are `Record<MuscleGroup, …>` so the build fails until a
+new value has both, and the three AI prompts interpolate the array instead of
+listing it. **The one place still manual is the Prisma enum** — schema.prisma
+plus a migration. Keep the appended order identical in both, since
+`ADD VALUE` appends to the Postgres type's sort order.
 
 Because the names are hand-numbered, **any migration you create with
 `prisma migrate dev` will get a timestamp name and sort after all of these** —
@@ -528,6 +544,15 @@ is exactly why it is written down here.
    With `FRONTEND_URL=https://fit.geehive.com`, an attacker's
    `https://evilgeehive.com` passes. Partly mitigated by `credentials: false`
    + bearer auth, but it should be a proper boundary check.
+6b. ~~**The superset routes had no ownership check.**~~ **FIXED** — both
+    `POST /workouts/:id/superset` and `DELETE /workouts/:id/superset/:groupId`
+    write with a raw `prisma.workoutSet.updateMany({ where: { workoutId } })`
+    and neither verified who owns the workout, so being authenticated as
+    anybody was enough to regroup or ungroup another user's sets. They call
+    `workoutService.assertWorkoutOwner` now. **Any route that reaches for
+    `prisma` directly instead of a service function needs that call** — every
+    service function does the check itself, which is exactly why these two
+    slipped through.
 7. **`isAdmin` is baked into the 15-minute access token** and the admin hook
    reads it from the token, never the DB. Revoking admin leaves a working
    admin token for up to 15 minutes.
@@ -547,8 +572,11 @@ is exactly why it is written down here.
 
 ### Correctness / data
 
-13. **`Workout.exerciseOrder` is append-only** (see invariants). Stale IDs
-    accumulate; the frontend filters them out defensively.
+13. **`Workout.exerciseOrder` is append-only** (see invariants) — except in
+    `deleteWorkoutExercise`, which is the one path that knows an exercise is
+    gone for good and prunes it. `deleteSet` still doesn't, so stale IDs still
+    accumulate when you empty an exercise set-by-set, and the frontend still
+    filters them out defensively.
 14. **`RecordType.MAX_VOLUME` is dead** — present in the enum, the migration,
     and the shared types, but `checkAndUpdatePersonalRecords` only ever writes
     `MAX_WEIGHT`, `MAX_REPS`, `MAX_1RM`.
@@ -575,7 +603,14 @@ is exactly why it is written down here.
     third-party export layout.
 20. **`ingestImportSchema` is `z.array(z.any())`** and `bulkImportExercises`
     takes `any[]` — admin-supplied AI output flows into `Exercise` creation
-    with no validation.
+    with no validation. (`PATCH /admin/exercises/:id` was the same
+    `request.body as any` until the editor needed it; it parses
+    `updateExerciseSchema` now, so a bad muscle group is a 422 naming the
+    field instead of a raw Postgres enum cast error surfacing as a 500. Note
+    `updateExerciseSchema` is `createExerciseSchema.partial()` and the
+    `.default()`s do **not** leak through the `.partial()` — verified, because
+    if they did, renaming an exercise would silently wipe its
+    `secondaryMuscles` and reset `equipment` to `BODYWEIGHT`.)
 21. **`routes/auth/sso.ts` displayName precedence bug**:
     `(profile.displayName ?? profile.firstName) ? \`${firstName} ${lastName}\` : null`
     — `??` binds tighter than `?:`, so when only `displayName` is present the
@@ -650,8 +685,19 @@ is exactly why it is written down here.
     connection ended the session.
 35. ~~**The 401 retry reuses the same `AbortSignal`.**~~ **FIXED** — each
     attempt now builds its own signal.
-36. **No optimistic updates anywhere** (see the logger section). Biggest
-    perceived-performance item in the product.
+36. ~~**No optimistic updates anywhere**~~ **PARTLY FIXED** — the set
+    `PATCH` and `DELETE` in `SetRow` now patch the `['workout', id]` cache in
+    `onMutate` and roll back from a snapshot in `onError`, so a blur commit and
+    a completion tap land instantly. Two things to preserve if you touch it:
+    the `onError` rollback (without it a rejected patch stays on screen, which
+    is *worse* than the old silent failure), and `invalidateIfLast` — only the
+    last set mutation still running may invalidate, because otherwise an
+    earlier request's refetch returns data predating a later request's
+    optimistic patch and the row flickers back. **The page's own mutations
+    (add set, add warmup, delete exercise, reorder) still invalidate
+    unconditionally**, so one of those completing while a set patch is in
+    flight can still flicker that row. Not seen in practice — those taps
+    aren't concurrent with a field blur — but that is the residual.
 37. **Dark-mode FOUC.** `ThemeProvider` applies `.dark` in a mount effect
     with no blocking inline script, so the first paint is always light.
     `suppressHydrationWarning` is set but nothing pre-applies the class.
@@ -671,10 +717,18 @@ is exactly why it is written down here.
 41. **`RestTimer` fires `new Notification(...)` but nothing ever calls
     `Notification.requestPermission()`** — the rest-timer notification is
     dead code unless permission happened to be granted elsewhere.
-42. **`inferExerciseDetails(name, workoutType)` is duplicated** in
-    `workouts/page.tsx` and `programs/page.tsx`, as is the whole
-    AI-output → real-exercise hydration loop. Fix a mapping bug in one and
-    the other keeps it.
+42. ~~**`inferExerciseDetails(name, workoutType)` is duplicated**~~ **FIXED** —
+    and it had already drifted exactly as predicted: the `programs/page.tsx`
+    copy knew about pushdowns, leg curls, forearms, trap-bar deadlifts,
+    resistance bands and olympic lifts while the `workouts/page.tsx` copy did
+    not, so the same AI response hydrated differently depending on which screen
+    produced it. Now one module, `lib/infer-exercise.ts`. **Its rule ORDER is
+    load-bearing** — every rule is a substring test, so a broader pattern
+    placed earlier swallows a narrower one: `' ab'` (abs) matches "hip
+    ABductor", `'lat'` matches "LATeral raise", `'trap'` matches "TRAP bar
+    deadlift", and `'curl'` matches both "leg curl" and "wrist curl". Each of
+    those has a negative assertion in the harness. **The AI-output →
+    real-exercise hydration loop around it is still duplicated.**
 43. **8 `eslint-disable react-hooks/exhaustive-deps` suppressions**, several
     load-bearing (the timer callbacks close over `timerKey`). Genuine
     stale-closure risk if you refactor those hooks casually.
@@ -707,6 +761,29 @@ is exactly why it is written down here.
 51. **Tab state is local `useState` everywhere** (profile, admin, trends) —
     not URL-addressable, lost on reload, can't be linked to.
 52. **`tsconfig.tsbuildinfo` (189 KB) is committed** in `packages/web`.
+
+### Enums and labels
+
+83. **Never render an enum value as a label.** `WorkoutCard` printed
+    `primaryMuscle` straight, so the muscle chips read "FULL_BODY", and the
+    admin exercise list read "GLUTES · machine · MANUAL". Fixing this by
+    renaming the enum member would have been a destructive Postgres migration
+    for a display bug. `MUSCLE_GROUP_LABELS` already existed; the render sites
+    just weren't using it. `muscleGroupLabel()` / `equipmentLabel()` /
+    `exerciseCategoryLabel()` in shared take a loose `string` (which is how API
+    rows are typed in several places) and fall back to the raw value, so a
+    group the deployed database has but this build's constants do not renders
+    as itself rather than `undefined`.
+84. **Hand-written copies of an enum drift silently.** There were FIVE lists of
+    the exercise enums in the web package alone — `MUSCLE_OPTIONS`,
+    `CATEGORY_OPTIONS` and `EQUIPMENT_OPTIONS` in `exercises/page.tsx`, plus
+    `EQUIPMENT_LABELS`, `CATEGORY_LABELS` and `ALL_MUSCLES` in
+    `ExerciseSearchForm.tsx`. The equipment one **was missing `KETTLEBELL`**,
+    so a kettlebell exercise could not be created from that screen at all, and
+    nothing failed — the option simply wasn't there. All of them now derive
+    from `ALL_MUSCLE_GROUPS` / `ALL_EQUIPMENT` / `ALL_EXERCISE_CATEGORIES`.
+    Same reasoning for the AI prompts: a muscle group the model is never told
+    about is one it can never return.
 
 ### Units
 
@@ -1154,6 +1231,54 @@ And a sixth batch — coaching, awards, and one self-inflicted outage:
   gradient, engraved value, five metals, distinct locked state. See #78, #80,
   #81, #82.
 
+And a seventh batch — the logger stops round-tripping:
+
+- **Optimistic set updates** — `SetRow`'s PATCH and DELETE now write the
+  `['workout', id]` cache in `onMutate`, roll back from a snapshot in
+  `onError`, and invalidate only when no sibling set mutation is still in
+  flight. This was next-step #1 for good reason: every field commit and every
+  checkbox tap previously waited for a PATCH *and* its refetch before the UI
+  moved, which on gym wifi is the delay you actually feel mid-set. See #36 for
+  the two invariants to preserve and the residual (the page's own mutations
+  still invalidate unconditionally). Verified with a 27-assertion harness
+  against a real `QueryClient`; **not yet rendered in the app** — the local
+  stack needs Postgres and Redis, which weren't up.
+
+And an eighth batch — the exercise library got editable:
+
+- **Five new muscle groups** (migration `0008`) — `LATS`, `TRAPS`,
+  `ADDUCTORS`, `ABDUCTORS`, `OBLIQUES`. The trigger was a machine hip adductor
+  that had to be filed under HAMSTRINGS and a hip abductor under GLUTES, so
+  their volume was being attributed to the wrong leg muscle. Chosen over a
+  dynamic `muscle_groups` table with admin CRUD, deliberately: that would turn
+  the compile-time `MuscleGroup` union into `string` across ~30 files and move
+  labels and colours behind a query, to buy a capability with one user who
+  controls the deploy. **Adding a group is still a code change** — see the
+  Migrations section for the four places, one of which the compiler enforces.
+- **Full exercise editor in admin** (`components/admin/ExerciseEditForm.tsx`) —
+  name, category, primary muscle, secondary muscles and equipment. The panel
+  previously offered only a *rename*, which was the right fix for a typo and
+  no help at all for a mistagged muscle. The API already accepted every field;
+  it was the UI that only ever sent `name`. In its own file rather than added
+  to `admin/page.tsx`, which is already ~1,270 lines.
+- **Delete a whole exercise from a workout** — `DELETE
+  /workouts/:id/exercises/:exerciseId`, trash icon in the exercise header with
+  an in-page confirm. One request instead of one per set, and the server also
+  prunes `exerciseOrder` (#13) and dissolves a superset group left with one
+  member. Optimistic, matching the set mutations.
+- **Enum values stopped being rendered as labels** (#83) and **five
+  hand-written copies of the exercise enums were deleted** (#84) — including
+  the one that had lost `KETTLEBELL`.
+- **`inferExerciseDetails` de-duplicated** into `lib/infer-exercise.ts` (#42),
+  with keyword rules for the new groups and 44 assertions pinning the
+  substring-ordering traps.
+- **Calves appear on the trends chart.** `PRIMARY_MUSCLE_GROUPS` was a curated
+  list and calves weren't on it, so a trained muscle simply didn't show. The
+  chart's row set is now that list PLUS anything with sets this week or a
+  target, so no future group needs adding here to become visible.
+- **Superset routes got their missing ownership check** (#6b), noticed while
+  adding the sibling endpoint.
+
 ## Current state
 
 Deployed and in daily real use by the author against real workout data. The
@@ -1161,28 +1286,31 @@ Docker Hub images track `main` automatically; the Portainer stack is updated
 by hand with "Pull and redeploy". Live host is `fittrackr.geehive.com` with
 the API on `fittrackr-api.geehive.com`.
 
-`main` is clean as of `c10aba8`. Migrations are applied by the entrypoint on
-redeploy — **`0006` and `0007` are both pending**.
+**The big redeploy happened and the author confirmed it working** (2026-09-02):
+migrations `0006` and `0007` are applied, `/coach` and the Awards tab are live,
+the program summary works, cardio mode persists, and the random-logout /
+frozen-app fixes are in production. The two manual steps that redeploy needed
+(PRs → Recalculate, and Training days per week) are done.
 
-**A redeploy is outstanding and carries a great deal.** Until it happens:
-`/coach` and `/awards` return 404 (routes don't exist in the running image),
-the program summary errors on the missing `program_id` column, cardio mode
-won't persist (missing `is_cardio`), and the random-logout / frozen-app bugs
-are still live. In Portainer this is Stacks → the stack → **Update** with
-**"Re-pull image and redeploy" ON** — without that toggle it recreates the
-containers from the cached image and nothing changes. Then check the
-entrypoint actually migrated:
+**Pending now: `0008_muscle_groups`, plus the eighth batch.** The migration is
+applied by the entrypoint on the next redeploy. Until then the five new muscle
+groups do not exist in the deployed database, so **the exercise editor's
+dropdown will offer values the API rejects** — a 422 from the enum, not a
+crash. In Portainer this is Stacks → the stack → **Update** with **"Re-pull
+image and redeploy" ON** — without that toggle it recreates the containers from
+the cached image and nothing changes. Then check the entrypoint actually
+migrated:
 `docker logs fittrackr-api-1 --since 5m 2>&1 | head -20` (see sharp edge #1
 for why its failure path matters).
 
-Two manual steps after redeploying:
+One manual pass after redeploying:
 
-1. **Profile → Bio → PRs → Recalculate.** Nothing else retracts the bogus
-   "Most reps 35" record, and the Awards tab reads from the PR table, so the
-   Plate Club will look wrong until this runs.
-2. **Profile → Bio → Training days per week.** The weekly streak, the
-   consistency badges and the Awards streak history all key off it (falling
-   back to the training goal, then 3).
+1. **Admin → Exercises → re-tag the mistagged machines.** The migration adds
+   the muscle groups but changes no rows, deliberately. "Machine Hip Adductor"
+   is still `HAMSTRINGS` and "Machine Hip Abductor" still `GLUTES`; the pencil
+   now edits muscle, equipment and category. Their historical volume stays
+   attributed to the old muscle — per-muscle tallies read `primaryMuscle` at
+   query time, so re-tagging retroactively moves every past set too.
 
 Known outstanding user-facing items:
 
@@ -1195,28 +1323,37 @@ Known outstanding user-facing items:
   recurring but does not repair stored values — fix each with the duration
   pencil.
 - Program generation's RPE curve plateaus rather than ramps (#62).
-- **Almost none of the last two batches is device-verified.** Everything
-  typechecks, builds, and the pure logic is unit-tested (146 assertions), but
-  the summaries, `/coach`, the Awards tab and the medals have never been
-  rendered against real data, and the auth fix has not been exercised against
-  a real 15-minute token expiry. The medal artwork was reviewed by rendering
-  the same drawing code in isolation, not in the app.
-- The program summary shows its empty state for every existing program (#65).
-  Correct, not broken — but worth seeing once.
+- **Neither of the last two batches has been rendered in the app.** Everything
+  typechecks, `next build` compiles and generates all 19 pages, the API suite
+  passes and the frontend logic is covered by harnesses (27 + 44 assertions) —
+  but nothing was driven in a browser, because there is no local Postgres or
+  Redis here and logging into the live stack was not an option. Specifically
+  unproven by anything but a fake API:
+  - the set checkbox ticking instantly, and a rejected patch visibly reverting
+    (pull the wifi mid-set once);
+  - the exercise-header trash → confirm → row disappears, and the superset
+    case where removing one of two members dissolves the group;
+  - the admin editor actually saving muscle/equipment/category, which needs
+    `0008` deployed first or the new values 422.
+- The program summary shows its empty state for every program that predates
+  `0006` (#65). Correct, not broken — but worth seeing once.
 - If logouts persist after the redeploy, the remaining suspect is **two
   clients** (installed PWA plus a browser tab) refreshing against each other:
   single-flight guards one JS context, not two.
 
 ## Next steps (not built, roughly by value)
 
-0. **Redeploy, run the two manual steps, then confirm on a device** — see
-   Current state. `/coach` and `/awards` do not exist in the running image,
-   and two migrations are pending. Nothing from the last two batches has been
-   seen against real data.
-1. **Optimistic updates in the workout logger** (#36). Still the one the user
-   will feel most: every set commit round-trips, and completing a set now
-   sends one PATCH but still waits for the refetch. `onMutate` +
-   `setQueryData` on the set PATCH is the highest-value change in this list.
+0. **Redeploy for `0008`, re-tag the two hip machines, then confirm on a
+   device** — see Current state. The new muscle groups do not exist in the
+   deployed database yet, so the editor's dropdown offers values the API
+   rejects until this happens.
+1. ~~**Optimistic updates in the workout logger**~~ **DONE** for the set
+   PATCH and DELETE and the whole-exercise delete (#36). What is left is the
+   *page's* mutations — add set, add warmup, the warmup ladder, reorder.
+   Add-set is the
+   next one worth doing and the fiddliest: it needs a temp-id placeholder row,
+   and `SetRow` must not be able to PATCH a temp id if the user types into it
+   before the POST returns. Doing #2 first makes the ladder case tractable.
 2. **A bulk set-create endpoint** (#76) so exercise replay and the warmup
    ladder are one request instead of N, and cannot partly succeed.
 2b. **A frontend test runner.** `lib/streak.ts`, the duration helpers and the
@@ -1228,6 +1365,12 @@ Known outstanding user-facing items:
    damage-per-effort item on the backend.
 4. **Fix the CORS boundary check** (#6) — a one-line change to require a
    leading dot or an exact match — and **add an rpID allowlist** (#5).
+4b. **Reach the exercise editor from the logger.** The editor exists but only
+   in the admin panel, so noticing a mistagged exercise mid-workout means
+   remembering to go and fix it later. `ExerciseEditForm` is standalone and
+   the route is admin-only — this needs a non-admin
+   `PATCH /exercises/:id` scoped to custom exercises, or an admin-gated
+   shortcut, so decide which before building it.
 5. **Store cardio as a property, not an inference** (#39) — read
    `Exercise.category === 'CARDIO'` (or add a flag) so the time/distance
    inputs appear without a reload.
@@ -1314,6 +1457,18 @@ examples worth imitating rather than re-deriving:
 
 - the rotating-refresh-token server, to prove 4 concurrent 401s refresh once
   and don't log out — while a genuinely dead token still does;
+- `inferExerciseDetails` (#42), where the rules are ordered substring tests:
+  the harness strips the TypeScript annotations off the real source and eval's
+  it rather than copying the rules, so it tests the actual order, and every
+  trap ("hip abductor" must not be core, "trap bar" must not be traps,
+  "lateral raise" must not be lats) is an explicit negative assertion;
+- the optimistic set mutations (#36), run against a **real** `QueryClient`
+  imported from `node_modules` with a fake API whose latency and failures are
+  controlled. Worth imitating: the uncertainty being tested was query-core's
+  own semantics (does `isMutating` count the mutation that is settling?), not
+  arithmetic, so modelling the library would have proved nothing. 27
+  assertions, including that a slow patch's optimistic value survives a fast
+  patch settling underneath it;
 - the superset round gating (1-of-2 and 2-of-3 must NOT fire, uneven groups
   must not stall);
 - corrupt persisted timer states, including the exact `496627:55:15` payload;

@@ -7,7 +7,7 @@ import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { addDays, todayString } from '@/lib/utils';
 import { TrendingUp, Ruler } from 'lucide-react';
-import { MUSCLE_GROUP_LABELS, MUSCLE_GROUP_COLORS, PRIMARY_MUSCLE_GROUPS } from '@fittrackr/shared';
+import { MUSCLE_GROUP_LABELS, MUSCLE_GROUP_COLORS, PRIMARY_MUSCLE_GROUPS, ALL_MUSCLE_GROUPS } from '@fittrackr/shared';
 import type { BodyMeasurement, MuscleGroup } from '@fittrackr/shared';
 
 type TrendsTab = 'training' | 'measurements';
@@ -248,6 +248,17 @@ export default function TrendsPage() {
   const totalSetsPrev = Object.values(prevVol).reduce((a, b) => a + b, 0);
   const setsChange = totalSetsThis - totalSetsPrev;
 
+  // The always-shown rows, plus anything actually trained this week or carrying
+  // a target. Curating PRIMARY_MUSCLE_GROUPS by hand meant a muscle group could
+  // be trained all week and simply not appear on this chart — which is how
+  // calves went missing. Ordered canonically so rows don't jump week to week.
+  const chartMuscles = ALL_MUSCLE_GROUPS.filter(
+    (m) =>
+      PRIMARY_MUSCLE_GROUPS.includes(m) ||
+      (thisVol[m] ?? 0) > 0 ||
+      (weeklySetTargets?.[m] ?? 0) > 0,
+  );
+
   // ── Measurement calculations ──
   const measurements = measureRes?.data ?? [];
 
@@ -368,10 +379,10 @@ export default function TrendsPage() {
           <Card>
             <p className="text-sm font-semibold mb-4">Volume by Muscle Group</p>
             <div className="space-y-2">
-              {PRIMARY_MUSCLE_GROUPS.map((muscle) => {
+              {chartMuscles.map((muscle) => {
                 const sets = thisVol[muscle] ?? 0;
                 const target = weeklySetTargets?.[muscle];
-                const maxSets = Math.max(...PRIMARY_MUSCLE_GROUPS.map((m) => thisVol[m] ?? 0), target ?? 0, 1);
+                const maxSets = Math.max(...chartMuscles.map((m) => thisVol[m] ?? 0), target ?? 0, 1);
                 const pct = sets > 0 ? Math.min((sets / maxSets) * 100, 100) : 0;
                 const color = MUSCLE_GROUP_COLORS[muscle];
                 return (

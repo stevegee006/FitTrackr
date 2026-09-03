@@ -4,6 +4,24 @@ import { NotFoundError, ForbiddenError } from '../utils/errors.js';
 import { checkAndUpdatePersonalRecords, getPRsForWorkout, recomputePersonalRecords } from './personal-record.service.js';
 import { tally, diffTally } from './workout-summary.js';
 
+/**
+ * Ownership guard for the handful of routes that write sets with a raw
+ * `updateMany` instead of going through a service function. Throws the same
+ * errors the service functions do, so the error handler shapes it identically.
+ */
+export async function assertWorkoutOwner(
+  fastify: FastifyInstance,
+  userId: string,
+  workoutId: string,
+) {
+  const workout = await fastify.prisma.workout.findUnique({
+    where: { id: workoutId },
+    select: { userId: true },
+  });
+  if (!workout) throw new NotFoundError('Workout');
+  if (workout.userId !== userId) throw new ForbiddenError('Not your workout');
+}
+
 export async function createWorkout(
   fastify: FastifyInstance,
   userId: string,
@@ -215,6 +233,72 @@ export async function deleteSet(
 
   // The deleted set may have been the one holding a record.
   await recomputePersonalRecords(fastify, userId, set.exerciseId);
+}
+
+/**
+ * Remove an exercise from a workout entirely — every set of it, in one request.
+ *
+ * Deleting a mis-added exercise used to mean tapping the trash on each set in
+ * turn: N requests, N refetches, and the exercise only disappearing on the last
+ * one. Doing it server-side also lets three things be handled that the
+ * per-set path cannot:
+ *
+ *  - `exerciseOrder` is PRUNED here. Everywhere else that array is append-only
+ *    (`addSet` adds, nothing removes), so it accumulates ids for exercises with
+ *    no sets left and the frontend has to filter them out defensively. This is
+ *    the one path that knows for certain the exercise is gone.
+ *  - A superset group left with fewer than two exercises is dissolved. A group
+ *    of one is not a superset, and the logger's round-based rest timer keys off
+ *    group membership.
+ *  - PRs are recomputed once at the end rather than once per deleted set.
+ */
+export async function deleteWorkoutExercise(
+  fastify: FastifyInstance,
+  userId: string,
+  workoutId: string,
+  exerciseId: string,
+) {
+  const workout = await fastify.prisma.workout.findUnique({ where: { id: workoutId } });
+  if (!workout) throw new NotFoundError('Workout');
+  if (workout.userId !== userId) throw new ForbiddenError('Not your workout');
+
+  const sets = await fastify.prisma.workoutSet.findMany({
+    where: { workoutId, exerciseId },
+    select: { id: true, supersetGroupId: true },
+  });
+  if (sets.length === 0) throw new NotFoundError('Exercise in this workout');
+
+  const groupIds = [
+    ...new Set(sets.map((s) => s.supersetGroupId).filter((g): g is string => g != null)),
+  ];
+
+  await fastify.prisma.$transaction(async (tx) => {
+    await tx.workoutSet.deleteMany({ where: { workoutId, exerciseId } });
+
+    await tx.workout.update({
+      where: { id: workoutId },
+      data: { exerciseOrder: workout.exerciseOrder.filter((e) => e !== exerciseId) },
+    });
+
+    for (const groupId of groupIds) {
+      const remaining = await tx.workoutSet.findMany({
+        where: { workoutId, supersetGroupId: groupId },
+        select: { exerciseId: true },
+      });
+      if (new Set(remaining.map((r) => r.exerciseId)).size < 2) {
+        await tx.workoutSet.updateMany({
+          where: { workoutId, supersetGroupId: groupId },
+          data: { supersetGroupId: null },
+        });
+      }
+    }
+  });
+
+  // Outside the transaction, like deleteSet: this does its own writes and a
+  // failure here must not roll back a deletion the user already saw succeed.
+  await recomputePersonalRecords(fastify, userId, exerciseId);
+
+  return { deletedSets: sets.length };
 }
 
 /**

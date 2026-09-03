@@ -9,7 +9,9 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
 import { Trash2, Loader2, Users, Dumbbell, BarChart3, Brain, ChevronLeft, ChevronRight, Shield, Pencil, Plus, X, KeyRound, Copy, Check, Settings, UserPlus, Upload, ChevronDown } from 'lucide-react';
+import { muscleGroupLabel as muscleLabel, equipmentLabel, exerciseCategoryLabel } from '@fittrackr/shared';
 import type { ParsedExercise } from '@fittrackr/shared';
+import { ExerciseEditForm } from '@/components/admin/ExerciseEditForm';
 
 type Tab = 'stats' | 'users' | 'exercises' | 'sso' | 'settings';
 
@@ -48,6 +50,7 @@ interface AdminExercise {
   name: string;
   category: string;
   primaryMuscle: string;
+  secondaryMuscles: string[];
   equipment: string;
   source: string;
   isCustom: boolean;
@@ -620,9 +623,9 @@ function AiExerciseIngestCard() {
                         className="w-full text-sm font-medium bg-transparent border-b border-transparent hover:border-gray-300 focus:border-indigo-500 focus:outline-none"
                       />
                       <div className="flex flex-wrap gap-2 text-[11px] text-gray-600 dark:text-gray-400">
-                        <span>{item.primaryMuscle}</span>
-                        <span>{item.equipment}</span>
-                        <span>{item.category}</span>
+                        <span>{muscleLabel(item.primaryMuscle)}</span>
+                        <span>{equipmentLabel(item.equipment)}</span>
+                        <span>{exerciseCategoryLabel(item.category)}</span>
                       </div>
                     </div>
                   </div>
@@ -652,17 +655,6 @@ function ExercisesTab() {
   const [search, setSearch] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editName, setEditName] = useState('');
-
-  const renameMutation = useMutation({
-    mutationFn: async ({ id, name }: { id: string; name: string }) => {
-      await apiFetch(`/admin/exercises/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-exercises'] });
-      setEditingId(null);
-    },
-  });
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-exercises', page, search],
@@ -709,46 +701,35 @@ function ExercisesTab() {
           {data?.data.map((item) => (
             <Card key={item.id} className="py-3">
               {editingId === item.id ? (
-                <div className="flex items-center gap-2">
-                  <input
-                    autoFocus
-                    type="text"
-                    value={editName}
-                    onChange={e => setEditName(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') renameMutation.mutate({ id: item.id, name: editName });
-                      if (e.key === 'Escape') setEditingId(null);
-                    }}
-                    className="flex-1 text-sm rounded-lg border border-indigo-400 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-gray-800 dark:border-indigo-600"
-                  />
-                  <button
-                    onClick={() => renameMutation.mutate({ id: item.id, name: editName })}
-                    disabled={renameMutation.isPending || !editName.trim()}
-                    className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold disabled:opacity-40"
-                  >
-                    {renameMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Save'}
-                  </button>
-                  <button
-                    onClick={() => setEditingId(null)}
-                    className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300"
-                  >
-                    Cancel
-                  </button>
-                </div>
+                <ExerciseEditForm
+                  exercise={item}
+                  onCancel={() => setEditingId(null)}
+                  onSaved={() => {
+                    queryClient.invalidateQueries({ queryKey: ['admin-exercises'] });
+                    setEditingId(null);
+                  }}
+                />
               ) : (
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{item.name}</p>
+                    {/* Labels, not enum keys — this row used to read
+                        "GLUTES · machine · MANUAL". */}
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {item.primaryMuscle} &middot; {item.equipment.toLowerCase().replace('_', ' ')} &middot;{' '}
+                      {muscleLabel(item.primaryMuscle)} &middot; {equipmentLabel(item.equipment)} &middot;{' '}
                       <span className="text-[10px] uppercase">{item.source}</span>
                     </p>
+                    {item.secondaryMuscles?.length > 0 && (
+                      <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">
+                        also {item.secondaryMuscles.map(muscleLabel).join(', ')}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center shrink-0 ml-2">
                     <button
-                      onClick={() => { setEditingId(item.id); setEditName(item.name); }}
+                      onClick={() => setEditingId(item.id)}
                       className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center text-gray-400 hover:text-indigo-500 transition-colors rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950"
-                      title="Rename"
+                      title="Edit exercise"
                     >
                       <Pencil className="h-4 w-4" />
                     </button>

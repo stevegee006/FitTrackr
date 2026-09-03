@@ -58,10 +58,15 @@ function inferWorkoutType(muscles: string[]): string {
     counts[m] = (counts[m] ?? 0) + 1;
   }
 
-  const push = (counts['CHEST'] ?? 0) + (counts['SHOULDERS'] ?? 0) + (counts['TRICEPS'] ?? 0);
-  const pull = (counts['BACK'] ?? 0) + (counts['BICEPS'] ?? 0);
-  const legs = (counts['QUADS'] ?? 0) + (counts['HAMSTRINGS'] ?? 0) + (counts['GLUTES'] ?? 0) + (counts['CALVES'] ?? 0);
-  const cardio = (counts['FULL_BODY'] ?? 0);
+  // Every muscle group has to be attributed to a bucket or it votes for
+  // nothing: an all-lats-and-traps session used to count zero towards PULL and
+  // come back as CUSTOM. FOREARMS/CORE/OBLIQUES are deliberately unbucketed —
+  // they appear alongside everything and shouldn't sway the guess.
+  const sum = (...keys: string[]) => keys.reduce((n, k) => n + (counts[k] ?? 0), 0);
+  const push = sum('CHEST', 'SHOULDERS', 'TRICEPS');
+  const pull = sum('BACK', 'LATS', 'TRAPS', 'BICEPS');
+  const legs = sum('QUADS', 'HAMSTRINGS', 'GLUTES', 'ADDUCTORS', 'ABDUCTORS', 'CALVES');
+  const cardio = sum('FULL_BODY');
 
   const max = Math.max(push, pull, legs, cardio);
   if (max === 0) return 'CUSTOM';

@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { parsedExerciseSchema } from '@fittrackr/shared';
+import {
+  parsedExerciseSchema,
+  muscleGroupValues, equipmentValues, exerciseCategoryValues,
+} from '@fittrackr/shared';
 import { aiVisionCompletion, aiPdfCompletion } from './ai-provider.service.js';
 import { AppError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
@@ -9,10 +12,10 @@ const SYSTEM_PROMPT = `You are a fitness data extraction expert. Extract every e
 
 For each exercise return:
 - name: string (full exercise name)
-- category: one of COMPOUND, ISOLATION, CARDIO, STRETCHING, OTHER
-- primaryMuscle: one of CHEST, BACK, SHOULDERS, BICEPS, TRICEPS, FOREARMS, QUADS, HAMSTRINGS, GLUTES, CALVES, CORE, FULL_BODY
+- category: one of ${exerciseCategoryValues.join(', ')}
+- primaryMuscle: one of ${muscleGroupValues.join(', ')}
 - secondaryMuscles: array of the same muscle group values (can be empty)
-- equipment: one of BARBELL, DUMBBELL, CABLE, MACHINE, BODYWEIGHT, KETTLEBELL, BANDS, OTHER
+- equipment: one of ${equipmentValues.join(', ')}
 - instructions: string with execution cues, or null
 
 Return a JSON array directly (no wrapper). Maximum 200 items.`;

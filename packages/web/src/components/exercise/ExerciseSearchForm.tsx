@@ -5,22 +5,21 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api-client';
 import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
-import { MUSCLE_GROUP_LABELS, MUSCLE_GROUP_COLORS } from '@fittrackr/shared';
+// All four of these lists (labels, categories, the muscle dropdown and the
+// filter chips) used to be local copies of the enums. They are shared now, so
+// a muscle group added to the library appears here without a second edit.
+import {
+  MUSCLE_GROUP_LABELS,
+  MUSCLE_GROUP_COLORS,
+  ALL_MUSCLE_GROUPS,
+  PRIMARY_MUSCLE_GROUPS,
+  ALL_EQUIPMENT,
+  EQUIPMENT_LABELS,
+  ALL_EXERCISE_CATEGORIES,
+  EXERCISE_CATEGORY_LABELS,
+} from '@fittrackr/shared';
 import type { Exercise, MuscleGroup } from '@fittrackr/shared';
 import { Search, Dumbbell, ChevronRight, Plus, X, Check } from 'lucide-react';
-
-const EQUIPMENT_LABELS: Record<string, string> = {
-  BARBELL: 'Barbell', DUMBBELL: 'Dumbbell', CABLE: 'Cable', MACHINE: 'Machine',
-  BODYWEIGHT: 'Bodyweight', KETTLEBELL: 'Kettlebell', BANDS: 'Bands', OTHER: 'Other',
-};
-const CATEGORY_LABELS: Record<string, string> = {
-  COMPOUND: 'Compound', ISOLATION: 'Isolation', CARDIO: 'Cardio',
-  STRETCHING: 'Stretching', OTHER: 'Other',
-};
-const ALL_MUSCLES = [
-  'CHEST', 'BACK', 'SHOULDERS', 'BICEPS', 'TRICEPS', 'FOREARMS',
-  'QUADS', 'HAMSTRINGS', 'GLUTES', 'CALVES', 'CORE', 'FULL_BODY',
-] as MuscleGroup[];
 
 interface ExerciseSearchFormProps {
   onSelect: (exercise: Exercise) => void;
@@ -99,7 +98,7 @@ export function ExerciseSearchForm({ onSelect, placeholder = 'Search exercisesâ€
           </div>
 
           <div className="flex gap-1.5 flex-wrap">
-            {(['CHEST', 'BACK', 'SHOULDERS', 'BICEPS', 'TRICEPS', 'QUADS', 'HAMSTRINGS', 'GLUTES', 'CORE'] as MuscleGroup[]).map(
+            {PRIMARY_MUSCLE_GROUPS.map(
               (m) => (
                 <button
                   key={m}
@@ -223,7 +222,7 @@ export function ExerciseSearchForm({ onSelect, placeholder = 'Search exercisesâ€
                 onChange={(e) => setCreateForm((f) => ({ ...f, primaryMuscle: e.target.value as MuscleGroup }))}
                 className={selectClass}
               >
-                {ALL_MUSCLES.map((m) => (
+                {ALL_MUSCLE_GROUPS.map((m) => (
                   <option key={m} value={m}>{MUSCLE_GROUP_LABELS[m]}</option>
                 ))}
               </select>
@@ -236,8 +235,8 @@ export function ExerciseSearchForm({ onSelect, placeholder = 'Search exercisesâ€
                 onChange={(e) => setCreateForm((f) => ({ ...f, equipment: e.target.value }))}
                 className={selectClass}
               >
-                {Object.entries(EQUIPMENT_LABELS).map(([k, v]) => (
-                  <option key={k} value={k}>{v}</option>
+                {ALL_EQUIPMENT.map((eq) => (
+                  <option key={eq} value={eq}>{EQUIPMENT_LABELS[eq]}</option>
                 ))}
               </select>
             </div>
@@ -246,7 +245,7 @@ export function ExerciseSearchForm({ onSelect, placeholder = 'Search exercisesâ€
           <div>
             <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">Category</label>
             <div className="flex gap-1.5 flex-wrap">
-              {Object.entries(CATEGORY_LABELS).map(([k, v]) => (
+              {ALL_EXERCISE_CATEGORIES.map((k) => (
                 <button
                   key={k}
                   type="button"
@@ -257,7 +256,7 @@ export function ExerciseSearchForm({ onSelect, placeholder = 'Search exercisesâ€
                       : 'text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-gray-400'
                   }`}
                 >
-                  {v}
+                  {EXERCISE_CATEGORY_LABELS[k]}
                 </button>
               ))}
             </div>

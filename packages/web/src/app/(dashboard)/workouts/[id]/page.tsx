@@ -156,6 +156,11 @@ export default function WorkoutDetailPage() {
   const [showWatchReminder, setShowWatchReminder] = useState(false);
   const [showDurationEdit, setShowDurationEdit] = useState(false);
   const [addExerciseError, setAddExerciseError] = useState<string | null>(null);
+  const [exerciseActionError, setExerciseActionError] = useState<string | null>(null);
+  // Removing every set of an exercise is not undoable, so it is confirmed —
+  // an in-page bar rather than window.confirm, which on iOS steals focus and
+  // has fired accidentally from a mis-tap on the collapsing header.
+  const [confirmDeleteExerciseId, setConfirmDeleteExerciseId] = useState<string | null>(null);
   const startAnchorRef = useRef<number>(0);
 
   // ── Timer localStorage persistence ──────────────────────────────────────────
@@ -485,6 +490,43 @@ export default function WorkoutDetailPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['workout', id] }),
   });
 
+  // One request for the whole exercise. Removing a mis-added exercise used to
+  // mean tapping the trash on every set in turn, and the header only vanished
+  // on the last one. The server also prunes `exerciseOrder` and dissolves a
+  // superset group left with one member — see deleteWorkoutExercise.
+  const deleteExerciseMutation = useMutation({
+    mutationFn: (exerciseId: string) =>
+      apiFetch(`/workouts/${id}/exercises/${exerciseId}`, { method: 'DELETE' }),
+    onMutate: async (exerciseId: string) => {
+      setExerciseActionError(null);
+      await queryClient.cancelQueries({ queryKey: ['workout', id] });
+      const previous = queryClient.getQueryData<{ data: Workout & { sets: WorkoutSet[] } }>(['workout', id]);
+
+      queryClient.setQueryData<{ data: Workout & { sets: WorkoutSet[] } }>(['workout', id], (old) =>
+        old
+          ? {
+              ...old,
+              data: {
+                ...old.data,
+                sets: old.data.sets.filter((s) => s.exerciseId !== exerciseId),
+                exerciseOrder: (old.data.exerciseOrder ?? []).filter((e) => e !== exerciseId),
+              },
+            }
+          : old
+      );
+
+      return { previous };
+    },
+    onError: (err: any, _exerciseId, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(['workout', id], ctx.previous);
+      setExerciseActionError(err?.message ?? 'Could not remove that exercise.');
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['workout', id] });
+      queryClient.invalidateQueries({ queryKey: ['personal-records'] });
+    },
+  });
+
   // Tick when running
   useEffect(() => {
     if (!clockRunning) return;
@@ -623,8 +665,9 @@ export default function WorkoutDetailPage() {
 
     const members = (supersetGroupMap.get(groupId) ?? []).filter((e) => byExercise.has(e));
     const roundComplete = members.every((eid) => {
-      // The set that just fired this callback — its refetch is still in flight,
-      // so the cached copy still reads incomplete.
+      // The set that just fired this callback. Its PATCH is optimistic now, but
+      // `mutate` applies that asynchronously and this runs in the same tick, so
+      // the cached copy still reads incomplete either way — treat it as done.
       if (eid === exerciseId) return true;
       const working = (byExercise.get(eid) ?? []).filter((x) => !x.isWarmup);
       const peer = working[roundNumber - 1];
@@ -820,10 +863,43 @@ export default function WorkoutDetailPage() {
               </button>
 
               <span className="text-xs text-gray-500">{workingSets.length} sets</span>
+
+              {/* Remove the whole exercise */}
+              <button type="button"
+                onClick={e => { e.stopPropagation(); setConfirmDeleteExerciseId(exerciseId); }}
+                className="p-1 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
+                title="Remove exercise from this workout">
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+
               {moveButtons && <div onClick={e => e.stopPropagation()}>{moveButtons}</div>}
             </>
           )}
         </div>
+
+        {/* Deliberately outside the `!collapsed` branch: collapsing the card
+            while the confirm is open must not silently drop the prompt. */}
+        {confirmDeleteExerciseId === exerciseId && (
+          <div
+            className="flex items-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-950/30 border-b border-red-100 dark:border-red-900"
+            onClick={e => e.stopPropagation()}
+          >
+            <p className="text-xs text-red-700 dark:text-red-300 flex-1 min-w-0">
+              Remove <span className="font-semibold">{exerciseName}</span> and its{' '}
+              {sets.length} {sets.length === 1 ? 'set' : 'sets'}?
+            </p>
+            <button type="button"
+              onClick={() => { setConfirmDeleteExerciseId(null); deleteExerciseMutation.mutate(exerciseId); }}
+              className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-semibold shrink-0">
+              Remove
+            </button>
+            <button type="button"
+              onClick={() => setConfirmDeleteExerciseId(null)}
+              className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300 shrink-0">
+              Cancel
+            </button>
+          </div>
+        )}
 
         {!collapsed && (
           <>
@@ -1029,6 +1105,12 @@ export default function WorkoutDetailPage() {
             <Play className="h-5 w-5 fill-white" />
             Start Workout
           </button>
+        )}
+
+        {/* The exercise is removed from the cache optimistically, so a failure
+            puts it back — without this the row would reappear unexplained. */}
+        {exerciseActionError && (
+          <p className="text-xs text-red-500 px-1">{exerciseActionError}</p>
         )}
 
         {/* Exercise slots */}

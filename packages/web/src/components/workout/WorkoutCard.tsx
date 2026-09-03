@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import type { Workout } from '@fittrackr/shared';
-import { WORKOUT_TYPE_LABELS, WORKOUT_TYPE_COLORS, MUSCLE_GROUP_COLORS } from '@fittrackr/shared';
+import { WORKOUT_TYPE_LABELS, WORKOUT_TYPE_COLORS, MUSCLE_GROUP_COLORS, muscleGroupLabel } from '@fittrackr/shared';
 import { Card } from '@/components/ui/Card';
 import { Clock, Dumbbell } from 'lucide-react';
 import { formatDuration } from '@/lib/utils';
@@ -64,7 +64,10 @@ export function WorkoutCard({ workout }: WorkoutCardProps) {
                     color: (MUSCLE_GROUP_COLORS as any)[m!],
                   }}
                 >
-                  {m}
+                  {/* The label, not the enum key — these chips used to read
+                      "FULL_BODY". Falls back to the raw value so a group added
+                      to the DB ahead of the shared constants still renders. */}
+                  {muscleGroupLabel(m)}
                 </span>
               ))}
             </div>

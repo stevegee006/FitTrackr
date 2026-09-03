@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { GenerateProgramInput } from '@fittrackr/shared';
+import { muscleGroupValues, equipmentValues, exerciseCategoryValues } from '@fittrackr/shared';
 import { aiChatCompletion } from './ai-provider.service.js';
 import { NotFoundError, ForbiddenError, AppError } from '../utils/errors.js';
 import { expandProgram } from './program-expand.js';
@@ -58,9 +59,9 @@ Return ONLY valid JSON with this structure:
 
 dayOfWeek: 1=Monday, 2=Tuesday, ..., 7=Sunday
 workoutType must be one of: PUSH, PULL, LEGS, UPPER, LOWER, FULL_BODY, CARDIO, CUSTOM
-primaryMuscle must be one of: CHEST, BACK, SHOULDERS, BICEPS, TRICEPS, FOREARMS, QUADS, HAMSTRINGS, GLUTES, CALVES, CORE, FULL_BODY
-equipment must be one of: BARBELL, DUMBBELL, CABLE, MACHINE, BODYWEIGHT, KETTLEBELL, BANDS, OTHER
-category must be one of: COMPOUND, ISOLATION, CARDIO, STRETCHING, OTHER
+primaryMuscle must be one of: ${muscleGroupValues.join(', ')}
+equipment must be one of: ${equipmentValues.join(', ')}
+category must be one of: ${exerciseCategoryValues.join(', ')}
 Every exercise MUST include primaryMuscle, equipment, and category.
 Rest days must be omitted from the days array.`;
 

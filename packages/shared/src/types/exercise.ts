@@ -1,7 +1,17 @@
-export type ExerciseCategory = 'COMPOUND' | 'ISOLATION' | 'CARDIO' | 'STRETCHING' | 'OTHER';
-export type MuscleGroup = 'CHEST' | 'BACK' | 'SHOULDERS' | 'BICEPS' | 'TRICEPS' | 'FOREARMS' | 'QUADS' | 'HAMSTRINGS' | 'GLUTES' | 'CALVES' | 'CORE' | 'FULL_BODY';
-export type Equipment = 'BARBELL' | 'DUMBBELL' | 'CABLE' | 'MACHINE' | 'BODYWEIGHT' | 'KETTLEBELL' | 'BANDS' | 'OTHER';
-export type ExerciseSource = 'WGER' | 'MANUAL' | 'AI_INGEST';
+// Derived from the Zod value arrays rather than written out again — these used
+// to be hand-maintained literal unions, i.e. a second place to remember when
+// adding a muscle group. Type-only imports, so nothing is pulled in at runtime.
+import type {
+  muscleGroupValues,
+  equipmentValues,
+  exerciseCategoryValues,
+  exerciseSourceValues,
+} from '../validation/exercise.schema.js';
+
+export type ExerciseCategory = (typeof exerciseCategoryValues)[number];
+export type MuscleGroup = (typeof muscleGroupValues)[number];
+export type Equipment = (typeof equipmentValues)[number];
+export type ExerciseSource = (typeof exerciseSourceValues)[number];
 export type WorkoutType = 'PUSH' | 'PULL' | 'LEGS' | 'UPPER' | 'LOWER' | 'FULL_BODY' | 'CARDIO' | 'CUSTOM';
 export type RecordType = 'MAX_WEIGHT' | 'MAX_REPS' | 'MAX_1RM' | 'MAX_VOLUME';
 export type TrainingGoalType = 'STRENGTH' | 'HYPERTROPHY' | 'ENDURANCE' | 'WEIGHT_LOSS' | 'GENERAL_FITNESS';

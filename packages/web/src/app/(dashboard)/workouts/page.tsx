@@ -8,6 +8,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { WORKOUT_TYPE_LABELS, WORKOUT_TYPE_COLORS, MUSCLE_GROUP_LABELS } from '@fittrackr/shared';
 import type { Workout, WorkoutType, Exercise, MuscleGroup } from '@fittrackr/shared';
 import { todayString, parseDateLocal, formatDate, formatDuration } from '@/lib/utils';
+import { inferExerciseDetails } from '@/lib/infer-exercise';
 import Link from 'next/link';
 import { ChevronLeft, ChevronRight, Dumbbell, Clock, Sparkles, Camera, X, Check, ImageIcon, Plus, Trash2 } from 'lucide-react';
 
@@ -34,37 +35,6 @@ interface AiWorkout {
   exercises: AiExercise[];
 }
 
-function inferExerciseDetails(name: string, workoutType: WorkoutType) {
-  const n = name.toLowerCase();
-  let equipment = 'BODYWEIGHT';
-  if (n.includes('barbell')) equipment = 'BARBELL';
-  else if (n.includes('dumbbell')) equipment = 'DUMBBELL';
-  else if (n.includes('cable')) equipment = 'CABLE';
-  else if (n.includes('machine') || n.includes('smith')) equipment = 'MACHINE';
-  else if (n.includes('kettlebell')) equipment = 'KETTLEBELL';
-  else if (n.includes('band')) equipment = 'BANDS';
-
-  const compoundKw = ['press', 'squat', 'deadlift', 'row', 'pull', 'dip', 'lunge', 'thrust'];
-  const category = compoundKw.some((kw) => n.includes(kw)) ? 'COMPOUND' : 'ISOLATION';
-
-  let primaryMuscle: MuscleGroup = 'FULL_BODY';
-  if (n.includes('chest') || n.includes('pec') || n.includes('fly') || (n.includes('bench') && !n.includes('row'))) primaryMuscle = 'CHEST';
-  else if (n.includes('tricep') || (n.includes('extension') && !n.includes('leg'))) primaryMuscle = 'TRICEPS';
-  else if (n.includes('bicep') || (n.includes('curl') && !n.includes('leg'))) primaryMuscle = 'BICEPS';
-  else if (n.includes('shoulder') || n.includes('delt') || n.includes('lateral raise')) primaryMuscle = 'SHOULDERS';
-  else if (n.includes('lat') || n.includes('row') || n.includes('pulldown') || n.includes('pull-up') || n.includes('back')) primaryMuscle = 'BACK';
-  else if (n.includes('quad') || n.includes('squat') || n.includes('leg press') || n.includes('lunge')) primaryMuscle = 'QUADS';
-  else if (n.includes('hamstring') || n.includes('rdl') || n.includes('romanian')) primaryMuscle = 'HAMSTRINGS';
-  else if (n.includes('glute') || n.includes('hip thrust')) primaryMuscle = 'GLUTES';
-  else if (n.includes('calf') || n.includes('calves')) primaryMuscle = 'CALVES';
-  else if (n.includes('core') || n.includes('crunch') || n.includes('plank')) primaryMuscle = 'CORE';
-  else {
-    const map: Partial<Record<WorkoutType, MuscleGroup>> = { PUSH: 'CHEST', PULL: 'BACK', LEGS: 'QUADS', UPPER: 'CHEST', LOWER: 'QUADS' };
-    primaryMuscle = map[workoutType] ?? 'FULL_BODY';
-  }
-
-  return { primaryMuscle, equipment, category };
-}
 
 export default function WorkoutsPage() {
   const queryClient = useQueryClient();

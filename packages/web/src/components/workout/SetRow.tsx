@@ -5,8 +5,21 @@ import { MathInput } from '@/components/ui/MathInput';
 import { PlateCalculator } from '@/components/workout/PlateCalculator';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api-client';
-import type { WorkoutSet } from '@fittrackr/shared';
+import type { Workout, WorkoutSet } from '@fittrackr/shared';
 import { Calculator, Check, Trash2 } from 'lucide-react';
+
+/** Shape of the `['workout', id]` query the logger page owns. */
+type WorkoutQuery = { data: Workout & { sets: WorkoutSet[] } };
+
+interface SetPatch {
+  reps?: number;
+  weightKg?: number;
+  rpe?: number;
+  isWarmup?: boolean;
+  isCompleted?: boolean;
+  durationSec?: number;
+  distanceM?: number;
+}
 
 interface SetRowProps {
   set: WorkoutSet;
@@ -120,33 +133,98 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
   const [showCalc, setShowCalc] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const updateMutation = useMutation({
-    mutationFn: (data: {
-      reps?: number;
-      weightKg?: number;
-      rpe?: number;
-      isWarmup?: boolean;
-      isCompleted?: boolean;
-      durationSec?: number;
-      distanceM?: number;
-    }) =>
-      apiFetch(`/workouts/${workoutId}/sets/${set.id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-    onSuccess: () => {
-      setSaveError(null);
+  // All set mutations share a key so `onSettled` can tell whether it is the
+  // last one standing before it invalidates — see the note there.
+  const mutationKey = ['workout-set', workoutId];
+
+  /**
+   * Write the patch straight into the workout cache and hand back the previous
+   * cache for rollback.
+   *
+   * The logger had no optimistic updates anywhere: every blur commit and every
+   * checkbox tap fired a PATCH, invalidated `['workout', id]` and waited for
+   * the refetch before the UI moved. On gym wifi mid-set that is the single
+   * most-felt delay in the app.
+   */
+  async function applyOptimistic(patch: SetPatch) {
+    // Stop an in-flight refetch from landing on top of the patch we are about
+    // to write.
+    await queryClient.cancelQueries({ queryKey: ['workout', workoutId] });
+    const previous = queryClient.getQueryData<WorkoutQuery>(['workout', workoutId]);
+
+    queryClient.setQueryData<WorkoutQuery>(['workout', workoutId], (old) =>
+      old
+        ? {
+            ...old,
+            data: {
+              ...old.data,
+              sets: old.data.sets.map((s) => (s.id === set.id ? { ...s, ...patch } : s)),
+            },
+          }
+        : old
+    );
+
+    return { previous };
+  }
+
+  /**
+   * Only the last set mutation still running gets to invalidate. Otherwise a
+   * fast tap sequence (blur commit, then complete) has the earlier request's
+   * refetch return data that predates the later one's optimistic patch, and the
+   * row visibly flickers back to its old value until that one settles too.
+   *
+   * `isMutating` still counts the caller here, hence `<= 1`.
+   */
+  function invalidateIfLast() {
+    if (queryClient.isMutating({ mutationKey }) <= 1) {
       queryClient.invalidateQueries({ queryKey: ['workout', workoutId] });
+    }
+  }
+
+  const updateMutation = useMutation({
+    mutationKey,
+    mutationFn: (data: SetPatch) =>
+      apiFetch(`/workouts/${workoutId}/sets/${set.id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    onMutate: async (data) => {
+      setSaveError(null);
+      return applyOptimistic(data);
     },
     // Failures used to be completely silent: the checkbox simply didn't tick
     // and nothing said why. Rate-limit (429) and auth errors both landed here.
-    onError: (err: any) => setSaveError(err?.message ?? 'Could not save.'),
+    // Now the optimistic value has to be put back as well, or the row keeps
+    // showing a change the server rejected.
+    onError: (err: any, _data, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(['workout', workoutId], ctx.previous);
+      setSaveError(err?.message ?? 'Could not save.');
+    },
+    onSettled: invalidateIfLast,
   });
 
   const deleteMutation = useMutation({
+    mutationKey,
     mutationFn: () =>
       apiFetch(`/workouts/${workoutId}/sets/${set.id}`, { method: 'DELETE' }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['workout', workoutId] });
-      onDeleted();
+    onMutate: async () => {
+      setSaveError(null);
+      await queryClient.cancelQueries({ queryKey: ['workout', workoutId] });
+      const previous = queryClient.getQueryData<WorkoutQuery>(['workout', workoutId]);
+
+      // The server does not renumber the remaining sets on delete, so dropping
+      // the row is a faithful preview of what the refetch will return.
+      queryClient.setQueryData<WorkoutQuery>(['workout', workoutId], (old) =>
+        old
+          ? { ...old, data: { ...old.data, sets: old.data.sets.filter((s) => s.id !== set.id) } }
+          : old
+      );
+
+      return { previous };
     },
+    onSuccess: () => onDeleted(),
+    onError: (err: any, _vars, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(['workout', workoutId], ctx.previous);
+      setSaveError(err?.message ?? 'Could not delete.');
+    },
+    onSettled: invalidateIfLast,
   });
 
   // Field readers are pure so completing a set can send ONE request instead of

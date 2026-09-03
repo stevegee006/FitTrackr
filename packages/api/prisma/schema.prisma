@@ -220,6 +220,10 @@ enum ExerciseCategory {
   OTHER
 }
 
+// Kept in sync BY HAND with `muscleGroupValues` in
+// packages/shared/src/validation/exercise.schema.ts, which is where the
+// TypeScript union and the Zod validator both come from. Additive only:
+// see migration 0008.
 enum MuscleGroup {
   CHEST
   BACK
@@ -233,6 +237,11 @@ enum MuscleGroup {
   CALVES
   CORE
   FULL_BODY
+  LATS
+  TRAPS
+  ADDUCTORS
+  ABDUCTORS
+  OBLIQUES
 }
 
 enum Equipment {

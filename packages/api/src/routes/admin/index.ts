@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { createSsoProviderSchema, updateSsoProviderSchema, adminCreateUserSchema, appSettingsSchema, adminListQuerySchema } from '@fittrackr/shared';
+import { createSsoProviderSchema, updateSsoProviderSchema, adminCreateUserSchema, appSettingsSchema, adminListQuerySchema, updateExerciseSchema } from '@fittrackr/shared';
 import * as adminService from '../../services/admin.service.js';
 import * as ssoService from '../../services/sso.service.js';
 import * as appConfigService from '../../services/app-config.service.js';
@@ -72,9 +72,14 @@ export default async function adminRoutes(fastify: FastifyInstance) {
     return adminService.listExercises(fastify, page, limit, q);
   });
 
+  // The admin editor sends name, category, primaryMuscle, secondaryMuscles and
+  // equipment. This used to pass `request.body as any` straight to a Prisma
+  // update, so a bad muscle-group string reached Postgres as an enum cast error
+  // (a raw 500) rather than a 422 naming the field.
   fastify.patch('/admin/exercises/:id', async (request) => {
     const { id } = request.params as { id: string };
-    const data = await adminService.updateExercise(fastify, id, request.body as any);
+    const body = updateExerciseSchema.parse(request.body);
+    const data = await adminService.updateExercise(fastify, id, body);
     return { data };
   });
 

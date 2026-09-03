@@ -6,42 +6,30 @@ import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
-import { MUSCLE_GROUP_LABELS, MUSCLE_GROUP_COLORS } from '@fittrackr/shared';
+import {
+  MUSCLE_GROUP_LABELS,
+  MUSCLE_GROUP_COLORS,
+  ALL_MUSCLE_GROUPS,
+  ALL_EQUIPMENT,
+  EQUIPMENT_LABELS,
+  ALL_EXERCISE_CATEGORIES,
+  EXERCISE_CATEGORY_LABELS,
+} from '@fittrackr/shared';
 import type { Exercise, MuscleGroup, ExerciseCategory, Equipment } from '@fittrackr/shared';
 import { Search, Dumbbell, ChevronRight, Plus, X } from 'lucide-react';
 
-const CATEGORY_OPTIONS: { value: ExerciseCategory; label: string }[] = [
-  { value: 'COMPOUND', label: 'Compound' },
-  { value: 'ISOLATION', label: 'Isolation' },
-  { value: 'CARDIO', label: 'Cardio' },
-  { value: 'STRETCHING', label: 'Stretching' },
-  { value: 'OTHER', label: 'Other' },
-];
+// These three lists were hand-written copies of the enums and had already
+// drifted — the equipment one was missing KETTLEBELL entirely, so a kettlebell
+// exercise could not be created here at all. Driven off the shared arrays now,
+// which are generated from the same values the API validates against.
+const CATEGORY_OPTIONS: { value: ExerciseCategory; label: string }[] =
+  ALL_EXERCISE_CATEGORIES.map((value) => ({ value, label: EXERCISE_CATEGORY_LABELS[value] }));
 
-const MUSCLE_OPTIONS: { value: MuscleGroup; label: string }[] = [
-  { value: 'CHEST', label: 'Chest' },
-  { value: 'BACK', label: 'Back' },
-  { value: 'SHOULDERS', label: 'Shoulders' },
-  { value: 'BICEPS', label: 'Biceps' },
-  { value: 'TRICEPS', label: 'Triceps' },
-  { value: 'FOREARMS', label: 'Forearms' },
-  { value: 'CORE', label: 'Core' },
-  { value: 'QUADS', label: 'Quads' },
-  { value: 'HAMSTRINGS', label: 'Hamstrings' },
-  { value: 'GLUTES', label: 'Glutes' },
-  { value: 'CALVES', label: 'Calves' },
-  { value: 'FULL_BODY', label: 'Full Body' },
-];
+const MUSCLE_OPTIONS: { value: MuscleGroup; label: string }[] =
+  ALL_MUSCLE_GROUPS.map((value) => ({ value, label: MUSCLE_GROUP_LABELS[value] }));
 
-const EQUIPMENT_OPTIONS: { value: Equipment; label: string }[] = [
-  { value: 'BARBELL', label: 'Barbell' },
-  { value: 'DUMBBELL', label: 'Dumbbell' },
-  { value: 'MACHINE', label: 'Machine' },
-  { value: 'CABLE', label: 'Cable' },
-  { value: 'BODYWEIGHT', label: 'Bodyweight' },
-  { value: 'BANDS', label: 'Bands' },
-  { value: 'OTHER', label: 'Other' },
-];
+const EQUIPMENT_OPTIONS: { value: Equipment; label: string }[] =
+  ALL_EQUIPMENT.map((value) => ({ value, label: EQUIPMENT_LABELS[value] }));
 
 const fieldClass =
   'block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100';

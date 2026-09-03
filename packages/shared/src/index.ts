@@ -6,6 +6,7 @@ export type * from './types/sso.js';
 
 // Constants
 export * from './constants/activity-levels.js';
+export * from './constants/exercise-meta.js';
 export * from './constants/goals.js';
 export * from './constants/muscle-groups.js';
 export * from './constants/workout-types.js';

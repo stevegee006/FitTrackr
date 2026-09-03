@@ -1,5 +1,10 @@
 import type { FastifyInstance } from 'fastify';
-import { createWorkoutSchema, updateWorkoutSchema, addSetSchema, updateSetSchema } from '@fittrackr/shared';
+import {
+  createWorkoutSchema, updateWorkoutSchema, addSetSchema, updateSetSchema,
+  // Interpolated into the prompt below rather than written out: a muscle group
+  // the model is never told about is one it can never return.
+  muscleGroupValues, equipmentValues, exerciseCategoryValues,
+} from '@fittrackr/shared';
 import * as workoutService from '../../services/workout.service.js';
 import { aiChatCompletion, aiVisionCompletion } from '../../services/ai-provider.service.js';
 
@@ -24,9 +29,9 @@ Return ONLY valid JSON with this exact structure:
 }
 
 workoutType must be one of: PUSH, PULL, LEGS, UPPER, LOWER, FULL_BODY, CARDIO, CUSTOM
-primaryMuscle must be one of: CHEST, BACK, SHOULDERS, BICEPS, TRICEPS, FOREARMS, QUADS, HAMSTRINGS, GLUTES, CALVES, CORE, FULL_BODY
-equipment must be one of: BARBELL, DUMBBELL, CABLE, MACHINE, BODYWEIGHT, KETTLEBELL, BANDS, OTHER
-category must be one of: COMPOUND, ISOLATION, CARDIO, STRETCHING, OTHER
+primaryMuscle must be one of: ${muscleGroupValues.join(', ')}
+equipment must be one of: ${equipmentValues.join(', ')}
+category must be one of: ${exerciseCategoryValues.join(', ')}
 Every exercise MUST include primaryMuscle, equipment, and category. rpe and notes are optional.`;
 
 export default async function workoutRoutes(fastify: FastifyInstance) {
@@ -158,6 +163,16 @@ export default async function workoutRoutes(fastify: FastifyInstance) {
     },
   });
 
+  // DELETE /workouts/:id/exercises/:exerciseId — remove an exercise and all its sets
+  fastify.delete('/workouts/:id/exercises/:exerciseId', {
+    preHandler: [fastify.authenticate],
+    handler: async (req, reply) => {
+      const { id, exerciseId } = req.params as any;
+      const data = await workoutService.deleteWorkoutExercise(fastify, req.user.sub, id, exerciseId);
+      return reply.send({ data });
+    },
+  });
+
   // POST /workouts/ai-generate — generate a workout with AI
   fastify.post('/workouts/ai-generate', {
     preHandler: [fastify.authenticate],
@@ -241,6 +256,12 @@ Choose a specific workoutType that best fits the session.`;
         return reply.code(400).send({ error: { code: 'BAD_REQUEST', message: 'Provide at least 2 exerciseIds.' } });
       }
 
+      // Both superset routes write with `updateMany({ where: { workoutId } })`
+      // and neither used to check who owns the workout — being authenticated
+      // was enough to regroup any user's sets. Every other write in this file
+      // goes through a service that verifies ownership first.
+      await workoutService.assertWorkoutOwner(fastify, req.user.sub, id);
+
       // Reuse an existing group if any exercise is already in one
       const existing = await fastify.prisma.workoutSet.findFirst({
         where: { workoutId: id, exerciseId: { in: exerciseIds }, supersetGroupId: { not: null } },
@@ -261,6 +282,7 @@ Choose a specific workoutType that best fits the session.`;
     preHandler: [fastify.authenticate],
     handler: async (req, reply) => {
       const { id, groupId } = req.params as any;
+      await workoutService.assertWorkoutOwner(fastify, req.user.sub, id);
       await fastify.prisma.workoutSet.updateMany({
         where: { workoutId: id, supersetGroupId: groupId },
         data: { supersetGroupId: null },
