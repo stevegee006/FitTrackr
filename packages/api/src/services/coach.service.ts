@@ -57,8 +57,7 @@ Rules:
 - 3-4 keyExercises per day, not a full session listing. Prescribe load in the
   athlete's units, based on what they actually lifted.
 - Keep every string SHORT. "why" is at most 12 words; omit it rather than pad
-  it. The whole response must stay well under 1000 tokens — a long reply is
-  slower than the gateway in front of this API will wait for.
+  it. This is read on a phone between sets, and a wall of text is not a plan.
 - Progress an exercise that BEAT its rep range by adding load. Beating a range
   is never a reason to deload; reserve that for genuine stalling or regression.
 - Bodyweight work logs reps with no weight — progress it by reps, then by a
@@ -404,12 +403,16 @@ ${prLines}
 Return the JSON plan now.`;
 
   try {
-    // 1200, not 2000: output tokens are the entire latency budget here (the
-    // program generator measured ~101 tok/s), and this request is the one that
-    // was dying before it could answer. /coach/review works at 1400.
+    // Headroom against TRUNCATION, which is the real failure mode: a cut-off
+    // response is invalid JSON and there is no repairing a half-written object
+    // (the program generator can only repair a truncated ARRAY). Seven days x
+    // four exercises with a reason each runs to ~1,200 tokens, so 1,200 was too
+    // close to the edge. Latency is no longer the constraint it briefly looked
+    // like — that was a ~20s proxy timeout, not the model (see the Deployment
+    // section).
     const result = await aiChatCompletion(fastify, userId, PLAN_SYSTEM_PROMPT, userPrompt, {
       tier: 'heavy',
-      maxTokens: 1200,
+      maxTokens: 1800,
       temperature: 0.4,
     });
 

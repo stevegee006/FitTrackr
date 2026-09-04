@@ -114,6 +114,34 @@ so errors are `"level":50`:
 docker logs fittrackr-api-1 --since 30m 2>&1 | grep '"level":50' | tail -20
 ```
 
+### The reverse proxy in front of the API has a read timeout — and it matters
+
+**There is a proxy in front of `fittrackr-api.geehive.com`** (Fastify is built
+with `trustProxy: true`, and request logs carry the forwarded client IP). Its
+read timeout was **~20 seconds**, which is shorter than an AI request takes,
+and it **closes the connection rather than returning a 504**. The symptom is
+a `fetch` rejection in the browser — "Could not reach the server" — which
+looks like a connectivity or application bug and is neither. See sharp edges
+#95–#97 for the full trail; the short version is that this cost two wrong
+diagnoses before anyone measured the elapsed time.
+
+**Any endpoint that calls an AI provider needs that ceiling above ~120 s**, to
+match the provider client timeouts in `ai-provider.service.ts` (120 s, 180 s
+for PDF). For Nginx Proxy Manager that is the host's Advanced tab:
+
+```
+proxy_read_timeout 180s;
+proxy_send_timeout 180s;
+```
+
+Traefik: `entryPoints.<name>.transport.respondingTimeouts.readTimeout`.
+
+**How to tell this is happening again**: the client error reports how long the
+request ran before it failed, and the API log shows an `incoming request` line
+with **no matching completion line** for that `reqId`. If the server does log
+a completion — with a `responseTime` longer than the client survived — the cut
+is definitively downstream of Fastify.
+
 **`packages/api/docker-entrypoint.sh` runs the migrations itself on every
 container start** (`prisma migrate deploy`), so a redeploy applies pending
 migrations with no manual step. See sharp edge #1 — its failure handling is
@@ -1492,11 +1520,13 @@ And an eleventh batch — two bugs found by using the recap:
 - **`NETWORK_ERROR` now reports how long the request ran** before rejecting
   (#96), because the two candidate causes are indistinguishable without it and
   guessing between them wasted a round trip.
-- **The plan's response budget cut** — `maxTokens` 2000 → 1200, ten exercises
-  in the prompt instead of fourteen, and the system prompt now asks for short
-  strings. Output tokens are the entire latency budget (~101 tok/s measured on
-  the program generator), and this was the one request dying before it could
-  answer while `/coach/review` at 1400 survived.
+- **The plan's response budget tuned** — ten exercises in the prompt instead of
+  fourteen and short strings requested, both of which stand on their own (it is
+  read on a phone). `maxTokens` went 2000 → 1200 → **1800**: the round trip
+  through 1200 was chasing latency, which turned out to be the proxy timeout
+  above, not the model. 1800 is set for **truncation** headroom instead — a
+  cut-off response is invalid JSON, and unlike the program generator's
+  truncated *array* there is no repairing a half-written object.
 - **Coach spinner was left-aligned** — `Spinner` renders a block-level div
   with a fixed width, so the `text-center` on its Card could never centre it.
   It needs a flex parent; every other call site already used one.
