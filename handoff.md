@@ -19,7 +19,7 @@ setup instructions live in [README.md](README.md); **this file is about intent,
 state, and sharp edges** — the things you would otherwise have to rediscover by
 breaking something._
 
-> **Read sharp edges #56–#96 before touching iOS layout, asset generation, AI
+> **Read sharp edges #56–#97 before touching iOS layout, asset generation, AI
 > prompts, summaries/PRs/awards, the auth/refresh path, persisted timer state,
 > cardio/bodyweight handling, muscle-group enums and labels, the finish/reopen
 > flow, what counts as a performed set, or trusting any `git`/`gh`/preview command in
@@ -1137,7 +1137,26 @@ is exactly why it is written down here.
     HTTP response. A timeout has its own message (`TIMEOUT`), so seeing
     "Could not reach the server" specifically rules the client-side timeout
     out. When it appears, check the service worker before the server: a
-    401/404/500 would all have produced typed errors instead.
+    401/404/500 would all have produced typed errors instead — **including a
+    gateway 504**, which is a Response and so cannot be the cause of this
+    message.
+
+    **The message now carries how long the request ran before rejecting, and
+    that number is the diagnosis.** ~10 s points straight at the service
+    worker (#95 — `NetworkFirst`'s `networkTimeoutSeconds`); ~0 s is CORS or
+    DNS; 30–60 s is something severing a slow connection. Do not theorise
+    without it. The first attempt at #95 was diagnosed from a plausible story
+    rather than a measurement, and the story was incomplete.
+97. **`NetworkFirst` failing over to a CACHED response hides the failure.**
+    This is what made #95 look half-fixed: `/coach/review` appeared to work
+    while `/coach/next-week-plan` did not, which seemed to rule the service
+    worker out because both are slow cross-origin AI GETs. But on timeout
+    NetworkFirst *serves the cache*, and the review had been fetched before,
+    so it returned an hour-old response and looked healthy. The plan had no
+    cache entry, so it rejected. **An endpoint that appears to work under a
+    caching strategy may be serving you a stale answer, not a fresh one** —
+    which is the second reason the `/api/` bypass matters, beyond the
+    failures.
 
 ### Awards and benchmarks
 
@@ -1463,13 +1482,24 @@ And a tenth batch — what counts as a set, and a weekly recap:
 
 And an eleventh batch — two bugs found by using the recap:
 
-- **The service worker had been strangling the API** (#95, #96) — reported as
-  "Could not reach the server" on the next-week plan. Not a connectivity
+- **The service worker had been strangling the API** (#95, #96, #97) — reported
+  as "Could not reach the server" on the next-week plan. Not a connectivity
   problem: serwist's `defaultCache` was routing every cross-origin API GET
   through `NetworkFirst` with a 10-second network timeout, so any AI call over
   GET failed, and every API response was being cached for an hour. The worst
   find in the project so far, and it had been shipping since the PWA was set
   up. `/api/` now bypasses the cache entirely.
+- **`NETWORK_ERROR` now reports how long the request ran** before rejecting
+  (#96), because the two candidate causes are indistinguishable without it and
+  guessing between them wasted a round trip.
+- **The plan's response budget cut** — `maxTokens` 2000 → 1200, ten exercises
+  in the prompt instead of fourteen, and the system prompt now asks for short
+  strings. Output tokens are the entire latency budget (~101 tok/s measured on
+  the program generator), and this was the one request dying before it could
+  answer while `/coach/review` at 1400 survived.
+- **Coach spinner was left-aligned** — `Spinner` renders a block-level div
+  with a fixed width, so the `text-center` on its Card could never centre it.
+  It needs a flex parent; every other call site already used one.
 - **Cardio read as "bodyweight" in the recap** — a treadmill walk showed
   "1 sets · bodyweight" because the per-exercise cell only knew about load.
   Sharp edge #74 predicted this exact mistake and it went straight into brand

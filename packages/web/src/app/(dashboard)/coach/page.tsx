@@ -85,7 +85,9 @@ export default function CoachPage() {
     return (
       <div className="space-y-4">
         {header}
-        <Card className="py-12 text-center space-y-3">
+        {/* `text-center` cannot centre the Spinner: it renders a block-level
+            div with a fixed width, so it needs a flex parent (or mx-auto). */}
+        <Card className="py-12 flex flex-col items-center gap-3">
           <Spinner />
           <p className="text-sm text-gray-500 dark:text-gray-400">
             Reading your last {DAYS} days…

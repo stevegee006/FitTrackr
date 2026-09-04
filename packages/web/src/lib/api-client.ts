@@ -144,6 +144,7 @@ export async function apiFetch<T>(
   // A fresh signal per attempt: reusing one across the retry meant a request
   // that had already timed out retried with an aborted signal and died instantly.
   const send = async (): Promise<Response> => {
+    const started = Date.now();
     try {
       return await fetch(url, {
         ...fetchOptions,
@@ -151,10 +152,23 @@ export async function apiFetch<T>(
         signal: timeout ? AbortSignal.timeout(timeout) : undefined,
       });
     } catch (err: any) {
+      const secs = Math.round((Date.now() - started) / 1000);
       if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
-        throw new ApiError(0, 'TIMEOUT', 'Request timed out. Try again with a better connection.');
+        throw new ApiError(0, 'TIMEOUT', `Request timed out after ${secs}s. Try again with a better connection.`);
       }
-      throw new ApiError(0, 'NETWORK_ERROR', 'Could not reach the server. Check your connection and try again.');
+      // `fetch` REJECTED, so there was no HTTP response at all — a 4xx/5xx
+      // would have come back as a Response and been turned into a typed error
+      // below. The elapsed time is the diagnosis and that is why it is in the
+      // message: a rejection after ~0s is CORS, DNS or a service-worker
+      // strategy giving up, while one after 30-60s is something between the
+      // browser and Fastify severing a slow request — a gateway read timeout.
+      // Without this number the two are indistinguishable, which cost a wrong
+      // diagnosis once already.
+      throw new ApiError(
+        0,
+        'NETWORK_ERROR',
+        `Could not reach the server (failed after ${secs}s). Check your connection and try again.`,
+      );
     }
   };
 

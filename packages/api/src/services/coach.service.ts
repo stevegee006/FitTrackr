@@ -54,8 +54,11 @@ Return ONLY valid JSON with this exact structure:
 Rules:
 - Plan exactly the number of sessions the athlete trains per week. If that is
   unknown, match the session count they actually did last week.
-- 3-5 keyExercises per day, not a full session listing. Prescribe load in the
+- 3-4 keyExercises per day, not a full session listing. Prescribe load in the
   athlete's units, based on what they actually lifted.
+- Keep every string SHORT. "why" is at most 12 words; omit it rather than pad
+  it. The whole response must stay well under 1000 tokens — a long reply is
+  slower than the gateway in front of this API will wait for.
 - Progress an exercise that BEAT its rep range by adding load. Beating a range
   is never a reason to deload; reserve that for genuine stalling or regression.
 - Bodyweight work logs reps with no weight — progress it by reps, then by a
@@ -339,7 +342,7 @@ export async function getNextWeekPlan(
     .join('\n');
 
   const exerciseLines = recap.exercises
-    .slice(0, 14)
+    .slice(0, 10)
     .map((e) => {
       // Time/distance first — telling the model a treadmill walk was a
       // "bodyweight" lift invites it to prescribe reps for it (#74).
@@ -401,9 +404,12 @@ ${prLines}
 Return the JSON plan now.`;
 
   try {
+    // 1200, not 2000: output tokens are the entire latency budget here (the
+    // program generator measured ~101 tok/s), and this request is the one that
+    // was dying before it could answer. /coach/review works at 1400.
     const result = await aiChatCompletion(fastify, userId, PLAN_SYSTEM_PROMPT, userPrompt, {
       tier: 'heavy',
-      maxTokens: 2000,
+      maxTokens: 1200,
       temperature: 0.4,
     });
 
