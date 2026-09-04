@@ -10,7 +10,7 @@ import type { Workout, WorkoutType, Exercise, MuscleGroup } from '@fittrackr/sha
 import { todayString, parseDateLocal, formatDate, formatDuration } from '@/lib/utils';
 import { inferExerciseDetails } from '@/lib/infer-exercise';
 import Link from 'next/link';
-import { ChevronLeft, ChevronRight, Dumbbell, Clock, Sparkles, Camera, X, Check, ImageIcon, Plus, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Dumbbell, Clock, Sparkles, Camera, X, Check, ImageIcon, Plus, Trash2, BarChart3 } from 'lucide-react';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -360,7 +360,9 @@ export default function WorkoutsPage() {
                   <Link href={`/workouts/${w.id}`}>
                     <Card className="flex gap-0 p-0 overflow-hidden hover:shadow-md transition-shadow active:scale-[0.99]">
                       <div className="w-1.5 shrink-0 rounded-l-2xl" style={{ backgroundColor: color }} />
-                      <div className="flex-1 px-3 py-2.5 min-w-0 pr-10">
+                      {/* pr-16 leaves room for the two absolutely-positioned
+                          buttons below, not one. */}
+                      <div className={`flex-1 px-3 py-2.5 min-w-0 ${w.completedAt ? 'pr-16' : 'pr-10'}`}>
                         <div className="flex items-center justify-between gap-2">
                           <p className="text-sm font-semibold truncate">{w.name ?? WORKOUT_TYPE_LABELS[w.workoutType]}</p>
                           <span className="text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0"
@@ -379,10 +381,28 @@ export default function WorkoutsPage() {
                               <Clock className="h-3 w-3" />{formatDuration(w.durationMin)}
                             </span>
                           )}
+                          {w.completedAt && (
+                            <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                              <Check className="h-3 w-3" />Finished
+                            </span>
+                          )}
                         </div>
                       </div>
                     </Card>
                   </Link>
+                  {/* Straight to the recap for a session already finished. A
+                      SIBLING of the card's Link, not nested inside it — nested
+                      anchors are invalid and the inner one is ignored. */}
+                  {w.completedAt && (
+                    <Link
+                      href={`/workouts/${w.id}/summary`}
+                      className="absolute right-10 top-1/2 -translate-y-1/2 p-2 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-colors"
+                      title="Workout summary"
+                      aria-label="Workout summary"
+                    >
+                      <BarChart3 className="h-4 w-4" />
+                    </Link>
+                  )}
                   {/* Delete button — always visible on mobile, hover on desktop */}
                   <button
                     type="button"

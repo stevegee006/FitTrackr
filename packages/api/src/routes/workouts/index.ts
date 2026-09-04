@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import {
-  createWorkoutSchema, updateWorkoutSchema, addSetSchema, updateSetSchema,
+  createWorkoutSchema, updateWorkoutSchema, addSetSchema, updateSetSchema, finishWorkoutSchema,
   // Interpolated into the prompt below rather than written out: a muscle group
   // the model is never told about is one it can never return.
   muscleGroupValues, equipmentValues, exerciseCategoryValues,
@@ -160,6 +160,27 @@ export default async function workoutRoutes(fastify: FastifyInstance) {
       const { id, setId } = req.params as any;
       await workoutService.deleteSet(fastify, req.user.sub, id, setId);
       return reply.code(204).send();
+    },
+  });
+
+  // POST /workouts/:id/finish — finalize the session
+  fastify.post('/workouts/:id/finish', {
+    preHandler: [fastify.authenticate],
+    handler: async (req) => {
+      const { id } = req.params as any;
+      const body = finishWorkoutSchema.parse(req.body ?? {});
+      const data = await workoutService.finishWorkout(fastify, req.user.sub, id, body);
+      return { data };
+    },
+  });
+
+  // POST /workouts/:id/reopen — undo finish so the session can be logged into again
+  fastify.post('/workouts/:id/reopen', {
+    preHandler: [fastify.authenticate],
+    handler: async (req) => {
+      const { id } = req.params as any;
+      const data = await workoutService.reopenWorkout(fastify, req.user.sub, id);
+      return { data };
     },
   });
 

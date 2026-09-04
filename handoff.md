@@ -1,8 +1,9 @@
 # HANDOFF — FitTrackr
 
-_Last updated: 2026-09-02 (through the editable-exercise-library commit — five
+_Last updated: 2026-09-03 (through the workout-finalization commit — Finish
+now stamps `completedAt` and the summary has three entry points; earlier: five
 new muscle groups, a full exercise editor in admin, whole-exercise delete in
-the logger; earlier: optimistic set updates so the logger no longer
+the logger, optimistic set updates so the logger no longer
 round-trips on every commit; Awards tab with struck medals,
 AI Coach, weekly-goal streak and consistency badges, PR recompute, set-row
 headers, cardio-mode memory; earlier: random-logout and frozen-app
@@ -16,9 +17,10 @@ setup instructions live in [README.md](README.md); **this file is about intent,
 state, and sharp edges** — the things you would otherwise have to rediscover by
 breaking something._
 
-> **Read sharp edges #56–#84 before touching iOS layout, asset generation, AI
+> **Read sharp edges #56–#88 before touching iOS layout, asset generation, AI
 > prompts, summaries/PRs/awards, the auth/refresh path, persisted timer state,
-> cardio/bodyweight handling, or trusting any `git`/`gh`/preview command in
+> cardio/bodyweight handling, muscle-group enums and labels, the finish/reopen
+> flow, or trusting any `git`/`gh`/preview command in
 > this workspace.** Those cost the most time to learn. If you only read three:
 > **#77** (a hook below an early return took the whole workout page down in
 > production), **#64a/#64b** (a scoped `git add` plus a stale `shared/dist`
@@ -168,6 +170,13 @@ Postgres, all PKs `uuid @db.Uuid`, snake_case via `@map`/`@@map`. Models:
 
 Key invariants — the non-obvious ones:
 
+- **`Workout.completedAt` is the only record that a session is finished**, and
+  it is set exclusively by `POST /workouts/:id/finish` using **server** time —
+  a client clock has already written nonsense into this table once (#72).
+  NULL means open, so **every workout logged before migration `0009` reads as
+  open.** That was deliberate: back-filling from `durationMin IS NOT NULL`
+  would also have stamped the sessions whose duration was only ever typed in
+  with the pencil, and nothing distinguishes those after the fact.
 - **`Workout.exerciseOrder` is a denormalized `String[]` of exercise IDs**,
   maintained in application code only. `addSet` appends an ID if absent;
   **nothing ever removes one**, so the array drifts and can name exercises
@@ -210,6 +219,7 @@ Manually numbered, **not** Prisma's timestamp convention:
 | `0006_workout_program_link` | `workouts.program_id` (FK, **SET NULL**) + `program_week` / `program_day` |
 | `0007_exercise_pref_cardio` | `exercise_preferences.is_cardio BOOLEAN` (nullable = infer) |
 | `0008_muscle_groups` | `ALTER TYPE "MuscleGroup" ADD VALUE` ×5: `LATS`, `TRAPS`, `ADDUCTORS`, `ABDUCTORS`, `OBLIQUES` |
+| `0009_workout_completed_at` | `workouts.completed_at TIMESTAMP(3)` nullable — NULL = still open |
 
 **Adding a muscle group** (or any enum value) is `ALTER TYPE … ADD VALUE`, and
 it is **additive only** — you cannot remove or rename a value while any row
@@ -989,6 +999,40 @@ is exactly why it is written down here.
     contiguity via epoch deltas *falsely fails* on all 14 US transitions —
     compare calendar dates in UTC instead.
 
+### Finishing a workout
+
+85. **"Finish" recorded nothing but a duration.** There was no completion flag
+    at all, so re-opening a finished session showed it exactly as it had looked
+    before it was ever started: a full-width **"Start Workout"** banner above a
+    card of completed sets, and a Finish button below it. `completedAt`
+    (migration `0009`) is what the page now branches on.
+86. **Finish must not overwrite a duration it did not measure.** The old
+    handler always sent `max(1, elapsed/60)`, which was safe only because
+    Finish was unreachable except at the end of a live session. Now that a
+    finished workout can be reopened and finished again — and that an old
+    workout can be finished for the first time — a clock that never ran in
+    *this browser* reads 0, and that would have written **1 minute** over a
+    real recorded duration. `durationMin` is optional on
+    `POST /workouts/:id/finish` and the client omits it unless
+    `workoutStarted && elapsed > 0`; the service only writes it when
+    `!= null`, so an explicit `null` is also a no-op.
+87. **Finishing is reversible on purpose.** `POST /workouts/:id/reopen` clears
+    `completedAt` and **deliberately leaves `durationMin` alone** — reopening
+    is not "unfinishing", and the recorded time stays the truth until Finish
+    measures a new one. A finished workout also stays **editable**: the set
+    rows and the duration pencil are the repair path for a wrong number, and
+    PRs recompute on set edit (#66), so locking the page would remove the only
+    way to fix a session after the fact.
+88. **The summary was reachable only by finishing.** `finishMutation` did a
+    `router.replace` to `/workouts/[id]/summary` and nothing else linked there,
+    so navigating away from it meant it was gone. Three entry points now: a
+    chart icon in the workout header (any workout), a "View Summary" button
+    replacing Finish on a completed one, and a chart icon on each finished row
+    in the workouts list. **That last one is a SIBLING of the row's `Link`,
+    not nested inside it** — nested anchors are invalid HTML and the inner one
+    is dropped. The delete button beside it uses the same trick, which is why
+    the row's padding widens to `pr-16` when both are present.
+
 ### Awards and benchmarks
 
 80. **Benchmark matching is deliberately strict, and must stay that way.**
@@ -1279,6 +1323,17 @@ And an eighth batch — the exercise library got editable:
 - **Superset routes got their missing ownership check** (#6b), noticed while
   adding the sibling endpoint.
 
+And a ninth batch — finishing a workout actually finishes it:
+
+- **`completedAt`** (migration `0009`) plus `POST /workouts/:id/finish` and
+  `POST /workouts/:id/reopen`. Finishing wrote only a duration, so a finished
+  session re-opened as though it had never been started — "Start Workout"
+  above a card of completed sets. See #85–#87 for the three things that had to
+  be handled: the duration Finish must not overwrite, why reopening keeps the
+  duration, and why a finished workout stays editable.
+- **Three ways to reach the summary** (#88), which previously had exactly one:
+  finishing, and only in that moment.
+
 ## Current state
 
 Deployed and in daily real use by the author against real workout data. The
@@ -1292,20 +1347,26 @@ the program summary works, cardio mode persists, and the random-logout /
 frozen-app fixes are in production. The two manual steps that redeploy needed
 (PRs → Recalculate, and Training days per week) are done.
 
-**Pending now: `0008_muscle_groups`, plus the eighth batch.** The migration is
-applied by the entrypoint on the next redeploy. Until then the five new muscle
-groups do not exist in the deployed database, so **the exercise editor's
-dropdown will offer values the API rejects** — a 422 from the enum, not a
-crash. In Portainer this is Stacks → the stack → **Update** with **"Re-pull
+**Pending now: `0008_muscle_groups` and `0009_workout_completed_at`, plus the
+eighth and ninth batches.** Both migrations are applied by the entrypoint on
+the next redeploy. Until then the five new muscle groups do not exist in the
+deployed database, so **the exercise editor's dropdown will offer values the
+API rejects** — a 422 from the enum, not a crash — and Finish will 500 on the
+missing `completed_at` column. In Portainer this is Stacks → the stack →
+**Update** with **"Re-pull
 image and redeploy" ON** — without that toggle it recreates the containers from
 the cached image and nothing changes. Then check the entrypoint actually
 migrated:
 `docker logs fittrackr-api-1 --since 5m 2>&1 | head -20` (see sharp edge #1
 for why its failure path matters).
 
-One manual pass after redeploying:
+Two manual passes after redeploying:
 
-1. **Admin → Exercises → re-tag the mistagged machines.** The migration adds
+1. **Every existing workout reads as unfinished** (#85 — the back-fill was
+   deliberately not done). They will keep offering Start/Finish until each one
+   is finished once. Nothing is broken by leaving them; the only visible
+   effect is no "Finished" chip on the list and no `View Summary` button.
+2. **Admin → Exercises → re-tag the mistagged machines.** The migration adds
    the muscle groups but changes no rows, deliberately. "Machine Hip Adductor"
    is still `HAMSTRINGS` and "Machine Hip Abductor" still `GLUTES`; the pencil
    now edits muscle, equipment and category. Their historical volume stays
@@ -1323,7 +1384,7 @@ Known outstanding user-facing items:
   recurring but does not repair stored values — fix each with the duration
   pencil.
 - Program generation's RPE curve plateaus rather than ramps (#62).
-- **Neither of the last two batches has been rendered in the app.** Everything
+- **None of the last three batches has been rendered in the app.** Everything
   typechecks, `next build` compiles and generates all 19 pages, the API suite
   passes and the frontend logic is covered by harnesses (27 + 44 assertions) —
   but nothing was driven in a browser, because there is no local Postgres or
@@ -1334,7 +1395,10 @@ Known outstanding user-facing items:
   - the exercise-header trash → confirm → row disappears, and the superset
     case where removing one of two members dissolves the group;
   - the admin editor actually saving muscle/equipment/category, which needs
-    `0008` deployed first or the new values 422.
+    `0008` deployed first or the new values 422;
+  - Finish → the finished banner and `View Summary` replacing the Finish
+    button, Reopen putting the page back, and the chart icons reaching the
+    summary from both the header and the workouts list.
 - The program summary shows its empty state for every program that predates
   `0006` (#65). Correct, not broken — but worth seeing once.
 - If logouts persist after the redeploy, the remaining suspect is **two
@@ -1343,10 +1407,10 @@ Known outstanding user-facing items:
 
 ## Next steps (not built, roughly by value)
 
-0. **Redeploy for `0008`, re-tag the two hip machines, then confirm on a
-   device** — see Current state. The new muscle groups do not exist in the
-   deployed database yet, so the editor's dropdown offers values the API
-   rejects until this happens.
+0. **Redeploy for `0008` + `0009`, re-tag the two hip machines, then confirm
+   on a device** — see Current state. Neither the new muscle groups nor
+   `completed_at` exists in the deployed database yet, so until this happens
+   the editor's dropdown offers values the API rejects and Finish 500s.
 1. ~~**Optimistic updates in the workout logger**~~ **DONE** for the set
    PATCH and DELETE and the whole-exercise delete (#36). What is left is the
    *page's* mutations — add set, add warmup, the warmup ladder, reorder.

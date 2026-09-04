@@ -269,6 +269,9 @@ model Workout {
   name        String?     @db.VarChar(255)
   logDate     DateTime    @map("log_date") @db.Date
   durationMin   Int?        @map("duration_min")
+  // Stamped by Finish Workout. NULL means "still open", which is how every
+  // workout logged before migration 0009 reads — see the note there.
+  completedAt   DateTime?   @map("completed_at")
   workoutType   WorkoutType @map("workout_type")
   notes         String?     @db.Text
   exerciseOrder String[]    @default([]) @map("exercise_order")

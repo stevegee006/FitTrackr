@@ -15,8 +15,8 @@ import { ProgressiveOverloadPanel } from '@/components/workout/ProgressiveOverlo
 import { WORKOUT_TYPE_LABELS, MUSCLE_GROUP_COLORS } from '@fittrackr/shared';
 import type { Workout, WorkoutSet, Exercise } from '@fittrackr/shared';
 import { useAuth } from '@/providers/AuthProvider';
-import { parseDateLocal } from '@/lib/utils';
-import { ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Timer, Sparkles, Check, Flame, Pause, Play, Flag, Link2, Unlink2, ArrowUp, ArrowDown, Watch, Pencil } from 'lucide-react';
+import { parseDateLocal, formatDuration } from '@/lib/utils';
+import { ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Timer, Sparkles, Check, Flame, Pause, Play, Flag, Link2, Unlink2, ArrowUp, ArrowDown, Watch, Pencil, BarChart3 } from 'lucide-react';
 import Link from 'next/link';
 
 // ─── Delete confirmation modal ────────────────────────────────────────────────
@@ -248,6 +248,9 @@ export default function WorkoutDetailPage() {
   });
 
   const workout = data?.data;
+  // Set by Finish Workout (migration 0009). Workouts logged before that read as
+  // open, so an old session still offers Start/Finish — finishing one stamps it.
+  const isFinished = workout?.completedAt != null;
 
   const addSetMutation = useMutation({
     mutationFn: async (exerciseId: string) => {
@@ -436,15 +439,23 @@ export default function WorkoutDetailPage() {
 
   const finishMutation = useMutation({
     mutationFn: () =>
-      apiFetch(`/workouts/${id}`, {
-        method: 'PATCH',
-        // Clamped: a corrupt clock must never be written as the duration.
-        body: JSON.stringify({
-          durationMin: Math.min(
-            MAX_DURATION_MIN,
-            Math.max(1, Math.round(Math.min(elapsed, MAX_WORKOUT_SECONDS) / 60)),
-          ),
-        }),
+      apiFetch(`/workouts/${id}/finish`, {
+        method: 'POST',
+        // Only send a duration this session's clock actually measured. Finish
+        // is reachable on a workout whose clock never ran in this browser —
+        // always sending `max(1, elapsed/60)` would replace a real duration
+        // with 1 minute. Still clamped, because a corrupt clock must never be
+        // written as the duration (see the timer validation above).
+        body: JSON.stringify(
+          workoutStarted && elapsed > 0
+            ? {
+                durationMin: Math.min(
+                  MAX_DURATION_MIN,
+                  Math.max(1, Math.round(Math.min(elapsed, MAX_WORKOUT_SECONDS) / 60)),
+                ),
+              }
+            : {}
+        ),
       }),
     onSuccess: () => {
       // Stop the ticker WITHOUT persisting — pauseClock() saves, so calling it
@@ -457,6 +468,18 @@ export default function WorkoutDetailPage() {
       // Finishing lands on the recap rather than the list, with a celebration.
       markCelebrate(id);
       router.replace(`/workouts/${id}/summary`);
+    },
+  });
+
+  // Finishing is not a one-way door: finish a session, notice a missed set,
+  // reopen and add it. Deliberately does NOT clear the recorded duration —
+  // reopening is not "unfinishing", and the stored time is still the truth
+  // until Finish measures a new one.
+  const reopenMutation = useMutation({
+    mutationFn: () => apiFetch(`/workouts/${id}/reopen`, { method: 'POST' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workout', id] });
+      queryClient.invalidateQueries({ queryKey: ['workouts'] });
     },
   });
 
@@ -1054,7 +1077,20 @@ export default function WorkoutDetailPage() {
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 {parseDateLocal(String(workout.logDate).split('T')[0]).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
               </p>
-              {workoutStarted && (
+              {/* A finished session shows its recorded time, not a live clock:
+                  a running pill on a completed workout is what made a finished
+                  workout look like one that had never been started. */}
+              {isFinished && (
+                <>
+                  <span className="text-xs text-gray-300 dark:text-gray-600">·</span>
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300">
+                    <Check className="h-3 w-3" />
+                    Finished{formatDuration(workout.durationMin) ? ` · ${formatDuration(workout.durationMin)}` : ''}
+                  </span>
+                </>
+              )}
+
+              {!isFinished && workoutStarted && (
                 <>
                   <span className="text-xs text-gray-300 dark:text-gray-600">·</span>
                   {/* Always-visible pause/resume pill */}
@@ -1077,6 +1113,13 @@ export default function WorkoutDetailPage() {
               )}
             </div>
           </div>
+          {/* The summary used to be reachable ONLY by finishing — land on it
+              once and there was no way back. */}
+          <Link href={`/workouts/${id}/summary`}
+            className="p-2 rounded-lg text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-colors"
+            title="Workout summary" aria-label="Workout summary">
+            <BarChart3 className="h-4 w-4" />
+          </Link>
           {/* Always available: a workout logged earlier may need its duration
               corrected even though this session never started the clock. */}
           <button type="button" onClick={() => setShowDurationEdit(true)}
@@ -1098,13 +1141,35 @@ export default function WorkoutDetailPage() {
         </div>
 
 
-        {/* Start banner */}
-        {!workoutStarted && (
+        {/* Start banner — never on a finished session, which is exactly what
+            it used to offer: "Start Workout" above a card of completed sets. */}
+        {!isFinished && !workoutStarted && (
           <button type="button" onClick={requestStart}
             className="w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white font-semibold text-base transition-all shadow-lg shadow-indigo-500/25">
             <Play className="h-5 w-5 fill-white" />
             Start Workout
           </button>
+        )}
+
+        {/* Finished banner. The sets stay editable — the pencil and the set
+            rows are the repair path for a wrong number, and PRs recompute on
+            edit — so this states the status and offers the way out rather
+            than locking the page. */}
+        {isFinished && (
+          <div className="flex items-center gap-2 p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/50">
+            <Check className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <p className="text-sm text-emerald-800 dark:text-emerald-200 flex-1 min-w-0">
+              Workout finished
+              {workout.completedAt
+                ? ` ${new Date(workout.completedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`
+                : ''}
+            </p>
+            <button type="button" onClick={() => reopenMutation.mutate()}
+              disabled={reopenMutation.isPending}
+              className="px-3 py-1.5 rounded-lg border border-emerald-300 dark:border-emerald-800 text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/40 disabled:opacity-40 shrink-0">
+              Reopen
+            </button>
+          </div>
         )}
 
         {/* The exercise is removed from the cache optimistically, so a failure
@@ -1232,12 +1297,20 @@ export default function WorkoutDetailPage() {
         )}
 
         {/* Bottom bar */}
-        <div className="flex items-center justify-end pt-2 pb-4">
-          <button type="button" onClick={() => finishMutation.mutate()} disabled={finishMutation.isPending}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-sm font-semibold transition-all disabled:opacity-40 shadow-lg shadow-indigo-500/20">
-            <Flag className="h-4 w-4" />
-            Finish Workout{workoutStarted ? ` · ${durationDisplay}` : ''}
-          </button>
+        <div className="flex items-center justify-end gap-2 pt-2 pb-4">
+          {isFinished ? (
+            <Link href={`/workouts/${id}/summary`}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-sm font-semibold transition-all shadow-lg shadow-indigo-500/20">
+              <BarChart3 className="h-4 w-4" />
+              View Summary
+            </Link>
+          ) : (
+            <button type="button" onClick={() => finishMutation.mutate()} disabled={finishMutation.isPending}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-sm font-semibold transition-all disabled:opacity-40 shadow-lg shadow-indigo-500/20">
+              <Flag className="h-4 w-4" />
+              Finish Workout{workoutStarted ? ` · ${durationDisplay}` : ''}
+            </button>
+          )}
         </div>
       </div>
     </>

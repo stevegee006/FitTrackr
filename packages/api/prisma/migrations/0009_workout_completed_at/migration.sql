@@ -1,0 +1,12 @@
+-- Finishing a workout only wrote `duration_min`, so nothing recorded that a
+-- session was actually DONE. Reopening a finished workout showed it exactly as
+-- it had looked before it was started: a "Start Workout" banner above a card
+-- full of completed sets, and a Finish button that would overwrite the stored
+-- duration with the reset clock.
+--
+-- NULL = still open. Every existing row therefore reads as open, which is
+-- deliberate: back-filling from `duration_min IS NOT NULL` would also mark the
+-- workouts whose duration was only ever set by hand with the pencil, and there
+-- is no way to tell those apart after the fact. Finish (or Reopen, then
+-- Finish) any older session you want stamped.
+ALTER TABLE "workouts" ADD COLUMN "completed_at" TIMESTAMP(3);

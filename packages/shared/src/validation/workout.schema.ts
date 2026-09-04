@@ -18,6 +18,16 @@ export const createWorkoutSchema = z.object({
 
 export const updateWorkoutSchema = createWorkoutSchema.partial();
 
+/**
+ * Finish Workout. `durationMin` is OPTIONAL and omitting it leaves the stored
+ * duration alone — finishing a session whose clock never ran in this browser
+ * would otherwise overwrite a real duration with the reset clock's value.
+ * `completedAt` is stamped by the server, never accepted from the client.
+ */
+export const finishWorkoutSchema = z.object({
+  durationMin: z.number().int().positive().max(1440).nullish(),
+});
+
 export const addSetSchema = z.object({
   exerciseId: z.string().uuid(),
   setNumber: z.number().int().min(1),
@@ -52,6 +62,7 @@ export const createWorkoutTemplateSchema = z.object({
 
 export type CreateWorkoutInput = z.infer<typeof createWorkoutSchema>;
 export type UpdateWorkoutInput = z.infer<typeof updateWorkoutSchema>;
+export type FinishWorkoutInput = z.infer<typeof finishWorkoutSchema>;
 export type AddSetInput = z.infer<typeof addSetSchema>;
 export type UpdateSetInput = z.infer<typeof updateSetSchema>;
 export type CreateWorkoutTemplateInput = z.infer<typeof createWorkoutTemplateSchema>;

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import type { Workout } from '@fittrackr/shared';
 import { WORKOUT_TYPE_LABELS, WORKOUT_TYPE_COLORS, MUSCLE_GROUP_COLORS, muscleGroupLabel } from '@fittrackr/shared';
 import { Card } from '@/components/ui/Card';
-import { Clock, Dumbbell } from 'lucide-react';
+import { Clock, Dumbbell, Check } from 'lucide-react';
 import { formatDuration } from '@/lib/utils';
 
 interface WorkoutCardProps {
@@ -50,6 +50,14 @@ export function WorkoutCard({ workout }: WorkoutCardProps) {
               <span className="inline-flex items-center gap-1 text-xs text-gray-500">
                 <Clock className="h-3 w-3" />
                 {formatDuration(workout.durationMin)}
+              </span>
+            )}
+            {/* So the list distinguishes a finished session from one still open,
+                which nothing recorded before migration 0009. */}
+            {workout.completedAt && (
+              <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                <Check className="h-3 w-3" />
+                Finished
               </span>
             )}
           </div>

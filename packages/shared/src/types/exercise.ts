@@ -58,6 +58,8 @@ export interface Workout {
   name: string | null;
   logDate: string;
   durationMin: number | null;
+  /** Stamped by Finish Workout; null means the session is still open. */
+  completedAt?: string | null;
   workoutType: WorkoutType;
   notes: string | null;
   exerciseOrder: string[];

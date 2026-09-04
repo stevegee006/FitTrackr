@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { CreateWorkoutInput, UpdateWorkoutInput, AddSetInput, UpdateSetInput } from '@fittrackr/shared';
+import type { CreateWorkoutInput, UpdateWorkoutInput, AddSetInput, UpdateSetInput, FinishWorkoutInput } from '@fittrackr/shared';
 import { NotFoundError, ForbiddenError } from '../utils/errors.js';
 import { checkAndUpdatePersonalRecords, getPRsForWorkout, recomputePersonalRecords } from './personal-record.service.js';
 import { tally, diffTally } from './workout-summary.js';
@@ -233,6 +233,59 @@ export async function deleteSet(
 
   // The deleted set may have been the one holding a record.
   await recomputePersonalRecords(fastify, userId, set.exerciseId);
+}
+
+/**
+ * Finalize a workout: stamp `completedAt` and, if the caller measured one,
+ * store the duration.
+ *
+ * `completedAt` is server time and never taken from the request — a client
+ * clock has already written nonsense into this table once (see the ~29.8
+ * million minute duration in sharp edge #72).
+ *
+ * `durationMin` is only written when supplied. Finishing is now reachable on a
+ * workout whose clock never ran in this browser, and the old behaviour —
+ * always writing `max(1, elapsed/60)` — would silently replace a real
+ * duration with 1 minute.
+ */
+export async function finishWorkout(
+  fastify: FastifyInstance,
+  userId: string,
+  workoutId: string,
+  data: FinishWorkoutInput,
+) {
+  await assertWorkoutOwner(fastify, userId, workoutId);
+
+  return fastify.prisma.workout.update({
+    where: { id: workoutId },
+    data: {
+      completedAt: new Date(),
+      ...(data.durationMin != null && { durationMin: data.durationMin }),
+    },
+    include: { sets: { include: { exercise: true }, orderBy: { setNumber: 'asc' } } },
+  });
+}
+
+/**
+ * Reopen a finished workout so it can be logged into again.
+ *
+ * Finishing must not be a one-way door: the author finishes a session, notices
+ * a missed set, and needs to add it. The duration is deliberately left alone —
+ * reopening is not "unfinishing", and the recorded time is still the truth
+ * until Finish measures a new one.
+ */
+export async function reopenWorkout(
+  fastify: FastifyInstance,
+  userId: string,
+  workoutId: string,
+) {
+  await assertWorkoutOwner(fastify, userId, workoutId);
+
+  return fastify.prisma.workout.update({
+    where: { id: workoutId },
+    data: { completedAt: null },
+    include: { sets: { include: { exercise: true }, orderBy: { setNumber: 'asc' } } },
+  });
 }
 
 /**
