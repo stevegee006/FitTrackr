@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { aiChatCompletion } from './ai-provider.service.js';
+import { performedSets } from './workout-summary.js';
+import { getWeeklyRecap } from './weekly-recap.service.js';
 import { AppError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
 
@@ -29,6 +31,41 @@ Rules:
   advice modest rather than inventing trends.
 - Never give medical advice or diagnose injuries. Suggest seeing a professional
   if the athlete's notes mention pain.`;
+
+const PLAN_SYSTEM_PROMPT = `You are an experienced strength coach writing next week's training plan for an athlete, based on the week they just finished. Be specific and reference their actual numbers.
+
+Return ONLY valid JSON with this exact structure:
+{
+  "focus": "one sentence on the theme of next week",
+  "days": [
+    {
+      "label": "Mon",
+      "workoutType": "PUSH",
+      "focus": "short phrase",
+      "keyExercises": [
+        { "name": "Barbell Bench Press", "prescription": "4x6-8 @ 165 lbs", "why": "short reason" }
+      ]
+    }
+  ],
+  "adjustments": ["1-4 short specific changes from last week, each citing a real number"],
+  "cautions": ["0-2 things to watch — omit if there is nothing honest to say"]
+}
+
+Rules:
+- Plan exactly the number of sessions the athlete trains per week. If that is
+  unknown, match the session count they actually did last week.
+- 3-5 keyExercises per day, not a full session listing. Prescribe load in the
+  athlete's units, based on what they actually lifted.
+- Progress an exercise that BEAT its rep range by adding load. Beating a range
+  is never a reason to deload; reserve that for genuine stalling or regression.
+- Bodyweight work logs reps with no weight — progress it by reps, then by a
+  harder variation. That is not missing data.
+- Name an undertrained muscle group explicitly if the sets-per-muscle data
+  shows one, and put work for it in the plan.
+- If last week was thin (one or two sessions), say so in "focus" and plan
+  modestly rather than inventing a peak week.
+- workoutType must be one of: PUSH, PULL, LEGS, UPPER, LOWER, FULL_BODY, CARDIO, CUSTOM
+- Never give medical advice or diagnose injuries.`;
 
 interface CoachWindow {
   days: number;
@@ -77,7 +114,9 @@ export async function getCoachWindow(
 
   for (const w of workouts) {
     const sessionTop = new Map<string, number>();
-    for (const s of w.sets) {
+    // Replayed prefill nobody ticked is not training the coach should reason
+    // about — it would read as extra volume that was never done.
+    for (const s of performedSets(w.sets)) {
       totalSets += 1;
       if (s.weightKg != null && s.reps != null) totalVolumeKg += s.weightKg * s.reps;
       const muscle = s.exercise?.primaryMuscle;
@@ -235,6 +274,157 @@ Review this block and return the JSON now.`;
   } catch (err) {
     if (err instanceof AppError) throw err;
     logger.error({ err: (err as Error)?.message }, 'Coach review failed to parse');
+    throw new AppError(
+      502,
+      'AI_INVALID_RESPONSE',
+      'The coach returned something unreadable. Please try again.',
+    );
+  }
+}
+
+/**
+ * A plan for the week AFTER the one being recapped.
+ *
+ * Deliberately built from the weekly recap's own numbers rather than a second
+ * gathering pass, so the plan cites exactly what the page above it shows. As
+ * with the review, the facts are assembled with no AI first and an empty week
+ * is refused before spending a call.
+ */
+export async function getNextWeekPlan(
+  fastify: FastifyInstance,
+  userId: string,
+  weekStart: string,
+) {
+  const recap = await getWeeklyRecap(fastify, userId, weekStart);
+
+  if (recap.totals.sessions === 0) {
+    throw new AppError(
+      422,
+      'NO_TRAINING_DATA',
+      'No workouts logged that week, so there is nothing to build a plan from.',
+    );
+  }
+
+  const settings = await fastify.prisma.userSettings.findUnique({
+    where: { userId },
+    select: { preferredUnits: true },
+  });
+  const isImperial = settings?.preferredUnits === 'IMPERIAL';
+  const unit = isImperial ? 'lbs' : 'kg';
+  const conv = (kg: number) => (isImperial ? Math.round(kg * 2.20462 * 10) / 10 : Math.round(kg * 10) / 10);
+
+  const profile = await fastify.prisma.userProfile.findUnique({ where: { userId } });
+
+  // Rep-range targets are a deliberate setting, and the model needs them to
+  // apply double progression rather than inventing its own rule (#61).
+  const prefs = await fastify.prisma.exercisePreference.findMany({
+    where: { userId },
+    select: { exerciseId: true, repRangeMin: true, repRangeMax: true, targetSets: true },
+  });
+  const prefByExercise = new Map(prefs.map((p) => [p.exerciseId, p]));
+
+  const muscleLines = Object.entries(recap.setsByMuscle)
+    .sort((a, b) => b[1] - a[1])
+    .map(([m, n]) => {
+      const target = recap.weeklyTargets?.[m];
+      return target != null ? `${m}: ${n} sets (target ${target})` : `${m}: ${n} sets`;
+    })
+    .join('\n');
+
+  // Any muscle with a target and no work at all is invisible in setsByMuscle,
+  // so name it explicitly — otherwise the model cannot see what is missing.
+  const missing = Object.entries(recap.weeklyTargets ?? {})
+    .filter(([m, target]) => (target ?? 0) > 0 && !(recap.setsByMuscle[m] > 0))
+    .map(([m, target]) => `${m}: 0 sets (target ${target})`)
+    .join('\n');
+
+  const exerciseLines = recap.exercises
+    .slice(0, 14)
+    .map((e) => {
+      const move = e.firstTopKg != null && e.lastTopKg != null
+        ? e.firstTopKg === e.lastTopKg
+          ? `top ${conv(e.lastTopKg)}${unit}`
+          : `top ${conv(e.firstTopKg)}→${conv(e.lastTopKg)}${unit}`
+        : 'bodyweight';
+      // The configured rep range, stated rather than left to be inferred —
+      // asking a model to derive the progression rule is how it once
+      // recommended a deload for BEATING the range (#61).
+      const pref = prefByExercise.get(e.exerciseId);
+      const range = pref?.repRangeMin != null && pref?.repRangeMax != null
+        ? `, target ${pref.repRangeMin}-${pref.repRangeMax} reps${pref.targetSets ? ` x${pref.targetSets} sets` : ''}`
+        : '';
+      return `${e.name}: ${e.sets} sets over ${e.sessions} session(s), ${move}${range}`;
+    })
+    .join('\n');
+
+  const prLines = recap.personalRecords.length
+    ? recap.personalRecords
+        .map((p) => `${p.exerciseName} ${p.recordType} ${p.recordType === 'MAX_REPS' ? `${p.value} reps` : `${conv(p.value)}${unit}`}`)
+        .join('\n')
+    : 'None.';
+
+  const sessionLines = recap.sessions
+    .map((s) => `${s.logDate} ${s.workoutType}${s.name ? ` "${s.name}"` : ''}: ${s.sets} sets${s.durationMin ? `, ${s.durationMin} min` : ''}`)
+    .join('\n');
+
+  const userPrompt = `Plan next week's training. The week just finished ran ${recap.weekStart} to ${recap.weekEnd}. Units: ${unit}.
+${profile?.goal ? `Stated goal: ${profile.goal}.` : ''}
+${recap.goal.weeklyFrequency ? `Trains ${recap.goal.weeklyFrequency} days/week (trained ${recap.goal.trainingDays} last week).` : ''}
+
+Sessions last week (${recap.totals.sessions}):
+${sessionLines || 'None.'}
+
+Totals: ${recap.totals.sets} working sets, ${recap.totals.totalReps} reps, ${conv(recap.totals.volumeKg)} ${unit} volume${recap.totals.trainingMin ? `, ${recap.totals.trainingMin} min under the bar` : ''}.
+Versus the week before: ${recap.previous.sessions} sessions, ${recap.previous.sets} sets, ${conv(recap.previous.volumeKg)} ${unit}.
+
+Sets per muscle group:
+${muscleLines || 'None recorded.'}
+${missing ? `\nTargets with NO work last week:\n${missing}` : ''}
+
+Exercises trained:
+${exerciseLines || 'None recorded.'}
+
+Personal records last week:
+${prLines}
+
+Return the JSON plan now.`;
+
+  try {
+    const result = await aiChatCompletion(fastify, userId, PLAN_SYSTEM_PROMPT, userPrompt, {
+      tier: 'heavy',
+      maxTokens: 2000,
+      temperature: 0.4,
+    });
+
+    const parsed = JSON.parse(result.content);
+    return {
+      weekStart: recap.weekStart,
+      model: result.model,
+      plan: {
+        focus: String(parsed.focus ?? '').trim() || 'Here is a plan for next week.',
+        days: Array.isArray(parsed.days)
+          ? parsed.days.slice(0, 7).map((d: any) => ({
+              label: String(d?.label ?? '').trim(),
+              workoutType: String(d?.workoutType ?? 'CUSTOM').trim(),
+              focus: String(d?.focus ?? '').trim(),
+              keyExercises: Array.isArray(d?.keyExercises)
+                ? d.keyExercises
+                    .filter((x: any) => x && x.name)
+                    .map((x: any) => ({
+                      name: String(x.name ?? ''),
+                      prescription: String(x.prescription ?? ''),
+                      why: String(x.why ?? ''),
+                    }))
+                : [],
+            }))
+          : [],
+        adjustments: Array.isArray(parsed.adjustments) ? parsed.adjustments.map(String) : [],
+        cautions: Array.isArray(parsed.cautions) ? parsed.cautions.map(String) : [],
+      },
+    };
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    logger.error({ err: (err as Error)?.message }, 'Next-week plan failed to parse');
     throw new AppError(
       502,
       'AI_INVALID_RESPONSE',

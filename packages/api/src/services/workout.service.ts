@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { CreateWorkoutInput, UpdateWorkoutInput, AddSetInput, UpdateSetInput, FinishWorkoutInput } from '@fittrackr/shared';
 import { NotFoundError, ForbiddenError } from '../utils/errors.js';
 import { checkAndUpdatePersonalRecords, getPRsForWorkout, recomputePersonalRecords } from './personal-record.service.js';
-import { tally, diffTally } from './workout-summary.js';
+import { tally, diffTally, performedSets } from './workout-summary.js';
 
 /**
  * Ownership guard for the handful of routes that write sets with a raw
@@ -369,7 +369,10 @@ export async function getWorkoutSummary(
   const workout = await getWorkoutById(fastify, userId, workoutId);
 
   const working = (workout.sets ?? []).filter((s) => !s.isWarmup);
-  const exerciseIds = [...new Set(working.map((s) => s.exerciseId))];
+  // Only what was actually performed. Replayed prefill that was never ticked
+  // used to be counted as work — see performedSets for the per-workout rule.
+  const performed = performedSets(working);
+  const exerciseIds = [...new Set(performed.map((s) => s.exerciseId))];
 
   // One query for every prior appearance of today's exercises, newest first.
   const priorSets = exerciseIds.length
@@ -383,6 +386,9 @@ export async function getWorkoutSummary(
         select: {
           exerciseId: true, reps: true, weightKg: true,
           durationSec: true, distanceM: true,
+          // Needed so the "last time" side applies the same performed-vs-
+          // prefilled rule the current side does.
+          isCompleted: true,
           workoutId: true, workout: { select: { logDate: true } },
         },
         orderBy: [{ workout: { logDate: 'desc' } }, { setNumber: 'asc' }],
@@ -402,10 +408,12 @@ export async function getWorkoutSummary(
   }
 
   const exercises = exerciseIds.map((exerciseId) => {
-    const mine = working.filter((s) => s.exerciseId === exerciseId);
+    const mine = performed.filter((s) => s.exerciseId === exerciseId);
     const current = tally(mine);
     const prevEntry = previousByExercise.get(exerciseId);
-    const previous = prevEntry ? tally(prevEntry.sets) : null;
+    // The previous entry is a single workout's sets, so the same per-workout
+    // rule applies to it directly.
+    const previous = prevEntry ? tally(performedSets(prevEntry.sets)) : null;
 
     const delta = previous ? diffTally(current, previous) : null;
 
@@ -421,7 +429,7 @@ export async function getWorkoutSummary(
     };
   });
 
-  const totals = tally(working);
+  const totals = tally(performed);
   const prs = await getPRsForWorkout(fastify, userId, workoutId);
 
   return {
@@ -440,6 +448,10 @@ export async function getWorkoutSummary(
       durationSec: totals.durationSec,
       distanceM: Math.round(totals.distanceM),
       warmupSets: (workout.sets ?? []).length - working.length,
+      // Logged but never ticked. Surfaced rather than silently dropped, so the
+      // recap explains why it shows fewer sets than the logger does — and so
+      // "I forgot to tick them" is visible instead of looking like lost data.
+      skippedSets: working.length - performed.length,
     },
     exercises,
     personalRecords: prs.map((p) => ({
@@ -468,12 +480,27 @@ export async function getWeeklyVolume(
       },
       isWarmup: false,
     },
-    select: { reps: true, weightKg: true, exercise: { select: { primaryMuscle: true } } },
+    select: {
+      reps: true, weightKg: true, isCompleted: true, workoutId: true,
+      exercise: { select: { primaryMuscle: true } },
+    },
   });
+
+  // Same performed-vs-prefilled rule as the recap, applied per workout — the
+  // rings and the undertrained-muscle nudge counted replayed sets nobody did,
+  // so the dashboard could report a muscle at target on work that never
+  // happened. See performedSets for why the fallback is per workout.
+  const byWorkout = new Map<string, typeof sets>();
+  for (const s of sets) {
+    const bucket = byWorkout.get(s.workoutId);
+    if (bucket) bucket.push(s);
+    else byWorkout.set(s.workoutId, [s]);
+  }
+  const performed = [...byWorkout.values()].flatMap((ws) => performedSets(ws));
 
   const volumeByMuscle: Record<string, number> = {};
   let totalWeightKg = 0;
-  for (const set of sets) {
+  for (const set of performed) {
     const muscle = set.exercise.primaryMuscle;
     volumeByMuscle[muscle] = (volumeByMuscle[muscle] ?? 0) + 1;
     if (set.reps != null && set.weightKg != null) {

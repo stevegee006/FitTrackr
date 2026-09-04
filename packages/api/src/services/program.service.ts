@@ -4,6 +4,7 @@ import { muscleGroupValues, equipmentValues, exerciseCategoryValues } from '@fit
 import { aiChatCompletion } from './ai-provider.service.js';
 import { NotFoundError, ForbiddenError, AppError } from '../utils/errors.js';
 import { expandProgram } from './program-expand.js';
+import { performedSets } from './workout-summary.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -221,7 +222,9 @@ export async function getProgramSummary(
 
   for (const w of workouts) {
     if (w.programWeek != null) weeksTouched.add(w.programWeek);
-    for (const s of w.sets) {
+    // Performed sets only, per workout — see performedSets. Adherence counted
+    // against replayed prefill would overstate how much of the plan was done.
+    for (const s of performedSets(w.sets)) {
       totalSets += 1;
       totalReps += s.reps ?? 0;
       if (s.weightKg != null && s.reps != null) totalVolumeKg += s.weightKg * s.reps;

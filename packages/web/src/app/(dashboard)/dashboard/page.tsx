@@ -9,7 +9,7 @@ import { VolumeRings } from '@/components/volume/VolumeRings';
 import { WorkoutCard } from '@/components/workout/WorkoutCard';
 import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
-import { Plus, Sparkles } from 'lucide-react';
+import { Plus, Sparkles, BarChart3 } from 'lucide-react';
 import type { Workout, UserProfile, TrainingGoal, MuscleGroup, WorkoutType } from '@fittrackr/shared';
 import { MUSCLE_GROUP_LABELS, WORKOUT_TYPE_LABELS } from '@fittrackr/shared';
 import Link from 'next/link';
@@ -257,12 +257,21 @@ export default function DashboardPage() {
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold">This Week</h2>
-          <Link
-            href="/workouts"
-            className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
-          >
-            See all
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/recap"
+              className="inline-flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+            >
+              <BarChart3 className="h-3.5 w-3.5" />
+              Recap
+            </Link>
+            <Link
+              href="/workouts"
+              className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+            >
+              See all
+            </Link>
+          </div>
         </div>
 
         {workouts.length === 0 ? (

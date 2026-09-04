@@ -6,7 +6,9 @@ import {
   muscleGroupValues, equipmentValues, exerciseCategoryValues,
 } from '@fittrackr/shared';
 import * as workoutService from '../../services/workout.service.js';
+import { getWeeklyRecap } from '../../services/weekly-recap.service.js';
 import { aiChatCompletion, aiVisionCompletion } from '../../services/ai-provider.service.js';
+import { ValidationError } from '../../utils/errors.js';
 
 const WORKOUT_AI_SYSTEM = `You are an expert personal trainer. Generate or parse a single workout session.
 
@@ -65,6 +67,22 @@ export default async function workoutRoutes(fastify: FastifyInstance) {
     handler: async (req) => {
       const { from, to } = req.query as any;
       const data = await workoutService.getWeeklyVolume(fastify, req.user.sub, from, to);
+      return { data };
+    },
+  });
+
+  // GET /workouts/weekly-recap?weekStart=YYYY-MM-DD — one calendar week's
+  // facts, no AI. MUST stay above the `/workouts/:id` routes: Fastify's router
+  // prefers a static segment over a parameter, but keeping it adjacent to the
+  // other collection routes rather than below `:id` also keeps that obvious.
+  fastify.get('/workouts/weekly-recap', {
+    preHandler: [fastify.authenticate],
+    handler: async (req) => {
+      const { weekStart } = req.query as any;
+      if (typeof weekStart !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) {
+        throw new ValidationError('weekStart must be a YYYY-MM-DD date');
+      }
+      const data = await getWeeklyRecap(fastify, req.user.sub, weekStart);
       return { data };
     },
   });

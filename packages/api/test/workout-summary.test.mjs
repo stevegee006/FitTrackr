@@ -2,7 +2,7 @@
  * Tests for the workout-summary tallies — the numbers shown on the
  * end-of-session recap. Run via `pnpm --filter @fittrackr/api test`.
  */
-import { tally, diffTally } from '../dist/services/workout-summary.js';
+import { tally, diffTally, performedSets } from '../dist/services/workout-summary.js';
 
 let pass = 0;
 const failures = [];
@@ -107,6 +107,71 @@ eq(
   'volume delta still computed when one side is unloaded',
   diffTally(tally(S([10, 50])), bw).volumeKg,
   500,
+);
+
+// ─── performedSets ────────────────────────────────────────────────────────────
+// Adding an exercise replays the last session, so a workout routinely holds
+// rows pre-filled with last week's numbers that were never done. The recap
+// showed "3 sets · 24 reps · 2,400 lbs" for a superset whose every checkbox
+// was still empty.
+const ids = (sets) => sets.map((s) => s.id);
+const mk = (id, isCompleted, exerciseId = 'e1') =>
+  ({ id, isCompleted, exerciseId, reps: 8, weightKg: 45 });
+
+eq(
+  'some ticked: only the ticked sets count',
+  ids(performedSets([mk('a', true), mk('b', false), mk('c', true)])),
+  ['a', 'c'],
+);
+eq(
+  'all ticked: everything counts',
+  ids(performedSets([mk('a', true), mk('b', true)])),
+  ['a', 'b'],
+);
+// is_completed arrived in migration 0004 with DEFAULT false, so every set
+// logged before 2026-05-09 reads incomplete. Filtering strictly would make
+// those workouts tally to zero and the "last time" comparison disappear.
+eq(
+  'nothing ticked: falls back to every set, so legacy sessions keep their numbers',
+  ids(performedSets([mk('a', false), mk('b', false), mk('c', false)])),
+  ['a', 'b', 'c'],
+);
+eq(
+  'undefined isCompleted is treated as not ticked, not as ticked',
+  ids(performedSets([{ id: 'a', reps: 8, weightKg: 45 }, { id: 'b', reps: 8, weightKg: 45 }])),
+  ['a', 'b'],
+);
+eq('empty stays empty', performedSets([]), []);
+
+// THE REPORTED BUG. The rule is per WORKOUT: an exercise nobody ticked, inside
+// a session where other exercises were, contributes nothing. Applying the rule
+// per exercise instead would fall back and count all three sets again.
+const mixedWorkout = [
+  mk('press1', true, 'press'), mk('press2', true, 'press'),
+  mk('fly1', false, 'fly'), mk('fly2', false, 'fly'), mk('fly3', false, 'fly'),
+];
+const mixedPerformed = performedSets(mixedWorkout);
+eq('workout-level rule: untouched exercise is dropped', ids(mixedPerformed), ['press1', 'press2']);
+eq(
+  'workout-level rule: the untouched exercise tallies to nothing',
+  tally(mixedPerformed.filter((s) => s.exerciseId === 'fly')).sets,
+  0,
+);
+eq(
+  'workout-level rule: the ticked exercise is unaffected',
+  tally(mixedPerformed.filter((s) => s.exerciseId === 'press')).sets,
+  2,
+);
+eq('skipped-set count is what the recap reports', mixedWorkout.length - mixedPerformed.length, 3);
+
+// Tallies read off performed sets only — the arithmetic itself is unchanged.
+eq(
+  'volume ignores unticked prefill',
+  tally(performedSets([
+    { isCompleted: true, reps: 8, weightKg: 45 },
+    { isCompleted: false, reps: 10, weightKg: 50 },
+  ])).volumeKg,
+  360,
 );
 
 // ─── Report ───────────────────────────────────────────────────────────────────

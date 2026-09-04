@@ -9,6 +9,37 @@ export interface SetLike {
   weightKg: number | null;
   durationSec?: number | null;
   distanceM?: number | null;
+  isCompleted?: boolean;
+}
+
+/**
+ * The sets that actually count as performed.
+ *
+ * Adding an exercise REPLAYS the last session (see the add-exercise fallback
+ * chain), so a workout routinely contains rows pre-filled with last week's
+ * weight and reps that were never done. Tallying every non-warmup set counted
+ * those as work: an untouched superset showed "3 sets · 24 reps · 2,400 lbs"
+ * on the recap while every checkbox in it was still empty.
+ *
+ * Strictly filtering on `isCompleted` is not safe on its own. The column
+ * arrived in migration 0004 with `DEFAULT false`, so every set logged before
+ * 2026-05-09 reads as incomplete, and a session where the boxes simply were
+ * never ticked is indistinguishable from one where nothing was done. Either
+ * would make a past workout tally to zero and the "last time" comparison
+ * vanish.
+ *
+ * So the rule is per WORKOUT, not per set or per exercise: if anything in the
+ * workout was ticked, the ticks are meaningful and only ticked sets count;
+ * if nothing was, fall back to counting everything. Legacy sessions keep the
+ * numbers they have always shown, and no back-fill is needed.
+ *
+ * Pass one workout's non-warmup sets. Passing a single exercise's sets would
+ * reintroduce the reported bug, because an exercise nobody ticked inside an
+ * otherwise-ticked session would fall back to counting all of its sets.
+ */
+export function performedSets<T extends SetLike>(workoutSets: T[]): T[] {
+  const completed = workoutSets.filter((s) => s.isCompleted);
+  return completed.length > 0 ? completed : workoutSets;
 }
 
 export interface ExerciseTally {

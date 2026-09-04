@@ -1,7 +1,8 @@
 # HANDOFF — FitTrackr
 
-_Last updated: 2026-09-03 (through the workout-finalization commit — Finish
-now stamps `completedAt` and the summary has three entry points; earlier: five
+_Last updated: 2026-09-03 (through the weekly-recap commit — unperformed sets
+no longer count anywhere, plus a weekly recap with an AI plan for next week;
+earlier: Finish stamps `completedAt` and the summary has three entry points; five
 new muscle groups, a full exercise editor in admin, whole-exercise delete in
 the logger, optimistic set updates so the logger no longer
 round-trips on every commit; Awards tab with struck medals,
@@ -17,17 +18,17 @@ setup instructions live in [README.md](README.md); **this file is about intent,
 state, and sharp edges** — the things you would otherwise have to rediscover by
 breaking something._
 
-> **Read sharp edges #56–#88 before touching iOS layout, asset generation, AI
+> **Read sharp edges #56–#94 before touching iOS layout, asset generation, AI
 > prompts, summaries/PRs/awards, the auth/refresh path, persisted timer state,
 > cardio/bodyweight handling, muscle-group enums and labels, the finish/reopen
-> flow, or trusting any `git`/`gh`/preview command in
+> flow, what counts as a performed set, or trusting any `git`/`gh`/preview command in
 > this workspace.** Those cost the most time to learn. If you only read three:
 > **#77** (a hook below an early return took the whole workout page down in
 > production), **#64a/#64b** (a scoped `git add` plus a stale `shared/dist`
 > break CI while your local build stays green) and **#74** (filtering on
 > `weightKg` deletes cardio and bodyweight work — it has shipped twice).
 >
-> **Three test suites, 146 assertions:** `pnpm --filter @fittrackr/api test`.
+> **Three test suites, 156 assertions:** `pnpm --filter @fittrackr/api test`.
 
 ## Goal
 
@@ -372,6 +373,7 @@ AuthProvider`.
 | `/programs` | AI program CRUD + materialize a program day into a real workout |
 | `/profile` | 4 tabs: Bio, Photos, Security, Settings. **1956 lines** — largest file in the repo |
 | `/admin` | Admin-only, 5 tabs: stats, users, exercises (+ AI ingest), SSO, settings |
+| `/recap` | Weekly recap + the AI next-week plan. One entry point: the dashboard's "This Week" header |
 | `/exercises`, `/training-goals`, `/import` | **Orphan routes — no nav entry.** Reachable only by URL or a tutorial `router.push` |
 | `/api/config` | The only route handler. Returns `{ apiUrl }`. **Unused** — `api-client` derives the URL itself |
 
@@ -1033,6 +1035,60 @@ is exactly why it is written down here.
     is dropped. The delete button beside it uses the same trick, which is why
     the row's padding widens to `pr-16` when both are present.
 
+### What counts as a set you actually did
+
+89. **A logged set is not a performed set.** Adding an exercise REPLAYS the last
+    session, so a workout routinely holds rows pre-filled with last week's
+    weight and reps that were never done. Every tally counted them: an
+    untouched superset read "3 sets · 24 reps · 2,400 lbs" on the recap while
+    every checkbox in it was still empty, and the dashboard rings could report
+    a muscle at target on work that never happened.
+    `performedSets()` in `workout-summary.ts` is the single rule, and it is
+    applied in the session summary, `getWeeklyVolume` (rings + trends), the
+    coach window, the program summary and the weekly recap.
+90. **The performed-vs-prefilled rule is per WORKOUT, and has to be.**
+    Filtering on `isCompleted` alone is not safe: the column arrived in
+    migration `0004` with `DEFAULT false`, so every set logged before
+    2026-05-09 reads as incomplete, and a session where the boxes simply were
+    never ticked is indistinguishable from one where nothing was done. Either
+    would make a past workout tally to zero and its "last time" comparison
+    vanish. So: **if anything in the workout was ticked, only ticked sets
+    count; if nothing was, count everything.** Legacy sessions keep the
+    numbers they always showed and no back-fill is needed.
+    Evaluating it **per exercise** instead reintroduces the original bug —
+    an exercise nobody ticked inside an otherwise-ticked session falls back
+    and counts all of its sets again. There is a test pinning exactly that.
+    Sets excluded this way are reported as `skippedSets` rather than silently
+    dropped, so the recap can say why it shows fewer sets than the logger.
+91. **Only a GENERATED workout may write a rep-range preference.** The AI
+    generate and AI import flows share one `populateMutation`, and it was
+    PATCHing `repRangeMin`/`repRangeMax` from whatever the model returned in
+    both. A generated workout is a plan, so prescribing 8–10 reps is the
+    point; an **import is a transcript of a session already done**, so
+    importing one back-off day permanently retargeted the exercise — and the
+    AI-suggest analysis (#61) then reasoned against the wrong range.
+    Historical data must never overwrite a deliberate setting.
+
+### Weekly recap
+
+92. **The week boundary is the CLIENT's.** `getWeeklyRecap` takes a
+    `weekStart` Monday as a parameter instead of computing one, because
+    `lib/streak.ts` already derives the user's local week for the streak and
+    the consistency badges. A second, server-side notion of "this week" would
+    disagree with those for anyone not on UTC. `logDate` is a Postgres `date`,
+    so the range comparison is date-only and no timezone maths is involved.
+93. **The recap costs nothing; the plan costs one AI call.** The facts render
+    with no provider configured at all, and `/coach/next-week-plan` is only
+    fetched when the button is pressed — never on load — then held for the
+    session (`staleTime: Infinity`) with an explicit refresh, the same
+    arrangement `/coach` uses. An empty week is refused with
+    `NO_TRAINING_DATA` before spending a call.
+94. **A muscle with a target and zero sets cannot come from `setsByMuscle`**,
+    which only holds muscles that were trained. Both the page and the plan
+    prompt derive the "no work at all" list by walking the *targets* — without
+    that the model cannot see what is missing, which is the most useful thing
+    in the data.
+
 ### Awards and benchmarks
 
 80. **Benchmark matching is deliberately strict, and must stay that way.**
@@ -1334,6 +1390,27 @@ And a ninth batch — finishing a workout actually finishes it:
 - **Three ways to reach the summary** (#88), which previously had exactly one:
   finishing, and only in that moment.
 
+And a tenth batch — what counts as a set, and a weekly recap:
+
+- **Unperformed sets stopped counting** (#89, #90) — reported as "these are not
+  marked complete on the workout, but showing done on the summary". Replayed
+  prefill was being tallied as work everywhere. One rule, `performedSets()`,
+  now applied in the session summary, the weekly volume behind the dashboard
+  rings and trends, the coach window, the program summary and the new recap.
+  **This changes numbers that were previously shown**, deliberately: the old
+  ones counted sets nobody did. 10 new assertions in the API suite.
+- **Importing a screenshot no longer rewrites your rep ranges** (#91).
+- **Weekly recap** — `GET /workouts/weekly-recap?weekStart=`, page at `/recap`,
+  reachable from the dashboard's "This Week" header. Week navigation, totals
+  with week-over-week deltas, training days vs goal, sets per muscle vs
+  target, the sessions with links to each session summary, PRs, and per
+  exercise first→last top weight.
+- **AI plan for next week** — `GET /coach/next-week-plan?weekStart=`, a button
+  inside the recap. Built from the recap's own numbers so the plan cites
+  exactly what the page above it shows, and it is handed the configured rep
+  ranges so double progression is stated rather than derived (#61). See #93
+  for the cost arrangement.
+
 ## Current state
 
 Deployed and in daily real use by the author against real workout data. The
@@ -1398,7 +1475,10 @@ Known outstanding user-facing items:
     `0008` deployed first or the new values 422;
   - Finish → the finished banner and `View Summary` replacing the Finish
     button, Reopen putting the page back, and the chart icons reaching the
-    summary from both the header and the workouts list.
+    summary from both the header and the workouts list;
+  - the whole `/recap` page, including the AI next-week plan, which has never
+    been run against a real provider — the JSON shape it expects back is
+    unverified, and that is where the coach review needed two attempts before.
 - The program summary shows its empty state for every program that predates
   `0006` (#65). Correct, not broken — but worth seeing once.
 - If logouts persist after the redeploy, the remaining suspect is **two
@@ -1491,14 +1571,16 @@ file:
 pnpm --filter @fittrackr/api test    # tsc, then each test/*.test.mjs
 ```
 
-Three files, 146 assertions, plain node scripts with exit codes — no
+Three files, 156 assertions, plain node scripts with exit codes — no
 framework, matching the project's zero-dependency habit:
 
 - `test/program-expand.test.mjs` (48) — the AI program expander: rep-range
   shifting, RPE capping, deloads, malformed model output.
-- `test/workout-summary.test.mjs` (45) — summary tallies: volume needing both
+- `test/workout-summary.test.mjs` (55) — summary tallies: volume needing both
   weight and reps, cardio time/distance, bodyweight sets,
-  best-set-by-volume, deltas.
+  best-set-by-volume, deltas, and `performedSets`' per-workout rule
+  (#89/#90) including the "untouched exercise inside a ticked session" case
+  that a per-exercise rule would get wrong.
 - `test/awards-rules.test.mjs` (53) — benchmark matching (every variation that
   must NOT count), absolute vs relative tiers, the pounds comparison, and
   streak history.

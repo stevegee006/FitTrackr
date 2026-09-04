@@ -133,6 +133,10 @@ export default function WorkoutsPage() {
   // Populate workout with exercises from AI preview
   const populateMutation = useMutation({
     mutationFn: async (workout: AiWorkout) => {
+      // Read once, up front: both AI flows share this mutation and only the
+      // generated one is a plan. See the rep-range note below.
+      const isGenerated = flowMode === 'ai-generate';
+
       const res = await apiFetch<{ data: { id: string } }>('/workouts', {
         method: 'POST',
         body: JSON.stringify({ logDate: selectedDate, workoutType: workout.workoutType, name: workout.name }),
@@ -161,7 +165,17 @@ export default function WorkoutsPage() {
 
           const repParts = String(ex.reps).split('-').map((p) => parseInt(p)).filter((n) => !isNaN(n));
           const targetReps = repParts[0] ?? null;
-          if (repParts[0] != null) {
+
+          // Only a GENERATED workout may set the rep-range preference, because
+          // that is a plan: the model is prescribing 8–10 reps for next time.
+          //
+          // An IMPORT is a transcript of a session already done, and this same
+          // code was rewriting the saved rep range from whatever the screenshot
+          // happened to show — so importing one back-off day permanently
+          // retargeted the exercise, and the AI-suggest analysis (#61) then
+          // reasoned against the wrong range. Historical data must not
+          // overwrite a deliberate setting.
+          if (isGenerated && repParts[0] != null) {
             apiFetch(`/exercises/${match.id}/preference`, {
               method: 'PATCH',
               body: JSON.stringify({ repRangeMin: repParts[0], repRangeMax: repParts[1] ?? repParts[0], targetSets: ex.sets }),

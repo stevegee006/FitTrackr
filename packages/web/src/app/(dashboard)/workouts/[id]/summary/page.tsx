@@ -51,6 +51,8 @@ interface WorkoutSummary {
   totals: {
     exercises: number; sets: number; totalReps: number; volumeKg: number;
     durationSec: number; distanceM: number; warmupSets: number;
+    /** Logged but never ticked, so not counted. Absent on an older API. */
+    skippedSets?: number;
   };
   exercises: SummaryExercise[];
   personalRecords: Array<{
@@ -188,6 +190,15 @@ export default function WorkoutSummaryPage() {
         {s.totals.warmupSets > 0 && (
           <p className="mt-3 text-center text-[11px] text-gray-400 dark:text-gray-500">
             Plus {s.totals.warmupSets} warmup {s.totals.warmupSets === 1 ? 'set' : 'sets'} (not counted)
+          </p>
+        )}
+        {/* Says why the recap shows fewer sets than the logger does. Without
+            this the difference looks like lost data rather than unticked
+            prefill from the last-session replay. */}
+        {(s.totals.skippedSets ?? 0) > 0 && (
+          <p className="mt-1 text-center text-[11px] text-gray-400 dark:text-gray-500">
+            {s.totals.skippedSets} {s.totals.skippedSets === 1 ? 'set was' : 'sets were'} left
+            unchecked and {s.totals.skippedSets === 1 ? 'is' : 'are'} not counted
           </p>
         )}
       </Card>
