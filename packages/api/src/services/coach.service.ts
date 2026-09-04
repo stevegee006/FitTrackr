@@ -402,6 +402,15 @@ ${prLines}
 
 Return the JSON plan now.`;
 
+  // Bracketing the provider call in the log, because a browser-side `fetch`
+  // rejection with no HTTP response cannot distinguish "the proxy cut it",
+  // "CORS" and "the process died" — and Fastify's own completion line carries
+  // the reqId but NOT the url, so grepping the log by endpoint finds only the
+  // incoming request and makes every failure look like a hang. These two lines
+  // say whether the model answered and how long it took.
+  const startedAt = Date.now();
+  logger.info({ userId, weekStart: recap.weekStart }, 'next-week plan: calling provider');
+
   try {
     // Headroom against TRUNCATION, which is the real failure mode: a cut-off
     // response is invalid JSON and there is no repairing a half-written object
@@ -415,6 +424,11 @@ Return the JSON plan now.`;
       maxTokens: 1800,
       temperature: 0.4,
     });
+
+    logger.info(
+      { userId, model: result.model, ms: Date.now() - startedAt, chars: result.content.length },
+      'next-week plan: provider responded',
+    );
 
     const parsed = JSON.parse(result.content);
     return {
@@ -443,8 +457,11 @@ Return the JSON plan now.`;
       },
     };
   } catch (err) {
+    logger.error(
+      { err: (err as Error)?.message, ms: Date.now() - startedAt, typed: err instanceof AppError },
+      'next-week plan: failed',
+    );
     if (err instanceof AppError) throw err;
-    logger.error({ err: (err as Error)?.message }, 'Next-week plan failed to parse');
     throw new AppError(
       502,
       'AI_INVALID_RESPONSE',

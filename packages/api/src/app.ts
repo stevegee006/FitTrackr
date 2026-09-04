@@ -93,6 +93,35 @@ export async function buildApp() {
     return { status: 'ready' };
   });
 
+  /**
+   * Measures how long anything in front of this API will hold a connection
+   * open before severing it. Sleeps, then answers.
+   *
+   * This exists because the AI endpoints were failing with a browser-side
+   * `fetch` rejection and no HTTP response, which is indistinguishable between
+   * "a proxy cut it", "CORS", and "the process died" — and inferring it from
+   * request logs went wrong twice. Now it can be measured:
+   *
+   *   for n in 5 15 25 40 90; do
+   *     curl -s -m 120 -o /dev/null -w "$n -> %{http_code} %{time_total}s\n" \
+   *       "https://<api-host>/health/slow?seconds=$n"
+   *   done
+   *
+   * The largest `n` that returns 200 is the ceiling. A curl exit code 52/56
+   * (empty reply / connection reset) rather than an HTTP status is the same
+   * severed connection the browser sees.
+   *
+   * Unauthenticated on purpose — it has to be callable from anywhere in the
+   * chain, including from outside. Capped at 60 s and covered by the global
+   * rate limiter, so the worst it can hold is a handful of idle sockets.
+   */
+  app.get('/health/slow', async (request) => {
+    const raw = Number((request.query as { seconds?: string }).seconds);
+    const seconds = Math.min(Math.max(Number.isFinite(raw) ? raw : 1, 0), 60);
+    await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+    return { status: 'ok', sleptSeconds: seconds };
+  });
+
   // API routes (prefixed)
   await app.register(
     async (api) => {
