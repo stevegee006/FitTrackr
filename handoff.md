@@ -1,8 +1,9 @@
 # HANDOFF — FitTrackr
 
-_Last updated: 2026-09-03 (through the weekly-recap commit — unperformed sets
-no longer count anywhere, plus a weekly recap with an AI plan for next week;
-earlier: Finish stamps `completedAt` and the summary has three entry points; five
+_Last updated: 2026-09-04 (through the service-worker fix — the PWA had been
+capping every API GET at 10 seconds and caching it for an hour; earlier:
+unperformed sets no longer count anywhere, a weekly recap with an AI plan for
+next week; Finish stamps `completedAt` and the summary has three entry points; five
 new muscle groups, a full exercise editor in admin, whole-exercise delete in
 the logger, optimistic set updates so the logger no longer
 round-trips on every commit; Awards tab with struck medals,
@@ -18,7 +19,7 @@ setup instructions live in [README.md](README.md); **this file is about intent,
 state, and sharp edges** — the things you would otherwise have to rediscover by
 breaking something._
 
-> **Read sharp edges #56–#94 before touching iOS layout, asset generation, AI
+> **Read sharp edges #56–#96 before touching iOS layout, asset generation, AI
 > prompts, summaries/PRs/awards, the auth/refresh path, persisted timer state,
 > cardio/bodyweight handling, muscle-group enums and labels, the finish/reopen
 > flow, what counts as a performed set, or trusting any `git`/`gh`/preview command in
@@ -26,7 +27,9 @@ breaking something._
 > **#77** (a hook below an early return took the whole workout page down in
 > production), **#64a/#64b** (a scoped `git add` plus a stale `shared/dist`
 > break CI while your local build stays green) and **#74** (filtering on
-> `weightKg` deletes cardio and bodyweight work — it has shipped twice).
+> `weightKg` deletes cardio and bodyweight work — it has now shipped three
+> times). Then **#95**, if anything reports a network error in the deployed
+> app.
 >
 > **Three test suites, 156 assertions:** `pnpm --filter @fittrackr/api test`.
 
@@ -457,8 +460,11 @@ in the product.
 
 ### Other frontend notes
 
-**PWA** — `withSerwistInit` in `next.config.ts`, `src/sw.ts` uses the stock
-`defaultCache`: `skipWaiting`, `clientsClaim`, `navigationPreload`.
+**PWA** — `withSerwistInit` in `next.config.ts`, `src/sw.ts` uses
+`defaultCache` **behind a `NetworkOnly` bypass for `/api/`, which must stay
+first in `runtimeCaching`** (sharp edge #95 — without it every API GET is
+capped at 10 seconds and cached for an hour). `skipWaiting`, `clientsClaim`,
+`navigationPreload`.
 **Disabled in development.** No custom API caching, no background sync, no
 offline fallback page, no query persistence, no mutation queue, no
 `navigator.onLine` handling. Combined with the memory-only access token,
@@ -1089,6 +1095,50 @@ is exactly why it is written down here.
     that the model cannot see what is missing, which is the most useful thing
     in the data.
 
+### The service worker was breaking the API
+
+95. **The API is CROSS-ORIGIN, and `defaultCache` routes cross-origin GETs
+    through `NetworkFirst` with `networkTimeoutSeconds: 10`.** This is the
+    single worst thing found so far and it had been live the whole time. The
+    app is on `fittrackr.geehive.com`, the API on
+    `fittrackr-api.geehive.com`, so **every API GET** matched serwist's
+    catch-all cross-origin rule, which meant:
+    - **Any API GET slower than 10 seconds failed outright.** NetworkFirst
+      falls back to the cache on timeout; a one-off authenticated request has
+      no cache entry; the fetch rejects. It surfaces as api-client's
+      `NETWORK_ERROR` — *"Could not reach the server. Check your connection
+      and try again."* — which reads like a connectivity problem and is not
+      one. That is every AI call made over GET: the next-week plan, and the
+      whole of `/coach`. **This is almost certainly why `/coach` was never
+      seen working.**
+    - **Authenticated API responses were being cached for an hour**, so
+      workout data could be served stale from the Cache API.
+
+    `src/sw.ts` now puts a `NetworkOnly()` rule matching `/api/` **first** in
+    `runtimeCaching`, and deletes the orphaned `cross-origin` and `apis`
+    caches on activate. Verified at the source rather than by grepping the
+    bundle: `Serwist.findMatchingRoute` iterates the per-method route array
+    and returns on the FIRST match, routes are registered in `runtimeCaching`
+    order, and an entry with no `method` defaults to GET. So order in that
+    array is the whole mechanism — **keep the API rule first.**
+
+    Two consequences worth internalising:
+    - **The service worker is disabled in development**, so nothing in this
+      class of bug can be reproduced with `pnpm dev`. It only exists in a
+      built or deployed app, which is why it survived so long.
+    - **A slow endpoint should not be a GET** unless you have checked the
+      service worker will not intercept it. `/coach/review` and
+      `/coach/next-week-plan` are GETs deliberately, so the client can hold
+      the result and not re-spend an AI call — that is still right, but it is
+      only safe because of the bypass above.
+96. **`NETWORK_ERROR` does not mean the network failed.** `apiFetch` throws it
+    whenever `fetch` REJECTS, which covers a service-worker strategy giving
+    up, a CORS failure and a severed connection — everything except an actual
+    HTTP response. A timeout has its own message (`TIMEOUT`), so seeing
+    "Could not reach the server" specifically rules the client-side timeout
+    out. When it appears, check the service worker before the server: a
+    401/404/500 would all have produced typed errors instead.
+
 ### Awards and benchmarks
 
 80. **Benchmark matching is deliberately strict, and must stay that way.**
@@ -1411,6 +1461,21 @@ And a tenth batch — what counts as a set, and a weekly recap:
   ranges so double progression is stated rather than derived (#61). See #93
   for the cost arrangement.
 
+And an eleventh batch — two bugs found by using the recap:
+
+- **The service worker had been strangling the API** (#95, #96) — reported as
+  "Could not reach the server" on the next-week plan. Not a connectivity
+  problem: serwist's `defaultCache` was routing every cross-origin API GET
+  through `NetworkFirst` with a 10-second network timeout, so any AI call over
+  GET failed, and every API response was being cached for an hour. The worst
+  find in the project so far, and it had been shipping since the PWA was set
+  up. `/api/` now bypasses the cache entirely.
+- **Cardio read as "bodyweight" in the recap** — a treadmill walk showed
+  "1 sets · bodyweight" because the per-exercise cell only knew about load.
+  Sharp edge #74 predicted this exact mistake and it went straight into brand
+  new code: time and distance are now checked *first*, both on the page and in
+  the plan prompt, and a recorded 0 kg reads as no load rather than "0 lbs".
+
 ## Current state
 
 Deployed and in daily real use by the author against real workout data. The
@@ -1479,6 +1544,13 @@ Known outstanding user-facing items:
   - the whole `/recap` page, including the AI next-week plan, which has never
     been run against a real provider — the JSON shape it expects back is
     unverified, and that is where the coach review needed two attempts before.
+    The first attempt failed for an unrelated reason (#95), so the plan prompt
+    itself has still never reached a model;
+  - the service-worker bypass (#95). It only takes effect once the new worker
+    activates, so on the installed PWA expect one reload — `skipWaiting` and
+    `clientsClaim` are set, so it should not need a reinstall. If the plan
+    still reports a network error afterwards, the next suspect is a proxy read
+    timeout in front of the API, not the app.
 - The program summary shows its empty state for every program that predates
   `0006` (#65). Correct, not broken — but worth seeing once.
 - If logouts persist after the redeploy, the remaining suspect is **two

@@ -113,7 +113,13 @@ export async function getWeeklyRecap(
 
   // Sets per muscle, and per-exercise movement across the week.
   const setsByMuscle: Record<string, number> = {};
-  const perExercise = new Map<string, { exerciseId: string; name: string; sets: number; tops: number[] }>();
+  // durationSec/distanceM are accumulated alongside the weights, not instead
+  // of them: a treadmill walk has no load, and reporting it as "bodyweight"
+  // is the same mistake as treating a missing weight as missing data (#74).
+  const perExercise = new Map<string, {
+    exerciseId: string; name: string; sets: number; tops: number[];
+    durationSec: number; distanceM: number;
+  }>();
 
   for (const w of thisWeek) {
     const sessionTop = new Map<string, number>();
@@ -123,8 +129,11 @@ export async function getWeeklyRecap(
 
       const entry = perExercise.get(s.exerciseId) ?? {
         exerciseId: s.exerciseId, name: s.exercise?.name ?? 'Exercise', sets: 0, tops: [],
+        durationSec: 0, distanceM: 0,
       };
       entry.sets += 1;
+      entry.durationSec += s.durationSec ?? 0;
+      entry.distanceM += s.distanceM ?? 0;
       perExercise.set(s.exerciseId, entry);
 
       if (s.weightKg != null) {
@@ -142,8 +151,11 @@ export async function getWeeklyRecap(
       name: e.name,
       sessions: e.tops.length,
       sets: e.sets,
-      firstTopKg: e.tops.length ? e.tops[0] : null,
-      lastTopKg: e.tops.length ? e.tops[e.tops.length - 1] : null,
+      // A recorded 0 kg is "no external load", not a 0 lb top set.
+      firstTopKg: e.tops.length && e.tops[0] > 0 ? e.tops[0] : null,
+      lastTopKg: e.tops.length && e.tops[e.tops.length - 1] > 0 ? e.tops[e.tops.length - 1] : null,
+      durationSec: e.durationSec,
+      distanceM: e.distanceM,
     }))
     .sort((a, b) => b.sets - a.sets);
 

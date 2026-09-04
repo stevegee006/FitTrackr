@@ -341,11 +341,22 @@ export async function getNextWeekPlan(
   const exerciseLines = recap.exercises
     .slice(0, 14)
     .map((e) => {
-      const move = e.firstTopKg != null && e.lastTopKg != null
-        ? e.firstTopKg === e.lastTopKg
-          ? `top ${conv(e.lastTopKg)}${unit}`
-          : `top ${conv(e.firstTopKg)}→${conv(e.lastTopKg)}${unit}`
-        : 'bodyweight';
+      // Time/distance first — telling the model a treadmill walk was a
+      // "bodyweight" lift invites it to prescribe reps for it (#74).
+      const move = e.durationSec > 0 || e.distanceM > 0
+        ? [
+            e.durationSec > 0 ? `${Math.round(e.durationSec / 60)} min` : null,
+            e.distanceM > 0
+              ? isImperial
+                ? `${(e.distanceM / 1609.344).toFixed(2)} mi`
+                : `${(e.distanceM / 1000).toFixed(2)} km`
+              : null,
+          ].filter(Boolean).join(', ')
+        : e.firstTopKg != null && e.lastTopKg != null
+          ? e.firstTopKg === e.lastTopKg
+            ? `top ${conv(e.lastTopKg)}${unit}`
+            : `top ${conv(e.firstTopKg)}→${conv(e.lastTopKg)}${unit}`
+          : 'bodyweight';
       // The configured rep range, stated rather than left to be inferred —
       // asking a model to derive the progression rule is how it once
       // recommended a deload for BEATING the range (#61).

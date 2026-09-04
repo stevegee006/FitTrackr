@@ -42,6 +42,7 @@ interface WeeklyRecap {
   exercises: Array<{
     exerciseId: string; name: string; sessions: number; sets: number;
     firstTopKg: number | null; lastTopKg: number | null;
+    durationSec: number; distanceM: number;
   }>;
   personalRecords: Array<{
     exerciseId: string; exerciseName: string; recordType: string; value: number;
@@ -104,6 +105,32 @@ export default function WeeklyRecapPage() {
   const rangeLabel = s
     ? `${parseDateLocal(s.weekStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${parseDateLocal(s.weekEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
     : '';
+
+  /**
+   * How an exercise's week is described in one cell.
+   *
+   * Time and distance come FIRST: a treadmill walk carries no load, and
+   * falling through to a weight check labelled it "bodyweight" — the same
+   * mistake as treating a missing weight as missing data (#74). "bodyweight"
+   * is only correct when there is genuinely no load, no clock and no distance.
+   */
+  function exerciseWork(e: WeeklyRecap['exercises'][number]): string {
+    const parts: string[] = [];
+    if (e.durationSec > 0) parts.push(`${Math.round(e.durationSec / 60)} min`);
+    if (e.distanceM > 0) {
+      parts.push(isImperial
+        ? `${(e.distanceM / 1609.344).toFixed(2)} mi`
+        : `${(e.distanceM / 1000).toFixed(2)} km`);
+    }
+    if (parts.length > 0) return parts.join(' · ');
+
+    if (e.firstTopKg != null && e.lastTopKg != null) {
+      return e.firstTopKg === e.lastTopKg
+        ? `${wt(e.lastTopKg)} ${unit}`
+        : `${wt(e.firstTopKg)} → ${wt(e.lastTopKg)} ${unit}`;
+    }
+    return 'bodyweight';
+  }
 
   function delta(current: number, previous: number) {
     if (previous === 0) return null;
@@ -346,12 +373,8 @@ export default function WeeklyRecapPage() {
                 <div key={e.exerciseId} className="flex items-center gap-2 text-xs">
                   <span className="flex-1 min-w-0 truncate">{e.name}</span>
                   <span className="text-gray-500 shrink-0">{e.sets} sets</span>
-                  <span className="w-28 text-right shrink-0 text-gray-500">
-                    {e.firstTopKg != null && e.lastTopKg != null
-                      ? e.firstTopKg === e.lastTopKg
-                        ? `${wt(e.lastTopKg)} ${unit}`
-                        : `${wt(e.firstTopKg)} → ${wt(e.lastTopKg)} ${unit}`
-                      : 'bodyweight'}
+                  <span className="w-32 text-right shrink-0 text-gray-500">
+                    {exerciseWork(e)}
                   </span>
                 </div>
               ))}
