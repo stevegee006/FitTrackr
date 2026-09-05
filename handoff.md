@@ -11,7 +11,7 @@ setup instructions live in [README.md](README.md); **this file is about intent,
 state, and sharp edges** — the things you would otherwise have to rediscover by
 breaking something._
 
-> **Read sharp edges #56–#108 before touching iOS layout, asset generation, AI
+> **Read sharp edges #56–#110 before touching iOS layout, asset generation, AI
 > prompts, summaries/PRs/awards, the auth/refresh path, persisted timer state,
 > cardio/bodyweight handling, muscle-group enums and labels, the finish/reopen
 > flow, what counts as a performed set, or trusting any `git`/`gh`/preview command in
@@ -141,7 +141,7 @@ dangerous and you should know about it before you trust it.
 
 ## Architecture
 
-pnpm 10 workspaces + Turborepo. ESM throughout on the API side (`"type":
+pnpm 10 workspaces (`packages/*` and `apps/*`) + Turborepo. ESM throughout on the API side (`"type":
 "module"`, so **relative imports must carry a `.js` extension** even in
 TypeScript source).
 
@@ -1311,6 +1311,38 @@ is exactly why it is written down here.
     own. The ref is read inside `queryFn` and reset to `'peek'` as it is read,
     so intent applies exactly once and every later fetch is free.
 
+### The native iOS shell
+
+109. **The shell loads the DEPLOYED SITE; it does not bundle the web app.**
+    `apps/ios/capacitor.config.ts` sets `server.url` to
+    `https://fittrackr.geehive.com`, so the webview's origin is the real https
+    origin rather than `capacitor://localhost`. That single decision is what
+    keeps the port cheap: **passkeys keep working** (rpID is the hostname, #4),
+    **CORS keeps working** (#6 matches on the frontend domain),
+    `deriveApiUrl()`'s hostname heuristic still resolves, Next stays on
+    `output: 'standalone'` with no `generateStaticParams` for the `[id]`
+    routes, and the PWA stays a genuine fallback rather than a second frontend
+    to keep in step. Bundling instead breaks all four at once.
+110. **The Live Activity needs no push, no background execution and no paid
+    Apple account.** SwiftUI's `Text(timerInterval:)` and
+    `ProgressView(timerInterval:)` count down **in the widget process
+    unaided** — the app hands over an end date once and never touches it
+    again. So every call from the app is a real change (a new end time from
+    ±10s, or the next set), never a tick. Do not "fix" this by adding a timer
+    that pushes updates; it would need APNs, an entitlement, and a paid
+    account, to achieve exactly what it already does.
+
+    Two things that bite in Xcode: `RestTimerAttributes.swift` must belong to
+    **both** the app and widget targets (it surfaces as "cannot find type" in
+    whichever is missing it), and `RestTimerPlugin.m` is **not optional** —
+    Capacitor discovers plugins through the Objective-C runtime, so without it
+    `Capacitor.Plugins.RestTimer` is silently undefined in JavaScript with no
+    error anywhere.
+
+    The web side detects Capacitor's injected `window.Capacitor` global rather
+    than importing `@capacitor/core`, so the web bundle gains no dependency and
+    every call is a no-op that resolves in Safari and in the PWA.
+
 ### Awards and benchmarks
 
 80. **Benchmark matching is deliberately strict, and must stay that way.**
@@ -1673,6 +1705,11 @@ And an eleventh batch — two bugs found by using the recap:
   always the workouts list — `router.back()`, falling back to the list when
   there is no history (a deep link or fresh tab), where it would otherwise
   leave the app.
+- **A native iOS shell for the rest-timer Live Activity** (#109, #110) — a thin
+  Capacitor app in `apps/ios/` that loads the deployed site, plus a widget
+  extension showing the countdown with the exercise and set on the Lock Screen
+  and in the Dynamic Island. The Xcode target creation is a GUI step and is
+  written up in `apps/ios/README.md`; everything else is in the repo.
 - **AI answers persist across reloads** (#107, #108) — cached server-side in
   Redis for 30 days, shown automatically when one exists, and only regenerated
   by the refresh control.

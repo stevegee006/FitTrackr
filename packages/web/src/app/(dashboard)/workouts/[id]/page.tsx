@@ -7,7 +7,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { SetRow, SetRowHeader } from '@/components/workout/SetRow';
-import { RestTimerModal } from '@/components/workout/RestTimerModal';
+import { RestTimerModal, type RestContext } from '@/components/workout/RestTimerModal';
 import { DurationEditModal, MAX_DURATION_MIN } from '@/components/workout/DurationEditModal';
 import { markCelebrate } from '@/components/workout/CelebrationBurst';
 import { ExerciseSearchForm } from '@/components/exercise/ExerciseSearchForm';
@@ -152,6 +152,9 @@ export default function WorkoutDetailPage() {
   // Bumped on every open so the modal remounts and restarts, even if one is
   // already on screen from a previous set.
   const [restTimerKey, setRestTimerKey] = useState(0);
+  // Labels the iOS Live Activity. Null when the timer was opened from the
+  // header button, where there is no set to name.
+  const [restContext, setRestContext] = useState<RestContext | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [clockRunning, setClockRunning] = useState(false);
   const [workoutStarted, setWorkoutStarted] = useState(false);
@@ -683,7 +686,8 @@ export default function WorkoutDetailPage() {
     }
   }
 
-  function openRestTimer() {
+  function openRestTimer(context?: RestContext) {
+    setRestContext(context ?? null);
     setRestTimerKey((k) => k + 1);
     setShowRestTimer(true);
   }
@@ -698,9 +702,20 @@ export default function WorkoutDetailPage() {
    * uneven group can't leave the timer permanently un-triggered.
    */
   function handleSetLogged(exerciseId: string, roundNumber: number) {
+    // Names the Live Activity. For a superset this is the exercise whose set
+    // fired the callback — the last one of the round — which is the one the
+    // athlete just put down.
+    const working = (byExercise.get(exerciseId) ?? []).filter((x) => !x.isWarmup);
+    const context: RestContext = {
+      exerciseName: byExercise.get(exerciseId)?.[0]?.exercise?.name ?? 'Exercise',
+      setNumber: roundNumber,
+      totalSets: working.length,
+      workoutName: workout?.name ?? (workout ? WORKOUT_TYPE_LABELS[workout.workoutType] : null) ?? 'Workout',
+    };
+
     const groupId = exerciseToGroup.get(exerciseId);
     if (!groupId) {
-      openRestTimer();
+      openRestTimer(context);
       return;
     }
 
@@ -715,7 +730,7 @@ export default function WorkoutDetailPage() {
       return !peer || peer.isCompleted;
     });
 
-    if (roundComplete) openRestTimer();
+    if (roundComplete) openRestTimer(context);
   }
 
   /**
@@ -1178,7 +1193,11 @@ export default function WorkoutDetailPage() {
 
       {/* Rest countdown — opens on set completion, or from the header timer */}
       {showRestTimer && (
-        <RestTimerModal key={restTimerKey} onClose={() => setShowRestTimer(false)} />
+        <RestTimerModal
+          key={restTimerKey}
+          context={restContext ?? undefined}
+          onClose={() => setShowRestTimer(false)}
+        />
       )}
 
       {/* Watch reminder — blocking; the clock does not start until acknowledged */}
@@ -1260,7 +1279,7 @@ export default function WorkoutDetailPage() {
             title="Edit duration" aria-label="Edit workout duration">
             <Pencil className="h-4 w-4" />
           </button>
-          <button type="button" onClick={openRestTimer}
+          <button type="button" onClick={() => openRestTimer()}
             className="p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             title="Rest timer">
             <Timer className="h-4 w-4" />

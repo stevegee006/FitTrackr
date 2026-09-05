@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card } from '@/components/ui/Card';
 import { SkipForward } from 'lucide-react';
+import { startRestActivity, endRestActivity } from '@/lib/native';
 
 const STORAGE_KEY = 'fittrackr_rest_seconds';
 const PRESETS = [60, 90, 120, 180];
@@ -18,8 +19,21 @@ export function getStoredRestSeconds(fallback = 90): number {
   }
 }
 
+export interface RestContext {
+  exerciseName: string;
+  setNumber: number;
+  totalSets: number;
+  workoutName: string;
+}
+
 interface RestTimerModalProps {
   onClose: () => void;
+  /**
+   * What the athlete just finished. Only used to label the iOS Live Activity —
+   * the modal itself does not display it, because the exercise card it opens
+   * over already says all of this.
+   */
+  context?: RestContext;
 }
 
 /**
@@ -29,16 +43,43 @@ interface RestTimerModalProps {
  * background tabs and locked phones throttle `setInterval`, so a decrementing
  * timer drifts badly. The same reason the workout clock uses an anchor.
  */
-export function RestTimerModal({ onClose }: RestTimerModalProps) {
+export function RestTimerModal({ onClose, context }: RestTimerModalProps) {
   const [total, setTotal] = useState(() => getStoredRestSeconds());
   const [endAt, setEndAt] = useState(() => Date.now() + getStoredRestSeconds() * 1000);
   const [remaining, setRemaining] = useState(() => getStoredRestSeconds());
   const firedRef = useRef(false);
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startedAtRef = useRef(Date.now());
 
   useEffect(() => () => {
     if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
   }, []);
+
+  /**
+   * Mirror the countdown into an iOS Live Activity. No-ops everywhere else.
+   *
+   * `endAt` is the single source of truth on both sides: the widget is handed
+   * the end date and counts down by itself, so ±10s and the presets only need
+   * to push a new date rather than stream updates. Nothing here can throw —
+   * the bridge swallows its own errors — so the timer behaves identically if
+   * the native side is missing or broken.
+   */
+  useEffect(() => {
+    if (!context) return;
+    const state = {
+      exerciseName: context.exerciseName,
+      setNumber: context.setNumber,
+      totalSets: context.totalSets,
+      endsAt: endAt,
+      startedAt: startedAtRef.current,
+    };
+    void startRestActivity({ ...state, workoutName: context.workoutName });
+  }, [context, endAt]);
+
+  // End it on unmount, however the modal closed — finished, skipped, or the
+  // page navigated away. A Live Activity outliving its timer is worse than not
+  // having one.
+  useEffect(() => () => { void endRestActivity(); }, []);
 
   useEffect(() => {
     const tick = () => {
