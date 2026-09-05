@@ -47,6 +47,29 @@ export function repsFromString(reps: string): number | null {
   return Number.isFinite(n) && n > 0 && n <= 1000 ? n : null;
 }
 
+/**
+ * Take the first free day at or after `preferred`, wrapping backwards if the
+ * end of the week is full. Returns null only when all seven are taken.
+ *
+ * Two days can resolve to the same offset even when every label is distinct,
+ * because an unrecognised label falls back to its running index: a plan of
+ * ["Tue", "Session B"] puts day 0 on offset 1 and day 1 on fallback index 1,
+ * so both land on Tuesday. Stacking them onto one date silently loses a
+ * session, which is worse than moving one a day.
+ *
+ * Mutates `used`, so it is called only once a day is definitely being created
+ * — a day skipped for having no matching exercises must not consume a slot.
+ */
+export function claimOffset(preferred: number, used: Set<number>): number | null {
+  for (let o = preferred; o <= 6; o++) {
+    if (!used.has(o)) { used.add(o); return o; }
+  }
+  for (let o = preferred - 1; o >= 0; o--) {
+    if (!used.has(o)) { used.add(o); return o; }
+  }
+  return null;
+}
+
 export interface PlanDayInput {
   label: string;
   workoutType: string;

@@ -7,7 +7,7 @@
  * rep range where a number was asked for, an empty string. Getting these wrong
  * writes workouts onto the wrong dates, which is worse than refusing.
  */
-import { dayOffsetFromLabel, repsFromString } from '../dist/services/plan-apply.js';
+import { dayOffsetFromLabel, repsFromString, claimOffset } from '../dist/services/plan-apply.js';
 
 let pass = 0;
 const failures = [];
@@ -65,6 +65,41 @@ eq('no digits is null', repsFromString('AMRAP'), null);
 eq('empty is null', repsFromString(''), null);
 eq('zero is null', repsFromString('0'), null);
 eq('absurd is null', repsFromString('99999'), null);
+
+// ─── claimOffset ──────────────────────────────────────────────────────────────
+// Two days landing on one date silently loses a session. This is reachable
+// WITHOUT duplicate labels, via the fallback path above: ["Tue", "Session B"]
+// puts day 0 on offset 1 and day 1 on fallback index 1.
+{
+  const used = new Set();
+  eq('first day takes its own slot', claimOffset(1, used), 1);
+  eq('collision slides forward', claimOffset(1, used), 2);
+  eq('and again', claimOffset(1, used), 3);
+  eq('used set tracks all three', [...used].sort(), [1, 2, 3]);
+}
+{
+  // A day at the end of the week wraps BACKWARDS rather than off the week —
+  // an offset of 7 would write into the week after next.
+  const used = new Set([5, 6]);
+  eq('end of week wraps backwards', claimOffset(6, used), 4);
+}
+{
+  const used = new Set([0, 1, 2, 3, 4, 5]);
+  eq('last free slot is found', claimOffset(0, used), 6);
+}
+{
+  // Every day taken: null, so the caller skips rather than doubling up.
+  const used = new Set([0, 1, 2, 3, 4, 5, 6]);
+  eq('full week gives up', claimOffset(3, used), null);
+}
+{
+  // No collision means no movement — the common case must be untouched.
+  const used = new Set();
+  eq('Mon', claimOffset(0, used), 0);
+  eq('Wed', claimOffset(2, used), 2);
+  eq('Fri', claimOffset(4, used), 4);
+  eq('nothing moved', [...used].sort(), [0, 2, 4]);
+}
 
 // ─── Report ───────────────────────────────────────────────────────────────────
 if (failures.length) {

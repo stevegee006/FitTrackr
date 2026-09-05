@@ -54,6 +54,12 @@ Return ONLY valid JSON with this exact structure:
 Rules:
 - Plan exactly the number of sessions the athlete trains per week. If that is
   unknown, match the session count they actually did last week.
+- ALLOCATE THE SESSIONS TO CLOSE THE SHORTFALLS. Do not mirror last week's
+  split. If a muscle group is badly short of target, give it a second session
+  or convert one of the repeated session types into one that trains it — a
+  week with two push days and one leg day does not fix a leg deficit. The
+  session COUNT is fixed; which types they are is yours to decide.
+- Give every day a DISTINCT label.
 - 3-4 exercises per day, not a full session listing.
 - "sets" is a NUMBER. "reps" is a string, either "8" or a range "6-8".
 - "load" is a NUMBER in the athlete's units, based on what they actually
@@ -308,6 +314,13 @@ export async function getNextWeekPlan(
   fastify: FastifyInstance,
   userId: string,
   weekStart: string,
+  /**
+   * The weekly review's conclusion, when one has already been generated.
+   * Without it the review and the plan are two independent calls that never
+   * see each other, and the review could recommend a second leg day while the
+   * plan quietly kept the old split — which is exactly what happened.
+   */
+  focus?: string,
 ) {
   const recap = await getWeeklyRecap(fastify, userId, weekStart);
 
@@ -350,6 +363,20 @@ export async function getNextWeekPlan(
   const missing = Object.entries(recap.weeklyTargets ?? {})
     .filter(([m, target]) => (target ?? 0) > 0 && !(recap.setsByMuscle[m] > 0))
     .map(([m, target]) => `${m}: 0 sets (target ${target})`)
+    .join('\n');
+
+  // The SHORTFALL, ranked — not a list of targets to be compared by eye. The
+  // review would say "add a second leg day" off exactly this data while the
+  // plan kept last week's split, because nothing told the planner which gaps
+  // were biggest or that the split was allowed to change at all.
+  const deficits = Object.entries(recap.weeklyTargets ?? {})
+    .map(([m, target]) => ({ m, target: target ?? 0, actual: recap.setsByMuscle[m] ?? 0 }))
+    .filter((d) => d.target > 0 && d.actual < d.target)
+    .map((d) => ({ ...d, gap: d.target - d.actual }))
+    .sort((a, b) => b.gap - a.gap);
+
+  const deficitLines = deficits
+    .map((d) => `${d.m}: ${d.actual} of ${d.target} sets, ${d.gap} short`)
     .join('\n');
 
   const exerciseLines = recap.exercises
@@ -405,7 +432,7 @@ Versus the week before: ${recap.previous.sessions} sessions, ${recap.previous.se
 Sets per muscle group:
 ${muscleLines || 'None recorded.'}
 ${missing ? `\nTargets with NO work last week:\n${missing}` : ''}
-
+${deficitLines ? `\nBIGGEST SHORTFALLS, largest first — the plan must close these:\n${deficitLines}\n` : ''}${focus ? `\nThe coach's review of this week concluded: "${focus}". The plan must act on that.\n` : ''}
 Exercises trained:
 ${exerciseLines || 'None recorded.'}
 

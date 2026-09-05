@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { NotFoundError, ValidationError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
-import { dayOffsetFromLabel, repsFromString, type PlanDayInput } from './plan-apply.js';
+import { dayOffsetFromLabel, repsFromString, claimOffset, type PlanDayInput } from './plan-apply.js';
 
 export type { PlanDayInput };
 
@@ -66,10 +66,13 @@ export async function applyNextWeekPlan(
   const created: Array<{ id: string; logDate: string; name: string; exercises: number; sets: number }> = [];
   const skipped: string[] = [];
 
-  for (const [i, day] of days.entries()) {
-    const logDate = new Date(nextMonday);
-    logDate.setUTCDate(logDate.getUTCDate() + dayOffsetFromLabel(day.label, i));
+  // Two days can resolve to the same offset — a plan with two days labelled
+  // "Thu" is a real thing models produce — and silently stacking both onto one
+  // date loses a session. Later collisions slide forward to the next free day
+  // inside the week, and only give up if the whole week is taken.
+  const usedOffsets = new Set<number>();
 
+  for (const [i, day] of days.entries()) {
     const resolved = day.exercises
       .map((e) => ({ ...e, match: byName.get(e.name.trim().toLowerCase()) }))
       .filter((e) => {
@@ -81,8 +84,14 @@ export async function applyNextWeekPlan(
       });
 
     // A day whose every exercise is unknown would otherwise create an empty
-    // workout the user has to go and delete.
+    // workout the user has to go and delete. Checked BEFORE claiming a date,
+    // so a skipped day does not consume a slot a later day could use.
     if (resolved.length === 0) continue;
+
+    const offset = claimOffset(dayOffsetFromLabel(day.label, i), usedOffsets);
+    if (offset == null) continue;
+    const logDate = new Date(nextMonday);
+    logDate.setUTCDate(logDate.getUTCDate() + offset);
 
     const workoutType = WORKOUT_TYPES.has(day.workoutType) ? day.workoutType : 'CUSTOM';
     const name = day.focus?.trim() ? day.focus.trim().slice(0, 255) : null;

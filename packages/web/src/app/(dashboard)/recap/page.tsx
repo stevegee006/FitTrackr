@@ -132,10 +132,24 @@ export default function WeeklyRecapPage() {
     },
   });
 
+  // The review's conclusion is forwarded to the planner when one exists, so
+  // the two stop being independent opinions — the review recommended a second
+  // leg day while the plan kept the old split, off the same numbers.
+  const reviewFocus = reviewWeek === week
+    ? reviewQuery.data?.data.review.focusNextWeek ?? null
+    : null;
+
   const planQuery = useQuery({
-    queryKey: ['next-week-plan', planWeek],
+    // In the key, so pressing "plan" after a review does not serve a plan
+    // generated before the review existed.
+    queryKey: ['next-week-plan', planWeek, reviewFocus],
     queryFn: () =>
-      apiFetch<{ data: NextWeekPlan }>(`/coach/next-week-plan?weekStart=${planWeek}`, { timeout: 120_000 }),
+      apiFetch<{ data: NextWeekPlan }>(
+        `/coach/next-week-plan?weekStart=${planWeek}${
+          reviewFocus ? `&focus=${encodeURIComponent(reviewFocus)}` : ''
+        }`,
+        { timeout: 120_000 },
+      ),
     enabled: planWeek != null,
     // One AI call per week, held for the session. Refresh is explicit.
     staleTime: Infinity,

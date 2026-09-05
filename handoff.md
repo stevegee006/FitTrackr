@@ -21,7 +21,7 @@ setup instructions live in [README.md](README.md); **this file is about intent,
 state, and sharp edges** — the things you would otherwise have to rediscover by
 breaking something._
 
-> **Read sharp edges #56–#103 before touching iOS layout, asset generation, AI
+> **Read sharp edges #56–#105 before touching iOS layout, asset generation, AI
 > prompts, summaries/PRs/awards, the auth/refresh path, persisted timer state,
 > cardio/bodyweight handling, muscle-group enums and labels, the finish/reopen
 > flow, what counts as a performed set, or trusting any `git`/`gh`/preview command in
@@ -33,7 +33,7 @@ breaking something._
 > times). Then **#95**, if anything reports a network error in the deployed
 > app.
 >
-> **Four test suites, 185 assertions:** `pnpm --filter @fittrackr/api test`.
+> **Four test suites, 196 assertions:** `pnpm --filter @fittrackr/api test`.
 
 ## Goal
 
@@ -1248,6 +1248,29 @@ is exactly why it is written down here.
     the reordered members back into the exact positions they already occupy
     and leaves every other entry alone.
 
+104. **The review and the plan were independent opinions on the same numbers.**
+    The weekly review said "add a second dedicated leg day" while the plan for
+    the same week kept last week's Push/Pull/Legs/Push/Pull split. Two causes,
+    both fixed: the plan prompt had **no rule permitting the split to change**
+    — it said "plan exactly the number of sessions", so the model mirrored what
+    it saw — and the muscle shortfall was left to be spotted by comparing a
+    list of targets by eye. The shortfall is now **computed and ranked**
+    (`QUADS: 7 of 16 sets, 9 short`), the prompt states that session COUNT is
+    fixed while session TYPES are the planner's to allocate, and the review's
+    `focusNextWeek` is forwarded to the planner as a `focus` param when one has
+    been generated. Same principle as #61 and #102: when a decision is a rule,
+    compute it.
+105. **Two planned days can land on one date without any duplicate labels.**
+    `dayOffsetFromLabel` falls back to a day's running index when it cannot
+    read the label, so `["Tue", "Session B"]` puts day 0 on offset 1 and day 1
+    on fallback index 1 — both Tuesday, and one session silently lost.
+    `claimOffset` takes the first free day at or after the preferred one,
+    wraps **backwards** at the end of the week (offset 7 would write into the
+    week after next), and returns null when all seven are taken so the caller
+    skips rather than doubling up. It is called only once a day is definitely
+    being created, so a day skipped for having no matching exercises does not
+    consume a slot a later day could use.
+
 ### Awards and benchmarks
 
 80. **Benchmark matching is deliberately strict, and must stay that way.**
@@ -1608,6 +1631,9 @@ And an eleventh batch — two bugs found by using the recap:
   always the workouts list — `router.back()`, falling back to the list when
   there is no history (a deep link or fresh tab), where it would otherwise
   leave the app.
+- **The coach's review and the plan now agree** (#104) — the review recommended
+  a second leg day while the plan kept the old split, off identical data.
+- **Two planned days can no longer collapse onto one date** (#105).
 - **AI progressive overload now weighs sets** (#102) and **superset members
   can be reordered** (#103).
 - **Cardio read as "bodyweight" in the recap** — a treadmill walk showed
@@ -1783,7 +1809,7 @@ file:
 pnpm --filter @fittrackr/api test    # tsc, then each test/*.test.mjs
 ```
 
-Four files, 185 assertions, plain node scripts with exit codes — no
+Four files, 196 assertions, plain node scripts with exit codes — no
 framework, matching the project's zero-dependency habit:
 
 - `test/program-expand.test.mjs` (48) — the AI program expander: rep-range
@@ -1796,7 +1822,7 @@ framework, matching the project's zero-dependency habit:
 - `test/awards-rules.test.mjs` (53) — benchmark matching (every variation that
   must NOT count), absolute vs relative tiers, the pounds comparison, and
   streak history.
-- `test/plan-apply.test.mjs` (29) — turning an AI plan into dates and sets:
+- `test/plan-apply.test.mjs` (40) — turning an AI plan into dates and sets:
   day labels the model was not asked for ("Day 3", "Monday", "Session A"),
   rep ranges, and the out-of-range values that must fall back rather than
   land in the wrong week.

@@ -76,8 +76,16 @@ export default async function coachRoutes(fastify: FastifyInstance) {
   fastify.get('/coach/next-week-plan', {
     preHandler: [fastify.authenticate],
     handler: async (req) => {
-      const { weekStart } = req.query as any;
-      const data = await coachService.getNextWeekPlan(fastify, req.user.sub, parseWeekStart(weekStart));
+      const { weekStart, focus } = req.query as any;
+      // `focus` is the weekly review's conclusion, forwarded by the client when
+      // it already has one, so the plan acts on the same advice rather than
+      // being an independent second opinion. Bounded: it lands in a prompt.
+      const focusHint = typeof focus === 'string' && focus.trim()
+        ? focus.trim().slice(0, 400)
+        : undefined;
+      const data = await coachService.getNextWeekPlan(
+        fastify, req.user.sub, parseWeekStart(weekStart), focusHint,
+      );
       return { data };
     },
   });
