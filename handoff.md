@@ -21,7 +21,7 @@ setup instructions live in [README.md](README.md); **this file is about intent,
 state, and sharp edges** — the things you would otherwise have to rediscover by
 breaking something._
 
-> **Read sharp edges #56–#101 before touching iOS layout, asset generation, AI
+> **Read sharp edges #56–#103 before touching iOS layout, asset generation, AI
 > prompts, summaries/PRs/awards, the auth/refresh path, persisted timer state,
 > cardio/bodyweight handling, muscle-group enums and labels, the finish/reopen
 > flow, what counts as a performed set, or trusting any `git`/`gh`/preview command in
@@ -1228,6 +1228,26 @@ is exactly why it is written down here.
     absent, so a test importing it dies before its first assertion.** That is
     the reason for every pure/service split in this directory.
 
+102. **The AI-suggest analysis has to cover SETS, not just reps.** The
+    server-computed ANALYSIS line (the thing that exists so a light-tier model
+    does not derive the rules itself, #61) compared reps to the target range
+    and said nothing about set count — so a session that fell from 4 sets to 3
+    while reps rose read as pure progress, and the advice was "add weight"
+    while total volume had actually dropped. There is a `SETS:` line now
+    alongside `ANALYSIS:`, computing sets-vs-target and sets-vs-previous, plus
+    an `increase_sets` strategy so "get back to 4 sets at this load" is
+    something the coach can actually say. The history lines state the set
+    count rather than leaving it to be counted off a list of identical sets.
+103. **A superset's member order was not persisted anywhere.**
+    `supersetGroupMap` was built by iterating `workout.sets`, so a group's
+    internal order was whatever order the sets came back in — unchangeable,
+    and not necessarily the order you alternate in. Members are now sorted by
+    their position in `exerciseOrder`, and each has its own up/down control.
+    **Group members need NOT be contiguous in that flat array**: the group
+    renders at its first member's position regardless, so `moveInGroup` writes
+    the reordered members back into the exact positions they already occupy
+    and leaves every other entry alone.
+
 ### Awards and benchmarks
 
 80. **Benchmark matching is deliberately strict, and must stay that way.**
@@ -1588,6 +1608,8 @@ And an eleventh batch — two bugs found by using the recap:
   always the workouts list — `router.back()`, falling back to the list when
   there is no history (a deep link or fresh tab), where it would otherwise
   leave the app.
+- **AI progressive overload now weighs sets** (#102) and **superset members
+  can be reordered** (#103).
 - **Cardio read as "bodyweight" in the recap** — a treadmill walk showed
   "1 sets · bodyweight" because the per-exercise cell only knew about load.
   Sharp edge #74 predicted this exact mistake and it went straight into brand

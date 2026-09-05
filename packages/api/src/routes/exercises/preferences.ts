@@ -244,10 +244,11 @@ export default async function exercisePreferenceRoutes(fastify: FastifyInstance)
 
       const systemPrompt = `You are an expert strength and conditioning coach. Analyze the athlete's workout history and provide specific, actionable progressive overload advice. You MUST respond with ONLY a valid JSON object containing ALL of these fields:
 {
-  "strategy": one of "increase_weight" | "increase_reps" | "maintain" | "deload",
+  "strategy": one of "increase_weight" | "increase_reps" | "increase_sets" | "maintain" | "deload",
   "suggestion": "2-3 sentences of specific coaching advice explaining what to do next session and why",
   "targetWeight${isImperial ? 'Lbs' : 'Kg'}": number or null,
-  "targetRepsRange": "e.g. '5' or '8-10'" or null
+  "targetRepsRange": "e.g. '5' or '8-10'" or null,
+  "targetSets": number or null
 }
 The "suggestion" field MUST be a non-empty string with specific advice. Do not leave it empty.
 
@@ -259,6 +260,14 @@ Apply DOUBLE PROGRESSION. These rules are not optional:
   "increase_weight". Exceeding the rep range is a success, never a problem, and
   never a reason to deload or to reduce weight.
 - Reps inside the range but below the top: "increase_reps" at the same load.
+- SETS matter as much as reps. If the athlete is below their target set count,
+  the first progression is "increase_sets" — get the volume back at the current
+  load before adding weight. Adding load while short on sets trades volume for
+  intensity without saying so.
+- If set count FELL since the previous session, say so plainly even when reps
+  rose: fewer sets at more reps can be less total work, not more.
+- targetSets is the number of working sets to aim for next session. Repeat the
+  athlete's configured target when they are already meeting it.
 - "deload" is ONLY for genuine stalling or regression — performance declining
   across multiple sessions, or failing to reach the BOTTOM of the range at the
   current load. Never deload an athlete who is meeting or beating the range.
@@ -287,7 +296,15 @@ Apply DOUBLE PROGRESSION. These rules are not optional:
                 : `${s.reps ?? '?'} reps (bodyweight)`,
             )
             .join(', ');
-          return `${session.date.toISOString().split('T')[0]}: ${workingSets || '(no working sets)'}`;
+          // The count is stated, not left to be counted off the list. Sets are
+          // a progression lever in their own right and a light-tier model
+          // reading "12x65lbs, 12x65lbs, 12x65lbs" reasons about the reps and
+          // ignores that there were three of them.
+          const setCount = session.sets.filter(
+            (s: WorkoutSetSummary) => !s.isWarmup && (s.weightKg != null || (s.reps ?? 0) > 0),
+          ).length;
+          const prefix = setCount > 0 ? `${setCount} working ${setCount === 1 ? 'set' : 'sets'} — ` : '';
+          return `${session.date.toISOString().split('T')[0]}: ${prefix}${workingSets || '(no working sets)'}`;
         })
         .join('\n');
 
@@ -304,6 +321,7 @@ Apply DOUBLE PROGRESSION. These rules are not optional:
         (s: WorkoutSetSummary) => !s.isWarmup && (s.reps ?? 0) > 0,
       );
       let rangeSignal = '';
+      let setSignal = '';
       if (lastWorking.length > 0) {
         const reps = lastWorking.map((s: WorkoutSetSummary) => s.reps!);
         const minReps = Math.min(...reps);
@@ -318,6 +336,40 @@ Apply DOUBLE PROGRESSION. These rules are not optional:
         const at = topWeight != null
           ? `${repsPart} reps at ${topWeight}${unitLabel}`
           : `${repsPart} reps at bodyweight`;
+
+        // ── Sets, analysed the same way reps are ──────────────────────────
+        // Reps were computed here and sets were not, so a session that fell
+        // from 4 sets to 3 read as pure rep progress and the advice was "add
+        // weight" — while total volume had actually dropped. Sets are a
+        // progression lever, and the same principle applies as for the rep
+        // range (#61): when a decision is a rule, compute it, don't ask a
+        // light-tier model to derive it from a list.
+        const setCount = lastWorking.length;
+        const prevWorking = (history[1]?.sets ?? []).filter(
+          (s: WorkoutSetSummary) => !s.isWarmup && (s.reps ?? 0) > 0,
+        );
+        const prevSetCount = prevWorking.length;
+
+        const setParts: string[] = [
+          `${setCount} working ${setCount === 1 ? 'set' : 'sets'} in the most recent session${
+            targetSets != null ? `, against a target of ${targetSets}` : ''
+          }.`,
+        ];
+        if (targetSets != null && setCount < targetSets) {
+          setParts.push(
+            `That is BELOW target, so the first lever is getting back to ${targetSets} sets at the current load. Say this explicitly before recommending more weight.`,
+          );
+        } else if (targetSets != null && setCount > targetSets) {
+          setParts.push(`That is ABOVE target — a good moment to convert the extra volume into load.`);
+        }
+        if (prevSetCount > 0 && setCount < prevSetCount) {
+          setParts.push(
+            `Set count DROPPED from ${prevSetCount} to ${setCount} since the session before, so total volume may have fallen even though reps rose. Mention it.`,
+          );
+        } else if (prevSetCount > 0 && setCount > prevSetCount) {
+          setParts.push(`Set count ROSE from ${prevSetCount} to ${setCount}, which is progress in itself.`);
+        }
+        setSignal = `SETS: ${setParts.join(' ')}`;
 
         if (repRangeMax != null && minReps >= repRangeMax) {
           rangeSignal = topWeight != null
@@ -337,8 +389,9 @@ Units: ${unitLabel}
 
 Recent history (most recent first):
 ${historyLines || 'No history yet.'}
-${rangeSignal ? `\n${rangeSignal}\n` : ''}
-Based on this progression, what should the athlete aim for in their next session? Provide the JSON response now.`;
+${rangeSignal ? `\n${rangeSignal}` : ''}${setSignal ? `\n${setSignal}` : ''}
+
+Base the advice on BOTH the rep analysis and the set analysis above. Provide the JSON response now.`;
 
       try {
         const result = await aiChatCompletion(fastify, userId, systemPrompt, userPrompt, {
@@ -347,7 +400,7 @@ Based on this progression, what should the athlete aim for in their next session
         });
 
         const parsed = JSON.parse(result.content);
-        const validStrategies = ['increase_weight', 'increase_reps', 'maintain', 'deload'];
+        const validStrategies = ['increase_weight', 'increase_reps', 'increase_sets', 'maintain', 'deload'];
         const rawStrategy = String(parsed.strategy ?? '').toLowerCase().replace(/[\s-]+/g, '_');
 
         // Handle both targetWeightLbs and targetWeightKg field names from the AI
@@ -365,6 +418,10 @@ Based on this progression, what should the athlete aim for in their next session
             suggestion,
             targetWeightKg: targetWeightKg != null ? Math.round(targetWeightKg * 100) / 100 : null,
             targetRepsRange: parsed.targetRepsRange ?? null,
+            // Bounded like every other model-supplied number.
+            targetSets: Number.isFinite(Number(parsed.targetSets))
+              ? Math.min(Math.max(Math.round(Number(parsed.targetSets)), 1), 10)
+              : null,
           },
         };
       } catch (err: any) {

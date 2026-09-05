@@ -32,15 +32,18 @@ interface HistorySession {
 }
 
 interface AiSuggestion {
-  strategy: 'increase_weight' | 'increase_reps' | 'maintain' | 'deload';
+  strategy: 'increase_weight' | 'increase_reps' | 'increase_sets' | 'maintain' | 'deload';
   suggestion: string;
   targetWeightKg: number | null;
   targetRepsRange: string | null;
+  /** Absent on an older API. */
+  targetSets?: number | null;
 }
 
 const STRATEGY_STYLES: Record<AiSuggestion['strategy'], { label: string; className: string }> = {
   increase_weight: { label: 'Increase Weight', className: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' },
   increase_reps:   { label: 'Increase Reps',   className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' },
+  increase_sets:   { label: 'Add a Set',       className: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300' },
   maintain:        { label: 'Maintain',         className: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300' },
   deload:          { label: 'Deload',           className: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' },
 };
@@ -246,7 +249,7 @@ export function ProgressiveOverloadPanel({
               {aiResult.suggestion}
             </p>
 
-            {(aiResult.targetWeightKg !== null || aiResult.targetRepsRange !== null) && (
+            {(aiResult.targetWeightKg !== null || aiResult.targetRepsRange !== null || aiResult.targetSets != null) && (
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
                 {aiResult.targetWeightKg !== null && (
                   <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -258,6 +261,12 @@ export function ProgressiveOverloadPanel({
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     <span className="font-medium text-gray-700 dark:text-gray-300">Target reps:</span>{' '}
                     {aiResult.targetRepsRange}
+                  </p>
+                )}
+                {aiResult.targetSets != null && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Target sets:</span>{' '}
+                    {aiResult.targetSets}
                   </p>
                 )}
               </div>

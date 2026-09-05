@@ -700,6 +700,30 @@ export default function WorkoutDetailPage() {
     if (roundComplete) openRestTimer();
   }
 
+  /**
+   * Reorder one exercise INSIDE a superset, leaving the group's position in
+   * the workout alone.
+   *
+   * The persisted order is a single flat array, so this writes the reordered
+   * members back into the exact positions the members already occupy and
+   * leaves every other entry untouched. That works whether or not the members
+   * are contiguous in the array.
+   */
+  function moveInGroup(memberIds: string[], index: number, direction: -1 | 1, order: string[]) {
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= memberIds.length) return;
+
+    const reordered = [...memberIds];
+    [reordered[index], reordered[newIndex]] = [reordered[newIndex], reordered[index]];
+
+    const positions: number[] = [];
+    order.forEach((eid, i) => { if (memberIds.includes(eid)) positions.push(i); });
+
+    const next = [...order];
+    positions.forEach((pos, i) => { next[pos] = reordered[i]; });
+    reorderMutation.mutate(next);
+  }
+
   function moveSlot(slotIndex: number, direction: -1 | 1, currentSlots: Slot[]) {
     const newIndex = slotIndex + direction;
     if (newIndex < 0 || newIndex >= currentSlots.length) return;
@@ -747,7 +771,18 @@ export default function WorkoutDetailPage() {
     if (renderedEids.has(eid)) continue;
     const gid = exerciseToGroup.get(eid);
     if (gid) {
-      const groupEids = (supersetGroupMap.get(gid) ?? [eid]).filter(e => byExercise.has(e));
+      // Members are ordered by their position in the persisted exerciseOrder,
+      // not by the order their sets happen to come back in. Without this the
+      // group's internal order is whatever the sets array dictates and cannot
+      // be changed. Members need NOT be contiguous in the flat array — the
+      // group renders at the first member's position either way.
+      const groupEids = (supersetGroupMap.get(gid) ?? [eid])
+        .filter(e => byExercise.has(e))
+        .sort((a, b) => {
+          const ia = exerciseOrder.indexOf(a);
+          const ib = exerciseOrder.indexOf(b);
+          return (ia === -1 ? Number.MAX_SAFE_INTEGER : ia) - (ib === -1 ? Number.MAX_SAFE_INTEGER : ib);
+        });
       groupEids.forEach(e => renderedEids.add(e));
       slots.push({ type: 'group', groupId: gid, exerciseIds: groupEids });
     } else {
@@ -1267,7 +1302,30 @@ export default function WorkoutDetailPage() {
                     </div>
                   ) : (
                     <div className="bg-white dark:bg-gray-900 divide-y divide-gray-100 dark:divide-gray-800">
-                      {slot.exerciseIds.map((eid) => renderExerciseCard(eid, true))}
+                      {slot.exerciseIds.map((eid, memberIdx) => renderExerciseCard(
+                        eid,
+                        true,
+                        undefined,
+                        // Same control as reordering the slots themselves, but
+                        // scoped to the group — a superset's order is the order
+                        // you actually alternate in.
+                        <div className="flex flex-col" onClick={e => e.stopPropagation()}>
+                          <button type="button"
+                            disabled={memberIdx === 0 || reorderMutation.isPending}
+                            onClick={() => moveInGroup(slot.exerciseIds, memberIdx, -1, exerciseOrder)}
+                            className="p-0.5 text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 disabled:opacity-0 transition-colors"
+                            title="Move up in the superset" aria-label="Move up in the superset">
+                            <ArrowUp className="h-3 w-3" />
+                          </button>
+                          <button type="button"
+                            disabled={memberIdx === slot.exerciseIds.length - 1 || reorderMutation.isPending}
+                            onClick={() => moveInGroup(slot.exerciseIds, memberIdx, 1, exerciseOrder)}
+                            className="p-0.5 text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 disabled:opacity-0 transition-colors"
+                            title="Move down in the superset" aria-label="Move down in the superset">
+                            <ArrowDown className="h-3 w-3" />
+                          </button>
+                        </div>,
+                      ))}
                     </div>
                   )}
                 </div>
