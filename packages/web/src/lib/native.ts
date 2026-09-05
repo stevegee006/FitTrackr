@@ -15,56 +15,127 @@
  * not need to branch on the platform.
  */
 
-interface RestTimerBridge {
-  start(options: RestActivityState & { workoutName: string }): Promise<void>;
-  update(options: RestActivityState): Promise<void>;
+/**
+ * The whole session in one payload.
+ *
+ * There is a SINGLE Live Activity for the workout, not one per feature: iOS
+ * shows one activity in the Dynamic Island at a time, so a session clock and a
+ * rest countdown as separate activities would fight over it. The activity
+ * changes phase instead — `rest` non-null means it is showing the countdown.
+ */
+export interface WorkoutActivityState {
+  workoutId: string;
+  workoutName: string;
+  /** Wall-clock anchor the elapsed time counts up from, epoch ms. */
+  startedAt: number;
+  /** Epoch ms when the clock was paused; null while running. */
+  pausedAt: number | null;
+  setsDone: number;
+  setsTotal: number;
+  rest: {
+    exerciseName: string;
+    setNumber: number;
+    totalSets: number;
+    endsAt: number;
+    startedAt: number;
+  } | null;
+}
+
+interface WorkoutActivityBridge {
+  sync(options: Record<string, unknown>): Promise<{ active: boolean }>;
   end(): Promise<void>;
 }
 
-export interface RestActivityState {
-  exerciseName: string;
-  setNumber: number;
-  totalSets: number;
-  /** Epoch milliseconds. Swift turns this into the Date the widget counts to. */
-  endsAt: number;
-  startedAt: number;
+interface ServerConfigBridge {
+  get(): Promise<{ url: string; isConfigured: boolean; default: string }>;
+  set(options: { url: string }): Promise<{ ok: boolean; url?: string }>;
+  reset(): Promise<{ ok: boolean; url: string }>;
 }
 
-function bridge(): RestTimerBridge | null {
+function plugins(): Record<string, any> | null {
   if (typeof window === 'undefined') return null;
   try {
     const cap = (window as any).Capacitor;
     if (!cap?.isNativePlatform?.()) return null;
-    return (cap.Plugins?.RestTimer as RestTimerBridge) ?? null;
+    return cap.Plugins ?? null;
   } catch {
     return null;
   }
 }
 
-/** True inside the native shell. Use it for UI that only makes sense there. */
+/** True inside the native shell. Use it to hide UI that only works there. */
 export function isNativeShell(): boolean {
-  return bridge() !== null;
+  return plugins() !== null;
 }
+
+// ─── Live Activity ───────────────────────────────────────────────────────────
 
 /**
- * Start or replace the Live Activity.
+ * Start or update the session Live Activity.
  *
- * Safe to call when one is already running — the plugin updates the existing
- * activity rather than stacking a second, which is why the exercise and set
- * live in the activity's mutable state rather than its static attributes.
+ * One idempotent call for every state change — clock started, paused, resumed,
+ * a set ticked, rest begun or finished. The native side starts an activity if
+ * there is none and updates it otherwise, so nothing here has to track whether
+ * one exists.
+ *
+ * The nested `rest` object is flattened because Capacitor's `getDouble`/
+ * `getString` read top-level keys only.
  */
-export async function startRestActivity(
-  state: RestActivityState & { workoutName: string },
-): Promise<void> {
-  try { await bridge()?.start(state); } catch { /* never break the timer */ }
+export async function syncWorkoutActivity(state: WorkoutActivityState): Promise<void> {
+  try {
+    const bridge = plugins()?.WorkoutActivity as WorkoutActivityBridge | undefined;
+    if (!bridge) return;
+    await bridge.sync({
+      workoutId: state.workoutId,
+      workoutName: state.workoutName,
+      startedAt: state.startedAt,
+      pausedAt: state.pausedAt ?? undefined,
+      setsDone: state.setsDone,
+      setsTotal: state.setsTotal,
+      restExerciseName: state.rest?.exerciseName,
+      restSetNumber: state.rest?.setNumber,
+      restTotalSets: state.rest?.totalSets,
+      restEndsAt: state.rest?.endsAt,
+      restStartedAt: state.rest?.startedAt,
+    });
+  } catch { /* a Live Activity must never break the timer on screen */ }
 }
 
-/** Push a new end time or set label into a running activity. */
-export async function updateRestActivity(state: RestActivityState): Promise<void> {
-  try { await bridge()?.update(state); } catch { /* ignore */ }
+/** Dismiss the activity. Safe when none is running. */
+export async function endWorkoutActivity(): Promise<void> {
+  try { await (plugins()?.WorkoutActivity as WorkoutActivityBridge | undefined)?.end(); }
+  catch { /* ignore */ }
 }
 
-/** Dismiss the Live Activity. Safe when none is running. */
-export async function endRestActivity(): Promise<void> {
-  try { await bridge()?.end(); } catch { /* ignore */ }
+// ─── Server configuration ────────────────────────────────────────────────────
+
+/**
+ * Which self-hosted instance the shell points at.
+ *
+ * `server.url` is compiled into the bundle, so without this a friend running
+ * their own FitTrackr would have to edit the config and rebuild. The native
+ * side keeps the value in `UserDefaults` and feeds it to Capacitor before the
+ * webview loads, so it is still an ordinary `server.url` and the plugins are
+ * unaffected.
+ */
+export async function getServerConfig() {
+  try {
+    return await (plugins()?.ServerConfig as ServerConfigBridge | undefined)?.get() ?? null;
+  } catch { return null; }
+}
+
+/** Returns false when the address was rejected. The app reloads on success. */
+export async function setServerUrl(url: string): Promise<boolean> {
+  try {
+    const res = await (plugins()?.ServerConfig as ServerConfigBridge | undefined)?.set({ url });
+    return res?.ok ?? false;
+  } catch { return false; }
+}
+
+/** Back to the URL this build shipped with. */
+export async function resetServerUrl(): Promise<boolean> {
+  try {
+    const res = await (plugins()?.ServerConfig as ServerConfigBridge | undefined)?.reset();
+    return res?.ok ?? false;
+  } catch { return false; }
 }

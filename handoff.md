@@ -11,7 +11,7 @@ setup instructions live in [README.md](README.md); **this file is about intent,
 state, and sharp edges** — the things you would otherwise have to rediscover by
 breaking something._
 
-> **Read sharp edges #56–#110 before touching iOS layout, asset generation, AI
+> **Read sharp edges #56–#112 before touching iOS layout, asset generation, AI
 > prompts, summaries/PRs/awards, the auth/refresh path, persisted timer state,
 > cardio/bodyweight handling, muscle-group enums and labels, the finish/reopen
 > flow, what counts as a performed set, or trusting any `git`/`gh`/preview command in
@@ -1323,6 +1323,35 @@ is exactly why it is written down here.
     `output: 'standalone'` with no `generateStaticParams` for the `[id]`
     routes, and the PWA stays a genuine fallback rather than a second frontend
     to keep in step. Bundling instead breaks all four at once.
+111. **ONE Live Activity for the session, not one per feature.** iOS shows a
+    single Live Activity in the Dynamic Island at a time, so a session clock
+    and a rest countdown as separate activities fight over it and the athlete
+    gets whichever started last. `WorkoutActivityAttributes` covers the whole
+    session and changes PHASE — `restEndsAt` non-nil means it is showing the
+    countdown. Everything that moves lives in `ContentState`; only the workout
+    name and id are static attributes, because the attributes type is baked
+    into a running activity and cannot be migrated.
+
+    On the web side ONE effect owns it, driven by state rather than by calls in
+    the start/pause/finish handlers, so it cannot drift from what the page
+    shows. `elapsed` is deliberately NOT a dependency: it changes every second
+    and the widget counts on its own, so only real changes cross the bridge.
+    `RestTimerModal` reports its countdown upward rather than calling the
+    bridge — two writers on one activity would race.
+112. **The server URL is a RUNTIME setting, not the compiled `server.url`.**
+    `ServerConfig` keeps it in `UserDefaults` and
+    `MainViewController.instanceDescriptor()` feeds it to Capacitor before the
+    webview loads, so it is still an ordinary `server.url` and the plugins are
+    unaffected — that is the whole trick. Without it a friend self-hosting
+    would have to edit the config and rebuild.
+
+    Two things worth preserving: the **native** prompt on first launch and on
+    an unreachable host (a typo'd host means there is no web app left to render
+    the settings screen, so the recovery path cannot be web), and the refusal
+    of plain `http` for anything but localhost and private-network addresses
+    (passkeys, service workers and `crypto.subtle` all need a secure context,
+    and a plain-http host yields a half-broken app that is very hard to
+    diagnose from the symptoms).
 110. **The Live Activity needs no push, no background execution and no paid
     Apple account.** SwiftUI's `Text(timerInterval:)` and
     `ProgressView(timerInterval:)` count down **in the widget process
@@ -1705,11 +1734,15 @@ And an eleventh batch — two bugs found by using the recap:
   always the workouts list — `router.back()`, falling back to the list when
   there is no history (a deep link or fresh tab), where it would otherwise
   leave the app.
-- **A native iOS shell for the rest-timer Live Activity** (#109, #110) — a thin
+- **A native iOS shell with a session Live Activity** (#109–#112) — a thin
   Capacitor app in `apps/ios/` that loads the deployed site, plus a widget
-  extension showing the countdown with the exercise and set on the Lock Screen
-  and in the Dynamic Island. The Xcode target creation is a GUI step and is
-  written up in `apps/ios/README.md`; everything else is in the repo.
+  extension showing elapsed workout time, sets done, and the rest countdown
+  with its exercise and set, on the Lock Screen and in the Dynamic Island. One
+  activity for the whole session rather than one per timer. The server it
+  points at is configurable in-app (Profile → Settings → Server, plus a native
+  prompt), so it works for anyone self-hosting. The Xcode target creation is a
+  GUI step and is written up in `apps/ios/README.md`; everything else is in
+  the repo.
 - **AI answers persist across reloads** (#107, #108) — cached server-side in
   Redis for 30 days, shown automatically when one exists, and only regenerated
   by the refresh control.

@@ -28,8 +28,21 @@ const config: CapacitorConfig = {
   appName: 'FitTrackr',
   webDir: 'www',
   server: {
+    /**
+     * The DEFAULT only. `MainViewController.instanceDescriptor()` overrides
+     * this from UserDefaults at launch, so a friend running their own instance
+     * points the app at it from Profile → Settings (or the first-run prompt)
+     * rather than editing this file and rebuilding.
+     */
     url: 'https://fittrackr.geehive.com',
     cleartext: false,
+    /**
+     * Required for switching hosts without a relaunch — without it the webview
+     * refuses to navigate away from the origin it started on. The bridge script
+     * is injected as a WKUserScript at document start, so plugins survive the
+     * move.
+     */
+    allowNavigation: ['*'],
   },
   ios: {
     // Matches the app's own dark chrome rather than flashing white on launch.

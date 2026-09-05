@@ -14,6 +14,7 @@ import { TimezoneCombobox } from '@/components/ui/TimezoneCombobox';
 import { getBrowserTimezone, formatTimezoneLabel } from '@/lib/timezones';
 import { ACTIVITY_LABELS, TRAINING_GOAL_LABELS } from '@fittrackr/shared';
 import type { UserProfile, UserSettings, AiProvider } from '@fittrackr/shared';
+import { ServerSettingsCard } from '@/components/settings/ServerSettingsCard';
 import Link from 'next/link';
 import { startRegistration } from '@simplewebauthn/browser';
 import { AwardsTab } from '@/components/awards/AwardsTab';
@@ -972,6 +973,11 @@ function SettingsTab() {
 
       <div className="lg:col-span-2">
         <WatchReminderCard />
+      </div>
+
+      <div className="lg:col-span-2">
+        {/* Renders nothing outside the native iOS shell. */}
+        <ServerSettingsCard />
       </div>
 
       <div className="lg:col-span-2">

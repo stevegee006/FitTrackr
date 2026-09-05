@@ -1,9 +1,15 @@
 # FitTrackr — native iOS shell
 
-A thin Capacitor app whose only reason to exist is the **rest-timer Live
-Activity** on the Lock Screen and in the Dynamic Island. Everything else is the
-existing web app: the shell loads `https://fittrackr.geehive.com` directly
-rather than bundling anything.
+A thin Capacitor app whose only reason to exist is the **session Live
+Activity** on the Lock Screen and in the Dynamic Island — elapsed workout time,
+sets done, and the rest countdown with its exercise and set. Everything else is
+the existing web app: the shell loads the configured server directly rather
+than bundling anything.
+
+**One activity, not two.** iOS shows a single Live Activity in the Dynamic
+Island at a time, so a session clock and a rest countdown as separate
+activities would fight over it. This one starts with the workout clock, ends
+when the workout is finished, and switches presentation while resting.
 
 **The PWA is unaffected and remains the fallback.** There is no second
 frontend to keep in step — deploy the web app as usual and this picks it up on
@@ -47,7 +53,7 @@ Then, in Xcode — these are the GUI steps that cannot be scripted:
    again.
 
 2. **Create the widget extension.** File → New → Target → **Widget Extension**.
-   Name it `RestTimerWidget`, **tick "Include Live Activity"**, and do NOT tick
+   Name it `FitTrackrWidget`, **tick "Include Live Activity"**, and do NOT tick
    "Include Configuration Intent". Xcode adds the target's Info.plist keys for
    you.
 
@@ -55,27 +61,35 @@ Then, in Xcode — these are the GUI steps that cannot be scripted:
 
    | File | Target |
    |---|---|
-   | `RestTimerAttributes.swift` | **both** App and RestTimerWidget |
-   | `RestTimerLiveActivity.swift` | RestTimerWidget only |
-   | `RestTimerPlugin.swift` | App only |
-   | `RestTimerPlugin.m` | App only |
+   | `WorkoutActivityAttributes.swift` | **both** App and FitTrackrWidget |
+   | `WorkoutLiveActivity.swift` | FitTrackrWidget only |
+   | `WorkoutActivityPlugin.swift` + `.m` | App only |
+   | `ServerConfig.swift` | App only |
+   | `ServerConfigPlugin.swift` + `.m` | App only |
+   | `MainViewController.swift` | App only |
 
    Drag them into the project and set Target Membership in the File Inspector.
-   `RestTimerAttributes.swift` being in only one target is the most common
-   mistake — it surfaces as "cannot find type 'RestTimerAttributes'" in
-   whichever target is missing it.
+   `WorkoutActivityAttributes.swift` being in only one target is the most
+   common mistake — it surfaces as "cannot find type
+   'WorkoutActivityAttributes'" in whichever target is missing it.
 
    In the generated widget bundle, replace the sample widget with
-   `RestTimerLiveActivity()`.
+   `WorkoutLiveActivity()`.
 
-4. **Enable Live Activities in the app target's Info.plist:**
+4. **Point the storyboard at `MainViewController`.** Open
+   `App/Base.lproj/Main.storyboard`, select the Bridge View Controller scene,
+   and in the Identity Inspector change its class from `CAPBridgeViewController`
+   to `MainViewController` (module: App). Without this the server stays fixed
+   to whatever `capacitor.config.ts` shipped with.
+
+5. **Enable Live Activities in the app target's Info.plist:**
 
    ```xml
    <key>NSSupportsLiveActivities</key>
    <true/>
    ```
 
-5. Build and run to the device.
+6. Build and run to the device.
 
 No APNs, no push entitlement and no paid account are required — see below.
 
@@ -90,6 +104,32 @@ So every call from the app is a real change — a new end time from ±10s, or th
 next set — never a tick. That is what keeps this inside the free tier and
 avoids background execution entirely.
 
+## Pointing it at a different server
+
+`server.url` is compiled into the bundle, which would mean a friend running
+their own FitTrackr had to edit the config and rebuild. Instead the URL is a
+runtime setting:
+
+- `ServerConfig` keeps it in `UserDefaults`, with the compiled-in URL as the
+  default.
+- `MainViewController.instanceDescriptor()` feeds it to Capacitor **before the
+  webview loads**, so as far as Capacitor is concerned it is still an ordinary
+  `server.url` — which is what keeps the plugins, and therefore the Live
+  Activity, working.
+- Change it from **Profile → Settings → Server** in the app, which renders only
+  inside the shell.
+- A **native prompt** appears on first launch when the build has no default,
+  and whenever the configured host cannot be reached. That matters: a typo'd
+  host means there is no web app left to render the settings screen, so the
+  recovery path has to be native.
+
+`http` is refused unless the host is localhost or a private-network address —
+passkeys, service workers and `crypto.subtle` all need a secure context, and a
+plain-http host produces a half-broken app that is very hard to diagnose from
+the symptoms.
+
+Signed-in sessions belong to a server, so switching means signing in again.
+
 ## How the web side talks to it
 
 `packages/web/src/lib/native.ts` detects Capacitor's injected
@@ -98,10 +138,16 @@ bundle therefore gains **no dependency and no bytes**, and every call is a
 no-op that resolves when the bridge is absent — which is the case in Safari and
 in the PWA.
 
-`RestTimerModal` owns the countdown and drives the activity: it starts one on
-mount, pushes a new end date whenever ±10s or a preset changes it, and ends it
-on unmount however the modal closed. A Live Activity outliving its timer is
-worse than not having one.
+The logger owns the activity through a **single effect driven by state**,
+rather than calls scattered through the start/pause/finish handlers — so it
+cannot drift out of step with what the page is showing, because it is
+recomputed from the same values the page renders from. `RestTimerModal` reports
+its countdown upward rather than talking to the bridge itself; two callers
+writing to one activity would race.
+
+`elapsed` is deliberately not a dependency of that effect: it changes every
+second and the widget counts on its own, so only real changes cross the bridge
+— pausing, resuming, a set ticked, rest starting or ending.
 
 ## Known limits
 
@@ -112,11 +158,14 @@ worse than not having one.
   fixed elements, #57 safe-area insets). This is still WKWebView — the shell
   buys the timer, not a layout fix.
 - Starting an activity requires the app to be in the foreground on iOS 16.x.
-  Rest starts when a set is ticked, so this is not a problem in practice.
+  The activity starts with the workout clock, which is a deliberate tap, so
+  this is not a problem in practice.
 
-## Obvious next step
+## Obvious next steps
 
-The **workout clock** is the same shape with a different end date, and it
-already survives backgrounding via a wall-clock anchor in `localStorage`. A
-session-long Live Activity is largely this code again with
-`ProgressView(timerInterval:)` swapped for elapsed time.
+- **Notifications when rest ends.** `RestTimer` already calls
+  `new Notification(...)` but nothing ever requests permission (handoff #41),
+  so it is dead code today. A native local notification scheduled for the end
+  date would work while the phone is locked.
+- **Widget actions.** iOS 17 allows buttons in a Live Activity — "skip rest" or
+  "+30s" without unlocking. Requires `AppIntent` in the widget target.

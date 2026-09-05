@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card } from '@/components/ui/Card';
 import { SkipForward } from 'lucide-react';
-import { startRestActivity, endRestActivity } from '@/lib/native';
 
 const STORAGE_KEY = 'fittrackr_rest_seconds';
 const PRESETS = [60, 90, 120, 180];
@@ -23,7 +22,11 @@ export interface RestContext {
   exerciseName: string;
   setNumber: number;
   totalSets: number;
-  workoutName: string;
+}
+
+export interface RestActivity extends RestContext {
+  endsAt: number;
+  startedAt: number;
 }
 
 interface RestTimerModalProps {
@@ -34,6 +37,15 @@ interface RestTimerModalProps {
    * over already says all of this.
    */
   context?: RestContext;
+  /**
+   * Reports the live countdown upward so the page can fold it into the single
+   * session Live Activity. Called with null when the timer goes away.
+   *
+   * The modal does not talk to the native bridge itself: there is ONE activity
+   * for the whole session and the page owns it, so two callers writing to it
+   * would race.
+   */
+  onRestActivityChange?: (rest: RestActivity | null) => void;
 }
 
 /**
@@ -43,43 +55,39 @@ interface RestTimerModalProps {
  * background tabs and locked phones throttle `setInterval`, so a decrementing
  * timer drifts badly. The same reason the workout clock uses an anchor.
  */
-export function RestTimerModal({ onClose, context }: RestTimerModalProps) {
+export function RestTimerModal({ onClose, context, onRestActivityChange }: RestTimerModalProps) {
   const [total, setTotal] = useState(() => getStoredRestSeconds());
   const [endAt, setEndAt] = useState(() => Date.now() + getStoredRestSeconds() * 1000);
   const [remaining, setRemaining] = useState(() => getStoredRestSeconds());
   const firedRef = useRef(false);
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedAtRef = useRef(Date.now());
+  // Read through a ref in the unmount cleanup: capturing the prop directly
+  // would pin the first render's callback, and an empty dep array is required
+  // so the cleanup runs on unmount rather than on every prop identity change.
+  const onRestActivityChangeRef = useRef(onRestActivityChange);
+  onRestActivityChangeRef.current = onRestActivityChange;
 
   useEffect(() => () => {
     if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
   }, []);
 
   /**
-   * Mirror the countdown into an iOS Live Activity. No-ops everywhere else.
+   * Report the countdown upward for the iOS Live Activity.
    *
    * `endAt` is the single source of truth on both sides: the widget is handed
-   * the end date and counts down by itself, so ±10s and the presets only need
-   * to push a new date rather than stream updates. Nothing here can throw —
-   * the bridge swallows its own errors — so the timer behaves identically if
-   * the native side is missing or broken.
+   * the end date and counts down by itself, so ±10s and the presets only push
+   * a new date rather than streaming updates.
    */
   useEffect(() => {
-    if (!context) return;
-    const state = {
-      exerciseName: context.exerciseName,
-      setNumber: context.setNumber,
-      totalSets: context.totalSets,
-      endsAt: endAt,
-      startedAt: startedAtRef.current,
-    };
-    void startRestActivity({ ...state, workoutName: context.workoutName });
-  }, [context, endAt]);
+    if (!context || !onRestActivityChange) return;
+    onRestActivityChange({ ...context, endsAt: endAt, startedAt: startedAtRef.current });
+  }, [context, endAt, onRestActivityChange]);
 
-  // End it on unmount, however the modal closed — finished, skipped, or the
-  // page navigated away. A Live Activity outliving its timer is worse than not
-  // having one.
-  useEffect(() => () => { void endRestActivity(); }, []);
+  // Clear it on unmount, however the modal closed — finished, skipped, or the
+  // page navigated away. A rest countdown outliving its timer is worse than
+  // not having one.
+  useEffect(() => () => { onRestActivityChangeRef.current?.(null); }, []);
 
   useEffect(() => {
     const tick = () => {

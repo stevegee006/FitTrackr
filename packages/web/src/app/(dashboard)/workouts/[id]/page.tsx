@@ -7,7 +7,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { SetRow, SetRowHeader } from '@/components/workout/SetRow';
-import { RestTimerModal, type RestContext } from '@/components/workout/RestTimerModal';
+import { RestTimerModal, type RestContext, type RestActivity } from '@/components/workout/RestTimerModal';
+import { syncWorkoutActivity, endWorkoutActivity } from '@/lib/native';
 import { DurationEditModal, MAX_DURATION_MIN } from '@/components/workout/DurationEditModal';
 import { markCelebrate } from '@/components/workout/CelebrationBurst';
 import { ExerciseSearchForm } from '@/components/exercise/ExerciseSearchForm';
@@ -155,6 +156,9 @@ export default function WorkoutDetailPage() {
   // Labels the iOS Live Activity. Null when the timer was opened from the
   // header button, where there is no set to name.
   const [restContext, setRestContext] = useState<RestContext | null>(null);
+  // The live countdown, lifted out of the modal so ONE effect owns the whole
+  // Live Activity — see the sync effect below.
+  const [restActivity, setRestActivity] = useState<RestActivity | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [clockRunning, setClockRunning] = useState(false);
   const [workoutStarted, setWorkoutStarted] = useState(false);
@@ -426,6 +430,7 @@ export default function WorkoutDetailPage() {
     mutationFn: () => apiFetch(`/workouts/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
       clearTimerState();
+      void endWorkoutActivity();
       queryClient.invalidateQueries({ queryKey: ['workouts'] });
       queryClient.invalidateQueries({ queryKey: ['workout-volume'] });
       router.replace('/workouts');
@@ -469,6 +474,9 @@ export default function WorkoutDetailPage() {
       // after clearTimerState() re-created the key it had just removed.
       setClockRunning(false);
       clearTimerState();
+      // The session is over — the Live Activity goes with it. Left running it
+      // would sit on the Lock Screen counting up from a finished workout.
+      void endWorkoutActivity();
       queryClient.invalidateQueries({ queryKey: ['workouts'] });
       queryClient.invalidateQueries({ queryKey: ['workout-volume'] });
       queryClient.invalidateQueries({ queryKey: ['personal-records'] });
@@ -570,6 +578,43 @@ export default function WorkoutDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['personal-records'] });
     },
   });
+
+  /**
+   * Mirror the session into the iOS Live Activity. No-op on web and in the PWA.
+   *
+   * ONE effect owns the activity, and it is deliberately driven by state rather
+   * than by calls scattered through the start/pause/finish handlers: the
+   * activity then cannot drift out of step with what the page is showing,
+   * because it is recomputed from the same values the page renders from.
+   *
+   * `elapsed` is NOT in the dependencies. It changes every second, and the
+   * widget counts on its own from the anchor — re-syncing per tick would be
+   * both pointless and a lot of bridge traffic. Only real changes go over:
+   * pausing, resuming, a set being ticked, rest starting or ending.
+   *
+   * MUST stay above the `if (isLoading) return` guards below — a hook after an
+   * early return runs conditionally and throws React error #310 (#77).
+   */
+  useEffect(() => {
+    if (!workoutStarted || !workout) return;
+
+    const working = (workout.sets ?? []).filter((x) => !x.isWarmup);
+    void syncWorkoutActivity({
+      workoutId: workout.id,
+      workoutName: workout.name ?? WORKOUT_TYPE_LABELS[workout.workoutType] ?? 'Workout',
+      startedAt: startAnchorRef.current,
+      // The widget freezes its readout at this instant rather than the app
+      // streaming a frozen value.
+      pausedAt: clockRunning ? null : Date.now(),
+      setsDone: working.filter((x) => x.isCompleted).length,
+      setsTotal: working.length,
+      rest: restActivity,
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    workoutStarted, clockRunning, restActivity, workout?.id, workout?.name,
+    workout?.workoutType, workout?.sets,
+  ]);
 
   // Tick when running
   useEffect(() => {
@@ -710,7 +755,6 @@ export default function WorkoutDetailPage() {
       exerciseName: byExercise.get(exerciseId)?.[0]?.exercise?.name ?? 'Exercise',
       setNumber: roundNumber,
       totalSets: working.length,
-      workoutName: workout?.name ?? (workout ? WORKOUT_TYPE_LABELS[workout.workoutType] : null) ?? 'Workout',
     };
 
     const groupId = exerciseToGroup.get(exerciseId);
@@ -1196,6 +1240,7 @@ export default function WorkoutDetailPage() {
         <RestTimerModal
           key={restTimerKey}
           context={restContext ?? undefined}
+          onRestActivityChange={setRestActivity}
           onClose={() => setShowRestTimer(false)}
         />
       )}
