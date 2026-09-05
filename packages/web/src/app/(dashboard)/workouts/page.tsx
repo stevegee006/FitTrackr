@@ -9,6 +9,7 @@ import { WORKOUT_TYPE_LABELS, WORKOUT_TYPE_COLORS, MUSCLE_GROUP_LABELS } from '@
 import type { Workout, WorkoutType, Exercise, MuscleGroup } from '@fittrackr/shared';
 import { todayString, parseDateLocal, formatDate, formatDuration } from '@/lib/utils';
 import { inferExerciseDetails } from '@/lib/infer-exercise';
+import { WorkoutTypeIcon } from '@/components/workout/WorkoutTypeIcon';
 import Link from 'next/link';
 import { ChevronLeft, ChevronRight, Dumbbell, Clock, Sparkles, Camera, X, Check, ImageIcon, Plus, Trash2, BarChart3 } from 'lucide-react';
 
@@ -452,7 +453,9 @@ export default function WorkoutsPage() {
                   onClick={() => createMutation.mutate({ workoutType: type, logDate: selectedDate })}
                   disabled={createMutation.isPending}
                   className="flex flex-col items-center gap-1 p-2 rounded-xl bg-gray-50 dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 border border-gray-200 dark:border-gray-700 hover:border-indigo-300 transition-all active:scale-95">
-                  <span className="text-lg">{type === 'PUSH' ? '🤜' : type === 'PULL' ? '🤛' : type === 'LEGS' ? '🦵' : '💪'}</span>
+                  {/* Coloured by workout type, which the emoji could not be. */}
+                  <WorkoutTypeIcon type={type} className="h-5 w-5"
+                    style={{ color: WORKOUT_TYPE_COLORS[type] }} />
                   <span className="text-[11px] font-medium text-gray-700 dark:text-gray-300">{WORKOUT_TYPE_LABELS[type]}</span>
                 </button>
               ))}
@@ -463,7 +466,11 @@ export default function WorkoutsPage() {
                   onClick={() => createMutation.mutate({ workoutType: type, logDate: selectedDate })}
                   disabled={createMutation.isPending}
                   className="flex-1 py-1.5 rounded-lg bg-gray-50 dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 border border-gray-200 dark:border-gray-700 text-[11px] font-medium text-gray-600 dark:text-gray-300 transition-all active:scale-95">
-                  {WORKOUT_TYPE_LABELS[type]}
+                  <span className="inline-flex items-center justify-center gap-1">
+                    <WorkoutTypeIcon type={type} className="h-3.5 w-3.5"
+                      style={{ color: WORKOUT_TYPE_COLORS[type] }} />
+                    {WORKOUT_TYPE_LABELS[type]}
+                  </span>
                 </button>
               ))}
             </div>

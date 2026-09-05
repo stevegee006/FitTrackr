@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
@@ -96,19 +96,29 @@ export default function WorkoutSummaryPage() {
   // which took every workout detail page down in production once (#77).
   const [coachStarted, setCoachStarted] = useState(false);
 
+  // What the next fetch should do. A ref, not query state, so refetch() reads
+  // the intent at call time and a remount cannot replay a refresh and re-spend
+  // a credit. A bare GET is "show me what you have" and costs nothing, so a
+  // review generated last week appears on load rather than hiding behind a
+  // button that was already pressed.
+  const coachMode = useRef<'peek' | 'generate' | 'refresh'>('peek');
+
   const sessionReview = useQuery({
     queryKey: ['session-review', id],
-    queryFn: () =>
-      apiFetch<{ data: { model: string; review: CoachReview } }>(
-        `/coach/session-review/${id}`, { timeout: 120_000 },
-      ),
-    // Never on load: this spends one of the user's own AI credits, and the
-    // recap above is worth reading without one.
-    enabled: coachStarted,
+    queryFn: () => {
+      const mode = coachMode.current;
+      coachMode.current = 'peek';
+      const q = mode === 'generate' ? '?generate=1' : mode === 'refresh' ? '?refresh=1' : '';
+      return apiFetch<{ data: { model: string; review: CoachReview } | null; cached: boolean }>(
+        `/coach/session-review/${id}${q}`, { timeout: 120_000 },
+      );
+    },
     staleTime: Infinity,
     gcTime: 60 * 60 * 1000,
     retry: false,
   });
+
+  const sessionReviewData = sessionReview.data?.data ?? null;
 
   /** kg is canonical in storage; imperial is display-only. */
   const w = (kg: number) => {
@@ -338,14 +348,14 @@ export default function WorkoutSummaryPage() {
         blurb="Looks at what you just did against the last time you did it, and says what to change next time."
         buttonLabel="Coach this session"
         loadingLabel="Reading this session…"
-        started={coachStarted}
-        isLoading={coachStarted && sessionReview.isLoading}
+        started={coachStarted || sessionReviewData != null}
+        isLoading={sessionReview.isFetching && sessionReviewData == null}
         isFetching={sessionReview.isFetching}
-        error={coachStarted ? sessionReview.error : null}
-        review={sessionReview.data?.data.review ?? null}
-        model={sessionReview.data?.data.model}
-        onStart={() => setCoachStarted(true)}
-        onRefresh={() => sessionReview.refetch()}
+        error={sessionReview.error}
+        review={sessionReviewData?.review ?? null}
+        model={sessionReviewData?.model}
+        onStart={() => { coachMode.current = 'generate'; setCoachStarted(true); sessionReview.refetch(); }}
+        onRefresh={() => { coachMode.current = 'refresh'; sessionReview.refetch(); }}
       />
 
       <Button onClick={() => router.push('/workouts')} className="w-full">Done</Button>

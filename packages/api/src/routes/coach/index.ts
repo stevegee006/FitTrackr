@@ -4,6 +4,7 @@ import * as coachService from '../../services/coach.service.js';
 import * as coachReviews from '../../services/coach-reviews.service.js';
 import { applyNextWeekPlan } from '../../services/plan-apply.service.js';
 import { ValidationError } from '../../utils/errors.js';
+import { cachedAi, aiCacheKeys } from '../../services/ai-cache.js';
 
 /** The client supplies its own local Monday — see weekly-recap.service. */
 function parseWeekStart(value: unknown): string {
@@ -34,6 +35,20 @@ const applyPlanSchema = z.object({
   })).min(1).max(7),
 });
 
+
+/**
+ * `generate` / `refresh` from the query string.
+ *
+ * Default is generate=false: a bare GET is "show me what you have", which is
+ * what every page issues on load and costs no AI credits. The button sends
+ * generate=1 and the refresh control sends refresh=1.
+ */
+function cacheOpts(query: any) {
+  const truthy = (v: unknown) => v === '1' || v === 'true';
+  const refresh = truthy(query?.refresh);
+  return { generate: refresh || truthy(query?.generate), refresh };
+}
+
 export default async function coachRoutes(fastify: FastifyInstance) {
   // GET /coach/review — AI review of the recent training block.
   // A GET because it has no side effects, which lets the client cache it and
@@ -44,8 +59,13 @@ export default async function coachRoutes(fastify: FastifyInstance) {
       const { days } = req.query as any;
       const parsed = parseInt(days ?? '30', 10);
       const window = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 7), 120) : 30;
-      const data = await coachService.getCoachReview(fastify, req.user.sub, window);
-      return { data };
+      const { data, cached } = await cachedAi(
+        fastify,
+        aiCacheKeys.blockReview(req.user.sub, window),
+        cacheOpts(req.query),
+        () => coachService.getCoachReview(fastify, req.user.sub, window),
+      );
+      return { data, cached };
     },
   });
 
@@ -55,8 +75,14 @@ export default async function coachRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate],
     handler: async (req) => {
       const { weekStart } = req.query as any;
-      const data = await coachReviews.getWeekReview(fastify, req.user.sub, parseWeekStart(weekStart));
-      return { data };
+      const week = parseWeekStart(weekStart);
+      const { data, cached } = await cachedAi(
+        fastify,
+        aiCacheKeys.weekReview(req.user.sub, week),
+        cacheOpts(req.query),
+        () => coachReviews.getWeekReview(fastify, req.user.sub, week),
+      );
+      return { data, cached };
     },
   });
 
@@ -65,8 +91,13 @@ export default async function coachRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate],
     handler: async (req) => {
       const { workoutId } = req.params as { workoutId: string };
-      const data = await coachReviews.getSessionReview(fastify, req.user.sub, workoutId);
-      return { data };
+      const { data, cached } = await cachedAi(
+        fastify,
+        aiCacheKeys.sessionReview(req.user.sub, workoutId),
+        cacheOpts(req.query),
+        () => coachReviews.getSessionReview(fastify, req.user.sub, workoutId),
+      );
+      return { data, cached };
     },
   });
 
@@ -83,10 +114,14 @@ export default async function coachRoutes(fastify: FastifyInstance) {
       const focusHint = typeof focus === 'string' && focus.trim()
         ? focus.trim().slice(0, 400)
         : undefined;
-      const data = await coachService.getNextWeekPlan(
-        fastify, req.user.sub, parseWeekStart(weekStart), focusHint,
+      const week = parseWeekStart(weekStart);
+      const { data, cached } = await cachedAi(
+        fastify,
+        aiCacheKeys.nextWeekPlan(req.user.sub, week),
+        cacheOpts(req.query),
+        () => coachService.getNextWeekPlan(fastify, req.user.sub, week, focusHint),
       );
-      return { data };
+      return { data, cached };
     },
   });
 

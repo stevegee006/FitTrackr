@@ -7,11 +7,12 @@ import { weeklyStreak } from '@/lib/streak';
 import { useAuth } from '@/providers/AuthProvider';
 import { VolumeRings } from '@/components/volume/VolumeRings';
 import { WorkoutCard } from '@/components/workout/WorkoutCard';
+import { WorkoutTypeIcon } from '@/components/workout/WorkoutTypeIcon';
 import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { Plus, Sparkles, BarChart3 } from 'lucide-react';
 import type { Workout, UserProfile, TrainingGoal, MuscleGroup, WorkoutType } from '@fittrackr/shared';
-import { MUSCLE_GROUP_LABELS, WORKOUT_TYPE_LABELS } from '@fittrackr/shared';
+import { MUSCLE_GROUP_LABELS, WORKOUT_TYPE_LABELS, WORKOUT_TYPE_COLORS } from '@fittrackr/shared';
 import Link from 'next/link';
 
 function getSmartGreeting(
@@ -233,7 +234,9 @@ export default function DashboardPage() {
               disabled={createWorkoutMutation.isPending}
               className="flex flex-col items-center gap-1 p-2 rounded-xl bg-gray-50 dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 border border-gray-200 dark:border-gray-700 hover:border-indigo-300 transition-all active:scale-95"
             >
-              <span className="text-xl">{type === 'PUSH' ? '🤜' : type === 'PULL' ? '🤛' : type === 'LEGS' ? '🦵' : '💪'}</span>
+              {/* Coloured by workout type, which the emoji could not be. */}
+              <WorkoutTypeIcon type={type} className="h-5 w-5"
+                style={{ color: WORKOUT_TYPE_COLORS[type] }} />
               <span className="text-[10px] font-medium text-gray-600 dark:text-gray-300 text-center leading-tight">{WORKOUT_TYPE_LABELS[type]}</span>
             </button>
           ))}
@@ -247,7 +250,11 @@ export default function DashboardPage() {
               disabled={createWorkoutMutation.isPending}
               className="flex-1 py-1.5 rounded-lg bg-gray-50 dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 border border-gray-200 dark:border-gray-700 text-[10px] font-medium text-gray-600 dark:text-gray-300 transition-all active:scale-95"
             >
-              {WORKOUT_TYPE_LABELS[type]}
+              <span className="inline-flex items-center justify-center gap-1">
+                <WorkoutTypeIcon type={type} className="h-3.5 w-3.5"
+                  style={{ color: WORKOUT_TYPE_COLORS[type] }} />
+                {WORKOUT_TYPE_LABELS[type]}
+              </span>
             </button>
           ))}
         </div>
@@ -277,7 +284,7 @@ export default function DashboardPage() {
         {workouts.length === 0 ? (
           <Card className="py-10 text-center" data-tutorial="start-workout">
             <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-800/50">
-              <span className="text-2xl">💪</span>
+              <WorkoutTypeIcon type="FULL_BODY" className="h-7 w-7 text-indigo-500" />
             </div>
             <p className="font-semibold text-gray-700 dark:text-gray-200">No workouts yet this week</p>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Start a session to begin logging</p>

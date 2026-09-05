@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/api-client';
@@ -79,6 +79,21 @@ export default function WeeklyRecapPage() {
   const [planWeek, setPlanWeek] = useState<string | null>(null);
   const [reviewWeek, setReviewWeek] = useState<string | null>(null);
 
+  /**
+   * What the NEXT fetch of each AI card should do. Held in refs, not in the
+   * query key, so `refetch()` reads the intent at call time and a later remount
+   * cannot silently replay a "refresh" and re-spend a credit. Reset to 'peek'
+   * as soon as the request is issued.
+   */
+  const reviewMode = useRef<'peek' | 'generate' | 'refresh'>('peek');
+  const planMode = useRef<'peek' | 'generate' | 'refresh'>('peek');
+
+  function modeParam(ref: { current: 'peek' | 'generate' | 'refresh' }) {
+    const mode = ref.current;
+    ref.current = 'peek';
+    return mode === 'generate' ? '&generate=1' : mode === 'refresh' ? '&refresh=1' : '';
+  }
+
   const { data: settingsData } = useQuery({
     queryKey: ['settings'],
     queryFn: () => apiFetch<{ data: { preferredUnits: string } }>('/users/me/settings'),
@@ -93,13 +108,17 @@ export default function WeeklyRecapPage() {
     queryFn: () => apiFetch<{ data: WeeklyRecap }>(`/workouts/weekly-recap?weekStart=${week}`),
   });
 
+  // Always queried, never auto-generated. A bare GET returns whatever is
+  // stored server-side and costs nothing, so a review generated days ago shows
+  // up on load instead of hiding behind a button that was already pressed
+  // once. Only `generate` (the button) and `refresh` spend a credit.
   const reviewQuery = useQuery({
-    queryKey: ['week-review', reviewWeek],
+    queryKey: ['week-review', week],
     queryFn: () =>
-      apiFetch<{ data: { model: string; review: CoachReview } }>(
-        `/coach/week-review?weekStart=${reviewWeek}`, { timeout: 120_000 },
+      apiFetch<{ data: { model: string; review: CoachReview } | null; cached: boolean }>(
+        `/coach/week-review?weekStart=${week}${modeParam(reviewMode)}`,
+        { timeout: 120_000 },
       ),
-    enabled: reviewWeek != null,
     staleTime: Infinity,
     gcTime: 60 * 60 * 1000,
     retry: false,
@@ -135,23 +154,17 @@ export default function WeeklyRecapPage() {
   // The review's conclusion is forwarded to the planner when one exists, so
   // the two stop being independent opinions — the review recommended a second
   // leg day while the plan kept the old split, off the same numbers.
-  const reviewFocus = reviewWeek === week
-    ? reviewQuery.data?.data.review.focusNextWeek ?? null
-    : null;
+  const reviewFocus = reviewQuery.data?.data?.review.focusNextWeek ?? null;
 
   const planQuery = useQuery({
-    // In the key, so pressing "plan" after a review does not serve a plan
-    // generated before the review existed.
-    queryKey: ['next-week-plan', planWeek, reviewFocus],
+    queryKey: ['next-week-plan', week],
     queryFn: () =>
-      apiFetch<{ data: NextWeekPlan }>(
-        `/coach/next-week-plan?weekStart=${planWeek}${
+      apiFetch<{ data: NextWeekPlan | null; cached: boolean }>(
+        `/coach/next-week-plan?weekStart=${week}${modeParam(planMode)}${
           reviewFocus ? `&focus=${encodeURIComponent(reviewFocus)}` : ''
         }`,
         { timeout: 120_000 },
       ),
-    enabled: planWeek != null,
-    // One AI call per week, held for the session. Refresh is explicit.
     staleTime: Infinity,
     gcTime: 60 * 60 * 1000,
     retry: false,
@@ -161,8 +174,8 @@ export default function WeeklyRecapPage() {
   const isCurrentWeek = week === thisWeek;
   // A plan or review belongs to the week it was generated for; showing last
   // week's advice under this week's numbers would be quietly wrong.
-  const planForThisWeek = planWeek === week ? planQuery.data?.data ?? null : null;
-  const reviewForThisWeek = reviewWeek === week ? reviewQuery.data?.data ?? null : null;
+  const planForThisWeek = planQuery.data?.data ?? null;
+  const reviewForThisWeek = reviewQuery.data?.data ?? null;
   const rangeLabel = s
     ? `${parseDateLocal(s.weekStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${parseDateLocal(s.weekEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
     : '';
@@ -448,14 +461,14 @@ export default function WeeklyRecapPage() {
             blurb={`Reads this week's numbers and gives insights and pointers, using your own AI key.${isCurrentWeek ? ' The week is still in progress.' : ''}`}
             buttonLabel="Review this week"
             loadingLabel="Reading this week…"
-            started={reviewWeek === week}
-            isLoading={reviewWeek === week && reviewQuery.isLoading}
+            started={reviewWeek === week || reviewForThisWeek != null}
+            isLoading={reviewQuery.isFetching && reviewForThisWeek == null}
             isFetching={reviewQuery.isFetching}
-            error={reviewWeek === week ? reviewQuery.error : null}
+            error={reviewQuery.error}
             review={reviewForThisWeek?.review ?? null}
             model={reviewForThisWeek?.model}
-            onStart={() => setReviewWeek(week)}
-            onRefresh={() => reviewQuery.refetch()}
+            onStart={() => { reviewMode.current = 'generate'; setReviewWeek(week); reviewQuery.refetch(); }}
+            onRefresh={() => { reviewMode.current = 'refresh'; reviewQuery.refetch(); }}
           />
 
           {/* AI plan for next week */}
@@ -463,8 +476,10 @@ export default function WeeklyRecapPage() {
             <div className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
               <p className="text-sm font-semibold flex-1">Plan for next week</p>
-              {planQuery.data && (
-                <button type="button" onClick={() => planQuery.refetch()} disabled={planQuery.isFetching}
+              {planForThisWeek && (
+                <button type="button"
+                  onClick={() => { planMode.current = 'refresh'; planQuery.refetch(); }}
+                  disabled={planQuery.isFetching}
                   className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 transition-colors disabled:opacity-40"
                   title="Regenerate" aria-label="Regenerate plan">
                   <RefreshCw className={`h-3.5 w-3.5 ${planQuery.isFetching ? 'animate-spin' : ''}`} />
@@ -472,12 +487,13 @@ export default function WeeklyRecapPage() {
               )}
             </div>
 
-            {planWeek == null && (
+            {!planForThisWeek && planWeek == null && !planQuery.isFetching && (
               <>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   Builds a plan from this week&apos;s numbers using your own AI key. One call per week.
                 </p>
-                <button type="button" onClick={() => setPlanWeek(week)}
+                <button type="button"
+                  onClick={() => { planMode.current = 'generate'; setPlanWeek(week); planQuery.refetch(); }}
                   className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white text-sm font-semibold transition-all">
                   <Sparkles className="h-4 w-4" />
                   Get a plan for next week
@@ -485,7 +501,7 @@ export default function WeeklyRecapPage() {
               </>
             )}
 
-            {planWeek != null && planQuery.isLoading && (
+            {planQuery.isFetching && !planForThisWeek && (
               <div className="flex items-center justify-center gap-2 py-6 text-sm text-gray-500">
                 <Spinner /> Writing next week&apos;s plan…
               </div>
@@ -498,11 +514,11 @@ export default function WeeklyRecapPage() {
               </div>
             )}
 
-            {planQuery.data && (
+            {planForThisWeek && (
               <div className="space-y-3">
-                <p className="text-sm text-gray-800 dark:text-gray-100">{planQuery.data.data.plan.focus}</p>
+                <p className="text-sm text-gray-800 dark:text-gray-100">{planForThisWeek.plan.focus}</p>
 
-                {planQuery.data.data.plan.days.map((d, i) => {
+                {planForThisWeek.plan.days.map((d, i) => {
                   const color = (WORKOUT_TYPE_COLORS as any)[d.workoutType] ?? '#6b7280';
                   return (
                     <div key={`${d.label}-${i}`} className="rounded-xl border border-gray-200 dark:border-gray-700 p-2.5">
@@ -533,19 +549,19 @@ export default function WeeklyRecapPage() {
                   );
                 })}
 
-                {planQuery.data.data.plan.adjustments.length > 0 && (
+                {planForThisWeek.plan.adjustments.length > 0 && (
                   <div className="space-y-1">
                     <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Changes from this week</p>
-                    {planQuery.data.data.plan.adjustments.map((a, i) => (
+                    {planForThisWeek.plan.adjustments.map((a, i) => (
                       <p key={i} className="text-xs text-gray-700 dark:text-gray-200">• {a}</p>
                     ))}
                   </div>
                 )}
 
-                {planQuery.data.data.plan.cautions.length > 0 && (
+                {planForThisWeek.plan.cautions.length > 0 && (
                   <div className="space-y-1">
                     <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wide">Watch</p>
-                    {planQuery.data.data.plan.cautions.map((c, i) => (
+                    {planForThisWeek.plan.cautions.map((c, i) => (
                       <p key={i} className="text-xs text-amber-700 dark:text-amber-300">• {c}</p>
                     ))}
                   </div>
@@ -580,7 +596,7 @@ export default function WeeklyRecapPage() {
                 ) : (
                   <>
                     <button type="button"
-                      onClick={() => applyPlanMutation.mutate(planQuery.data!.data)}
+                      onClick={() => applyPlanMutation.mutate(planForThisWeek)}
                       disabled={applyPlanMutation.isPending}
                       className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-indigo-500 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 text-sm font-semibold transition-all disabled:opacity-40">
                       {applyPlanMutation.isPending
@@ -595,7 +611,7 @@ export default function WeeklyRecapPage() {
                   </>
                 )}
 
-                <p className="text-[10px] text-gray-400 dark:text-gray-500">Generated by {planQuery.data.data.model}</p>
+                <p className="text-[10px] text-gray-400 dark:text-gray-500">Generated by {planForThisWeek.model}</p>
               </div>
             )}
           </Card>

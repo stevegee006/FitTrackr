@@ -21,7 +21,7 @@ setup instructions live in [README.md](README.md); **this file is about intent,
 state, and sharp edges** — the things you would otherwise have to rediscover by
 breaking something._
 
-> **Read sharp edges #56–#106 before touching iOS layout, asset generation, AI
+> **Read sharp edges #56–#108 before touching iOS layout, asset generation, AI
 > prompts, summaries/PRs/awards, the auth/refresh path, persisted timer state,
 > cardio/bodyweight handling, muscle-group enums and labels, the finish/reopen
 > flow, what counts as a performed set, or trusting any `git`/`gh`/preview command in
@@ -1283,6 +1283,28 @@ is exactly why it is written down here.
     still unused by any UI, or a per-session note, which does not exist. An
     empty string clears the note to NULL rather than storing `''`.
 
+107. **AI answers are cached in REDIS, not just in the query client.** Every
+    coach feature spends one of the user's own API credits, and the results
+    were held only in TanStack Query's memory — so a reload, an hour of
+    `gcTime`, or opening the app on another device threw them away and the next
+    look cost another call. `cachedAi()` stores them for **30 days**, and the
+    endpoints take two independent flags:
+    - `generate=false` (the default, i.e. a bare GET) returns a cached answer
+      or nothing, and costs nothing. Pages issue this on load, so a stored
+      review appears by itself instead of hiding behind a button already
+      pressed once.
+    - `refresh=1` bypasses and overwrites. It is the ONLY thing that re-spends
+      a credit on an answer that already exists.
+
+    The long TTL is the point — an answer stays until asked to change — and the
+    trade is that a review of an in-progress week keeps showing what was true
+    when it was generated, which is why every card carries a refresh control.
+108. **The generate/refresh intent lives in a REF, not the query key.** Putting
+    it in the key means a remount can replay it: react-query refetches the key
+    it is given, so a key containing `refresh` would re-spend a credit on its
+    own. The ref is read inside `queryFn` and reset to `'peek'` as it is read,
+    so intent applies exactly once and every later fetch is free.
+
 ### Awards and benchmarks
 
 80. **Benchmark matching is deliberately strict, and must stay that way.**
@@ -1643,6 +1665,16 @@ And an eleventh batch — two bugs found by using the recap:
   always the workouts list — `router.back()`, falling back to the list when
   there is no history (a deep link or fresh tab), where it would otherwise
   leave the app.
+- **AI answers persist across reloads** (#107, #108) — cached server-side in
+  Redis for 30 days, shown automatically when one exists, and only regenerated
+  by the refresh control.
+- **Workout-type icons replaced the emoji** — `WorkoutTypeIcon`, built from the
+  same barbell mark as `logo.svg` and differentiated by direction (push presses
+  up, pull pulls down, legs hang beneath the bar). Emoji rendered in the
+  platform's own colour, so they ignored the workout-type colour beside them
+  and looked different on every device. Verified by rasterising the set with
+  sharp and looking at it, per the icon lesson in #60 — not by reading the
+  paths.
 - **Exercise notes** (#106) — a cue attached to the exercise, shown inline on
   the exercise card in the logger rather than hidden behind the icon, because a
   cue you have to go looking for is one you will not read mid-set.

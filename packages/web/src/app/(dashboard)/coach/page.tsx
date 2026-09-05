@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { useRef } from 'react';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
@@ -41,11 +42,21 @@ export default function CoachPage() {
   const unit = isImperial ? 'lbs' : 'kg';
   const vol = (kg: number) => Math.round(isImperial ? kg * LB_PER_KG : kg).toLocaleString();
 
+  // The review is now cached server-side in Redis, so this page can keep
+  // generating on first load: a revisit or a reload returns the stored answer
+  // for free instead of re-spending a credit, which is what it used to do
+  // whenever the in-memory cache was lost. Only the refresh control regenerates.
+  const reviewMode = useRef<'generate' | 'refresh'>('generate');
+
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['coach-review', DAYS],
-    queryFn: () => apiFetch<{ data: CoachResponse }>(`/coach/review?days=${DAYS}`, { timeout: 120_000 }),
-    // Each fetch costs an AI call, so hold the result for the session rather
-    // than re-spending every time the page is revisited. Refresh is manual.
+    queryFn: () => {
+      const mode = reviewMode.current;
+      reviewMode.current = 'generate';
+      return apiFetch<{ data: CoachResponse | null; cached: boolean }>(
+        `/coach/review?days=${DAYS}&${mode}=1`, { timeout: 120_000 },
+      );
+    },
     staleTime: Infinity,
     gcTime: 60 * 60 * 1000,
     retry: false,
@@ -66,10 +77,10 @@ export default function CoachPage() {
         </h1>
         <p className="text-xs text-gray-500 dark:text-gray-400">Your last {DAYS} days of training</p>
       </div>
-      {data && (
+      {data?.data && (
         <button
           type="button"
-          onClick={() => refetch()}
+          onClick={() => { reviewMode.current = 'refresh'; refetch(); }}
           disabled={isFetching}
           className="shrink-0 p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-40"
           title="Run again"
@@ -97,7 +108,7 @@ export default function CoachPage() {
     );
   }
 
-  if (error || !data) {
+  if (error || !data?.data) {
     const err = error as any;
     const noData = err?.code === 'NO_TRAINING_DATA';
     return (
