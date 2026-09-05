@@ -34,30 +34,61 @@ anything renders — so nothing is lost that was not already gone.
 
 ## First-time setup
 
-Requires macOS with Xcode 15+, and an iPhone on **iOS 16.1+** (Dynamic Island
-needs iPhone 14 Pro or later; everything else gets the Lock Screen
-presentation from the same code).
+### On the Mac, before anything else
+
+| Need | Check | Install |
+|---|---|---|
+| Xcode 15+ | `xcodebuild -version` | App Store, then **launch it once** to finish component install |
+| Command line tools | `xcode-select -p` | `xcode-select --install` |
+| CocoaPods | `pod --version` | `brew install cocoapods` |
+| Node 20+ | `node -v` | `brew install node` |
+| pnpm 10 | `pnpm -v` | `corepack enable && corepack prepare pnpm@10.30.1 --activate` |
+
+`cap add ios` runs `pod install` under the hood, so **a missing CocoaPods is
+the most common first failure** and its error is not obvious.
+
+### Generate the project
 
 ```bash
+git clone https://github.com/stevegee006/FitTrackr.git
+cd FitTrackr
+pnpm install                 # from the REPO ROOT — this is a pnpm workspace
+
 cd apps/ios
-pnpm install
-pnpm add            # npx cap add ios — generates the ios/ project
-pnpm open           # opens ios/App/App.xcworkspace
+pnpm cap:add                 # creates apps/ios/ios/
+pnpm cap:open                # opens ios/App/App.xcworkspace
 ```
 
-Then, in Xcode — these are the GUI steps that cannot be scripted:
+The scripts are `cap:add` / `cap:sync` / `cap:open`, **not** `add` / `sync` /
+`open`: `pnpm add` and `pnpm install` are pnpm's own commands and would shadow
+a script of that name, which fails with a confusing "missing package" error
+rather than running anything.
 
-1. **Signing.** Select the `App` target → Signing & Capabilities → tick
-   *Automatically manage signing* → pick your personal team. A free personal
-   team is fine; builds expire after 7 days and are re-installed by running
-   again.
+`pnpm install` must be run from the repo root. Running it inside `apps/ios`
+works too — pnpm finds the workspace — but the root is the habit that always
+works.
+
+### In Xcode
+
+These are the GUI steps that cannot be scripted.
+
+1. **Signing.** Select the **App** target → Signing & Capabilities → tick
+   *Automatically manage signing* → Team: your personal Apple ID. If it is not
+   listed, add it under Xcode → Settings → Accounts.
+
+   If you see *"Failed to register bundle identifier"*, change the Bundle
+   Identifier to something unique — e.g. `com.<yourname>.fittrackr`. Apple
+   requires bundle IDs to be globally unique even for free provisioning.
 
 2. **Create the widget extension.** File → New → Target → **Widget Extension**.
-   Name it `FitTrackrWidget`, **tick "Include Live Activity"**, and do NOT tick
-   "Include Configuration Intent". Xcode adds the target's Info.plist keys for
-   you.
+   Name it `FitTrackrWidget`, **tick "Include Live Activity"**, do NOT tick
+   "Include Configuration App Intent". When Xcode offers to activate the new
+   scheme, say **Cancel** — you want to keep building the app scheme, which
+   embeds the widget automatically.
 
-3. **Add the sources from `native/`:**
+3. **Add the sources from `native/`.** Drag them into the Project Navigator,
+   tick *Copy items if needed*, then set Target Membership in the File
+   Inspector (right panel):
 
    | File | Target |
    |---|---|
@@ -68,28 +99,42 @@ Then, in Xcode — these are the GUI steps that cannot be scripted:
    | `ServerConfigPlugin.swift` + `.m` | App only |
    | `MainViewController.swift` | App only |
 
-   Drag them into the project and set Target Membership in the File Inspector.
-   `WorkoutActivityAttributes.swift` being in only one target is the most
+   `WorkoutActivityAttributes.swift` being in only ONE target is the most
    common mistake — it surfaces as "cannot find type
    'WorkoutActivityAttributes'" in whichever target is missing it.
 
-   In the generated widget bundle, replace the sample widget with
-   `WorkoutLiveActivity()`.
+   If Xcode asks about an Objective-C bridging header when you add the `.m`
+   files, say **yes** and leave the generated header empty.
 
-4. **Point the storyboard at `MainViewController`.** Open
+4. **Replace the sample widget.** Xcode generated a `FitTrackrWidgetBundle`
+   with placeholder widgets. Edit it so its `body` contains only
+   `WorkoutLiveActivity()`, and delete the sample widget/attributes files it
+   created — they define a second `ActivityAttributes` that will confuse you.
+
+5. **Point the storyboard at `MainViewController`.** Open
    `App/Base.lproj/Main.storyboard`, select the Bridge View Controller scene,
-   and in the Identity Inspector change its class from `CAPBridgeViewController`
-   to `MainViewController` (module: App). Without this the server stays fixed
-   to whatever `capacitor.config.ts` shipped with.
+   and in the Identity Inspector set Class to `MainViewController` (Module:
+   App). Skipping this leaves the server fixed to the compiled-in URL.
 
-5. **Enable Live Activities in the app target's Info.plist:**
+6. **Enable Live Activities.** Select the **App** target → Info → add a row:
 
-   ```xml
-   <key>NSSupportsLiveActivities</key>
-   <true/>
-   ```
+   | Key | Type | Value |
+   |---|---|---|
+   | `NSSupportsLiveActivities` | Boolean | `YES` |
 
-6. Build and run to the device.
+### Onto the phone
+
+1. Plug the iPhone in and trust the Mac.
+2. **Enable Developer Mode on the phone**: Settings → Privacy & Security →
+   Developer Mode → on, then restart. This is required on iOS 16+ and the
+   option **does not appear until you have tried to install a build once**, so
+   run from Xcode first, let it fail, then look.
+3. In Xcode, pick your iPhone from the device dropdown (top bar) and press ▶.
+4. First run fails with *"Untrusted Developer"*. On the phone: Settings →
+   General → VPN & Device Management → your Apple ID → **Trust**. Run again.
+
+With a free personal team the build stops launching after **7 days** — press ▶
+again to reinstall. Your data is on the server, so nothing is lost.
 
 No APNs, no push entitlement and no paid account are required — see below.
 
@@ -148,6 +193,21 @@ writing to one activity would race.
 `elapsed` is deliberately not a dependency of that effect: it changes every
 second and the widget counts on its own, so only real changes cross the bridge
 — pausing, resuming, a set ticked, rest starting or ending.
+
+## When it goes wrong
+
+| Symptom | Cause |
+|---|---|
+| `pnpm add` prints pnpm usage / "missing package" | The scripts are `cap:add`, `cap:sync`, `cap:open` — bare `add` collides with pnpm's own command |
+| `cap add ios` → "pod: command not found" | CocoaPods missing: `brew install cocoapods` |
+| `cap add ios` → cannot read `capacitor.config.ts` | `typescript` not installed — run `pnpm install` from the repo root first |
+| "Cannot find type 'WorkoutActivityAttributes'" | That file is in only one target; it needs **both** |
+| `Capacitor.Plugins.WorkoutActivity` is undefined in JS | The matching `.m` file is missing from the App target — Capacitor finds plugins through the Objective-C runtime |
+| App loads but no Live Activity | `NSSupportsLiveActivities` missing, or Live Activities off in Settings → FitTrackr |
+| Dynamic Island shows nothing, Lock Screen fine | Not an iPhone 14 Pro or later — expected |
+| Server never changes from the default | The storyboard still points at `CAPBridgeViewController` |
+| "Untrusted Developer" on launch | Settings → General → VPN & Device Management → Trust |
+| Device missing from Xcode's dropdown | Developer Mode not enabled on the phone |
 
 ## Known limits
 

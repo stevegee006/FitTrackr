@@ -2,14 +2,15 @@
   "name": "@fittrackr/ios",
   "version": "0.0.1",
   "private": true,
-  "description": "Native iOS shell. Loads the deployed web app and adds a rest-timer Live Activity.",
+  "description": "Native iOS shell. Loads the self-hosted web app and adds a session Live Activity.",
   "scripts": {
-    "add": "cap add ios",
-    "sync": "cap sync ios",
-    "open": "cap open ios"
+    "cap:add": "cap add ios",
+    "cap:sync": "cap sync ios",
+    "cap:open": "cap open ios"
   },
   "devDependencies": {
-    "@capacitor/cli": "^7.0.0"
+    "@capacitor/cli": "^7.0.0",
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "@capacitor/core": "^7.0.0",
