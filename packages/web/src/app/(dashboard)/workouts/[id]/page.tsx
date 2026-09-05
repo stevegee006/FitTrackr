@@ -799,28 +799,43 @@ export default function WorkoutDetailPage() {
 
     return (
       <div key={exerciseId} className={isInGroup ? 'border-b border-gray-100 dark:border-gray-800 last:border-b-0' : ''}>
-        {/* Exercise header */}
+        {/* Exercise header.
+
+            TWO ROWS, not one. Everything used to sit on a single flex line —
+            name, rep-range pill, AI, cardio, set count, delete, reorder — and
+            on a phone a long name ("Cable Rope Hammer Curls") squeezed the lot:
+            the name wrapped to four lines, the pill wrapped mid-word to
+            "8-12 / reps", and the set count disappeared behind the trash. The
+            name now owns its own row and the controls wrap freely below it. */}
         <div
-          className={`flex items-center gap-2 px-3 py-2 border-b border-gray-100 dark:border-gray-800 ${collapseKey ? 'cursor-pointer' : ''}`}
+          className={`px-3 py-2 border-b border-gray-100 dark:border-gray-800 ${collapseKey ? 'cursor-pointer' : ''}`}
           style={{ borderLeftColor: (MUSCLE_GROUP_COLORS as any)[primaryMuscle], borderLeftWidth: 3 }}
           onClick={collapseKey ? () => toggleCollapse(collapseKey, [exerciseId]) : undefined}
         >
-          {collapseKey && (
-            collapsed
-              ? <ChevronRight className="h-3.5 w-3.5 text-gray-400 shrink-0" />
-              : <ChevronDown className="h-3.5 w-3.5 text-gray-400 shrink-0" />
-          )}
+          <div className="flex items-center gap-2">
+            {collapseKey && (
+              collapsed
+                ? <ChevronRight className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                : <ChevronDown className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+            )}
 
-          <p className="text-sm font-semibold flex-1">{exerciseName}</p>
+            <p className="text-sm font-semibold flex-1 min-w-0">{exerciseName}</p>
 
-          {collapsed && (
-            workingSetsDone === workingSetsTotal && workingSetsTotal > 0
-              ? <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><Check className="h-3 w-3" />Done</span>
-              : <span className="text-xs text-gray-400">{workingSetsDone}/{workingSetsTotal}</span>
-          )}
+            {collapsed && (
+              workingSetsDone === workingSetsTotal && workingSetsTotal > 0
+                ? <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1 shrink-0"><Check className="h-3 w-3" />Done</span>
+                : <span className="text-xs text-gray-400 shrink-0">{workingSetsDone}/{workingSetsTotal}</span>
+            )}
+
+            {/* Reorder stays on the title row: it is a vertical pair, so it
+                costs no horizontal space the controls row needs. */}
+            {!collapsed && moveButtons && (
+              <div className="shrink-0" onClick={e => e.stopPropagation()}>{moveButtons}</div>
+            )}
+          </div>
 
           {!collapsed && (
-            <>
+            <div className="flex items-center gap-2 flex-wrap mt-1.5">
               {/* Rep range display / edit */}
               {isEditingRange ? (
                 <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
@@ -850,7 +865,7 @@ export default function WorkoutDetailPage() {
                 </div>
               ) : pref?.repRangeMin != null || pref?.repRangeMax != null ? (
                 <button type="button" onClick={e => { e.stopPropagation(); enterRepRangeEdit(); }}
-                  className="text-xs bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full">
+                  className="text-xs bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full whitespace-nowrap shrink-0">
                   {pref?.repRangeMin}–{pref?.repRangeMax} reps
                 </button>
               ) : (
@@ -890,13 +905,11 @@ export default function WorkoutDetailPage() {
               {/* Remove the whole exercise */}
               <button type="button"
                 onClick={e => { e.stopPropagation(); setConfirmDeleteExerciseId(exerciseId); }}
-                className="p-1 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
+                className="p-1 rounded-lg text-gray-400 hover:text-red-500 transition-colors ml-auto"
                 title="Remove exercise from this workout">
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
-
-              {moveButtons && <div onClick={e => e.stopPropagation()}>{moveButtons}</div>}
-            </>
+            </div>
           )}
         </div>
 

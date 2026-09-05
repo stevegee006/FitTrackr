@@ -1,7 +1,9 @@
 # HANDOFF — FitTrackr
 
-_Last updated: 2026-09-04 (through the service-worker fix — the PWA had been
-capping every API GET at 10 seconds and caching it for an hour; earlier:
+_Last updated: 2026-09-04 (through the coach-everywhere commit — week and
+session reviews, and the next-week plan can be written into real workouts;
+earlier: the PWA had been capping every API GET at 10 seconds and caching it
+for an hour;
 unperformed sets no longer count anywhere, a weekly recap with an AI plan for
 next week; Finish stamps `completedAt` and the summary has three entry points; five
 new muscle groups, a full exercise editor in admin, whole-exercise delete in
@@ -19,7 +21,7 @@ setup instructions live in [README.md](README.md); **this file is about intent,
 state, and sharp edges** — the things you would otherwise have to rediscover by
 breaking something._
 
-> **Read sharp edges #56–#97 before touching iOS layout, asset generation, AI
+> **Read sharp edges #56–#101 before touching iOS layout, asset generation, AI
 > prompts, summaries/PRs/awards, the auth/refresh path, persisted timer state,
 > cardio/bodyweight handling, muscle-group enums and labels, the finish/reopen
 > flow, what counts as a performed set, or trusting any `git`/`gh`/preview command in
@@ -31,7 +33,7 @@ breaking something._
 > times). Then **#95**, if anything reports a network error in the deployed
 > app.
 >
-> **Three test suites, 156 assertions:** `pnpm --filter @fittrackr/api test`.
+> **Four test suites, 185 assertions:** `pnpm --filter @fittrackr/api test`.
 
 ## Goal
 
@@ -1186,6 +1188,46 @@ is exactly why it is written down here.
     which is the second reason the `/api/` bypass matters, beyond the
     failures.
 
+### Coach reviews and applying a plan
+
+98. **Three coach reviews, one answer shape, one renderer.** The 30-day block
+    review, the weekly review and the single-session review ask different
+    questions of different windows but return identical JSON, so
+    `CoachReviewCard` renders all three and `parseReview` maps all three. Each
+    is built from the facts the page it sits on already displays — the coach
+    window, the weekly recap, the workout summary — so the advice can never
+    cite a number that disagrees with what is on screen. **Every one is
+    opt-in**: nothing is fetched until the button is pressed, because each
+    fetch spends one of the user's own AI credits, and each is then held for
+    the session with an explicit refresh.
+99. **A plan is only applied with exercises that already exist.**
+    `applyNextWeekPlan` matches each planned exercise against the library by
+    name (case-insensitively) and **reports** what it could not match instead
+    of creating it. Auto-creating would let a model invent "Incline Cable
+    Chest Fly (Slight Angle)" and permanently pollute the library — and since
+    `WorkoutSet.exerciseId` does not cascade, a junk exercise that gets used
+    once can never be deleted. The prompt asks for the athlete's exact names
+    for this reason.
+100. **Applied sets are written UNTICKED.** They carry the prescribed reps and
+    load, exactly like the last-session replay, and because unticked sets do
+    not count as performed (#89/#90) a planned week that never happens cannot
+    inflate any tally. Deliberately not transactional across days either: a
+    partial application leaves real usable workouts behind and the caller is
+    told what was created, which beats rolling back Wednesday because Friday
+    failed.
+101. **Model output that decides a DATE needs a fallback, not a guess.**
+    `dayOffsetFromLabel` is asked for "Mon" and will sometimes get "Day 3",
+    "Monday", "Session A" or nothing. A day name wins over any number in the
+    same string ("Mon (day 4)" is Monday), a number is 1-indexed, and anything
+    else falls back to the plan's own running order **capped at Sunday** —
+    an uncapped offset writes silently into the week after next. Rep ranges
+    take the LOW end, because the top is what you progress toward. Both are
+    pinned by tests, and both live in `plan-apply.ts` rather than
+    `plan-apply.service.ts`: **importing the service pulls in `logger` →
+    `config/env`, which `process.exit(1)`s at import time when DATABASE_URL is
+    absent, so a test importing it dies before its first assertion.** That is
+    the reason for every pure/service split in this directory.
+
 ### Awards and benchmarks
 
 80. **Benchmark matching is deliberately strict, and must stay that way.**
@@ -1530,6 +1572,22 @@ And an eleventh batch — two bugs found by using the recap:
 - **Coach spinner was left-aligned** — `Spinner` renders a block-level div
   with a fixed width, so the `text-center` on its Card could never centre it.
   It needs a flex parent; every other call site already used one.
+- **Coach reviews on the week and on a session** (#98) — `/coach/week-review`
+  and `/coach/session-review/:workoutId`, rendered by a shared
+  `CoachReviewCard` alongside the existing 30-day review.
+- **The next-week plan can be applied** (#99–#101) — the plan's exercises
+  became structured (`sets`, `reps`, `load`) instead of a prescription string,
+  so `POST /coach/next-week-plan/apply` can write it into real workouts on next
+  week's dates.
+- **Exercise header split into two rows** — a long name ("Cable Rope Hammer
+  Curls") used to squeeze the single flex line until the name wrapped to four
+  lines, the rep-range pill wrapped mid-word to "8-12 / reps", and the set
+  count vanished behind the trash. The name owns the title row; the controls
+  wrap below it.
+- **The session summary's back arrow returns where you came from** rather than
+  always the workouts list — `router.back()`, falling back to the list when
+  there is no history (a deep link or fresh tab), where it would otherwise
+  leave the app.
 - **Cardio read as "bodyweight" in the recap** — a treadmill walk showed
   "1 sets · bodyweight" because the per-exercise cell only knew about load.
   Sharp edge #74 predicted this exact mistake and it went straight into brand
@@ -1703,7 +1761,7 @@ file:
 pnpm --filter @fittrackr/api test    # tsc, then each test/*.test.mjs
 ```
 
-Three files, 156 assertions, plain node scripts with exit codes — no
+Four files, 185 assertions, plain node scripts with exit codes — no
 framework, matching the project's zero-dependency habit:
 
 - `test/program-expand.test.mjs` (48) — the AI program expander: rep-range
@@ -1716,6 +1774,10 @@ framework, matching the project's zero-dependency habit:
 - `test/awards-rules.test.mjs` (53) — benchmark matching (every variation that
   must NOT count), absolute vs relative tiers, the pounds comparison, and
   streak history.
+- `test/plan-apply.test.mjs` (29) — turning an AI plan into dates and sets:
+  day labels the model was not asked for ("Day 3", "Monday", "Session A"),
+  rep ranges, and the out-of-range values that must fall back rather than
+  land in the wrong week.
 
 Note the frontend has no suite at all: `lib/streak.ts`, `lib/utils.ts`'s
 duration helpers and the api-client refresh logic are all verified with

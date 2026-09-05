@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
@@ -10,10 +10,11 @@ import {
   MUSCLE_GROUP_LABELS, MUSCLE_GROUP_COLORS, WORKOUT_TYPE_LABELS, WORKOUT_TYPE_COLORS,
 } from '@fittrackr/shared';
 import { weekStart, weeksBefore } from '@/lib/streak';
+import { CoachReviewCard, type CoachReview } from '@/components/coach/CoachReviewCard';
 import { todayString, parseDateLocal, formatDuration } from '@/lib/utils';
 import {
   ChevronLeft, ChevronRight, BarChart3, Trophy, Sparkles, Target, Check,
-  TrendingUp, TrendingDown, Minus, AlertTriangle, RefreshCw, Calendar,
+  TrendingUp, TrendingDown, Minus, AlertTriangle, RefreshCw, Calendar, CalendarPlus,
 } from 'lucide-react';
 
 const LB_PER_KG = 2.20462;
@@ -57,7 +58,7 @@ interface NextWeekPlan {
     focus: string;
     days: Array<{
       label: string; workoutType: string; focus: string;
-      keyExercises: Array<{ name: string; prescription: string; why: string }>;
+      exercises: Array<{ name: string; sets: number; reps: string; load: number | null; why: string }>;
     }>;
     adjustments: string[];
     cautions: string[];
@@ -69,11 +70,14 @@ const RECORD_LABELS: Record<string, string> = {
 };
 
 export default function WeeklyRecapPage() {
+  const queryClient = useQueryClient();
   const today = todayString();
   const thisWeek = weekStart(today);
   const [week, setWeek] = useState(thisWeek);
-  // The plan costs an AI call, so it is never fetched on load.
+  // Both AI features cost a call, so neither is fetched on load — each waits
+  // for its own button. Keyed by week so navigating weeks resets them.
   const [planWeek, setPlanWeek] = useState<string | null>(null);
+  const [reviewWeek, setReviewWeek] = useState<string | null>(null);
 
   const { data: settingsData } = useQuery({
     queryKey: ['settings'],
@@ -89,6 +93,45 @@ export default function WeeklyRecapPage() {
     queryFn: () => apiFetch<{ data: WeeklyRecap }>(`/workouts/weekly-recap?weekStart=${week}`),
   });
 
+  const reviewQuery = useQuery({
+    queryKey: ['week-review', reviewWeek],
+    queryFn: () =>
+      apiFetch<{ data: { model: string; review: CoachReview } }>(
+        `/coach/week-review?weekStart=${reviewWeek}`, { timeout: 120_000 },
+      ),
+    enabled: reviewWeek != null,
+    staleTime: Infinity,
+    gcTime: 60 * 60 * 1000,
+    retry: false,
+  });
+
+  const applyPlanMutation = useMutation({
+    mutationFn: (plan: NextWeekPlan) =>
+      apiFetch<{ data: { created: Array<{ id: string; logDate: string; name: string; sets: number }>; skipped: string[] } }>(
+        '/coach/next-week-plan/apply',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            weekStart: plan.weekStart,
+            // Only the fields the server writes — `why` is commentary.
+            days: plan.plan.days.map((d) => ({
+              label: d.label,
+              workoutType: d.workoutType,
+              focus: d.focus,
+              exercises: d.exercises.map((e) => ({
+                name: e.name, sets: e.sets, reps: e.reps, load: e.load,
+              })),
+            })),
+          }),
+        },
+      ),
+    onSuccess: () => {
+      // Next week's workouts now exist, so anything listing workouts is stale.
+      queryClient.invalidateQueries({ queryKey: ['workouts'] });
+      queryClient.invalidateQueries({ queryKey: ['weekly-recap'] });
+    },
+  });
+
   const planQuery = useQuery({
     queryKey: ['next-week-plan', planWeek],
     queryFn: () =>
@@ -102,6 +145,10 @@ export default function WeeklyRecapPage() {
 
   const s = data?.data;
   const isCurrentWeek = week === thisWeek;
+  // A plan or review belongs to the week it was generated for; showing last
+  // week's advice under this week's numbers would be quietly wrong.
+  const planForThisWeek = planWeek === week ? planQuery.data?.data ?? null : null;
+  const reviewForThisWeek = reviewWeek === week ? reviewQuery.data?.data ?? null : null;
   const rangeLabel = s
     ? `${parseDateLocal(s.weekStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${parseDateLocal(s.weekEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
     : '';
@@ -381,6 +428,22 @@ export default function WeeklyRecapPage() {
             </Card>
           )}
 
+          {/* Coach's read on the week */}
+          <CoachReviewCard
+            title="Coach's review of this week"
+            blurb={`Reads this week's numbers and gives insights and pointers, using your own AI key.${isCurrentWeek ? ' The week is still in progress.' : ''}`}
+            buttonLabel="Review this week"
+            loadingLabel="Reading this week…"
+            started={reviewWeek === week}
+            isLoading={reviewWeek === week && reviewQuery.isLoading}
+            isFetching={reviewQuery.isFetching}
+            error={reviewWeek === week ? reviewQuery.error : null}
+            review={reviewForThisWeek?.review ?? null}
+            model={reviewForThisWeek?.model}
+            onStart={() => setReviewWeek(week)}
+            onRefresh={() => reviewQuery.refetch()}
+          />
+
           {/* AI plan for next week */}
           <Card className="space-y-3">
             <div className="flex items-center gap-2">
@@ -438,10 +501,16 @@ export default function WeeklyRecapPage() {
                         <span className="text-xs text-gray-500 truncate">{d.focus}</span>
                       </div>
                       <div className="mt-1.5 space-y-1">
-                        {d.keyExercises.map((ex, j) => (
+                        {d.exercises.map((ex, j) => (
                           <div key={`${ex.name}-${j}`} className="text-xs">
                             <span className="font-medium">{ex.name}</span>
-                            {ex.prescription && <span className="text-gray-500"> — {ex.prescription}</span>}
+                            {/* The prescription is DERIVED, not a string from
+                                the model — the same structured fields are what
+                                get written as real sets when applied. */}
+                            <span className="text-gray-500">
+                              {' '}— {ex.sets}x{ex.reps}
+                              {ex.load != null ? ` @ ${ex.load} ${unit}` : ' @ bodyweight'}
+                            </span>
                             {ex.why && <p className="text-[11px] text-gray-400 dark:text-gray-500">{ex.why}</p>}
                           </div>
                         ))}
@@ -466,6 +535,50 @@ export default function WeeklyRecapPage() {
                       <p key={i} className="text-xs text-amber-700 dark:text-amber-300">• {c}</p>
                     ))}
                   </div>
+                )}
+
+                {/* Write the plan into real workouts on next week's dates.
+                    Only exercises already in the library are used; anything
+                    the coach invented is reported rather than created, because
+                    WorkoutSet.exerciseId does not cascade and a junk exercise
+                    that gets used once can never be deleted. */}
+                {applyPlanMutation.data ? (
+                  <div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/30 p-2.5 space-y-1">
+                    <p className="flex items-center gap-1.5 text-xs font-semibold text-emerald-800 dark:text-emerald-200">
+                      <Check className="h-3.5 w-3.5" />
+                      Added {applyPlanMutation.data.data.created.length} workout
+                      {applyPlanMutation.data.data.created.length === 1 ? '' : 's'} to next week
+                    </p>
+                    {applyPlanMutation.data.data.created.map((w) => (
+                      <Link key={w.id} href={`/workouts/${w.id}`}
+                        className="block text-[11px] text-emerald-700 dark:text-emerald-300 hover:underline">
+                        {parseDateLocal(w.logDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                        {' · '}{w.name} · {w.sets} sets
+                      </Link>
+                    ))}
+                    {applyPlanMutation.data.data.skipped.length > 0 && (
+                      <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                        Not in your exercise library, so left out:{' '}
+                        {applyPlanMutation.data.data.skipped.join(', ')}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <button type="button"
+                      onClick={() => applyPlanMutation.mutate(planQuery.data!.data)}
+                      disabled={applyPlanMutation.isPending}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-indigo-500 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 text-sm font-semibold transition-all disabled:opacity-40">
+                      {applyPlanMutation.isPending
+                        ? <><Spinner /> Adding…</>
+                        : <><CalendarPlus className="h-4 w-4" /> Add these workouts to next week</>}
+                    </button>
+                    {applyPlanMutation.error != null && (
+                      <p className="text-xs text-red-500">
+                        {(applyPlanMutation.error as Error)?.message || 'Could not add the workouts.'}
+                      </p>
+                    )}
+                  </>
                 )}
 
                 <p className="text-[10px] text-gray-400 dark:text-gray-500">Generated by {planQuery.data.data.model}</p>

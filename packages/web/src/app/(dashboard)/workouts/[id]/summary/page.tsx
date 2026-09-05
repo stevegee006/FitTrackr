@@ -13,6 +13,7 @@ import { CelebrationBurst, consumeCelebrate } from '@/components/workout/Celebra
 import { ChevronLeft, Trophy, TrendingUp, TrendingDown, Minus, Sparkles, Pencil } from 'lucide-react';
 import { WORKOUT_TYPE_LABELS } from '@fittrackr/shared';
 import { formatDuration } from '@/lib/utils';
+import { CoachReviewCard, type CoachReview } from '@/components/coach/CoachReviewCard';
 
 const LB_PER_KG = 2.20462;
 
@@ -90,6 +91,25 @@ export default function WorkoutSummaryPage() {
     queryFn: () => apiFetch<{ data: WorkoutSummary }>(`/workouts/${id}/summary`),
   });
 
+  // MUST stay above the `if (isLoading) return` guards below. A hook declared
+  // after an early return runs conditionally and throws React error #310,
+  // which took every workout detail page down in production once (#77).
+  const [coachStarted, setCoachStarted] = useState(false);
+
+  const sessionReview = useQuery({
+    queryKey: ['session-review', id],
+    queryFn: () =>
+      apiFetch<{ data: { model: string; review: CoachReview } }>(
+        `/coach/session-review/${id}`, { timeout: 120_000 },
+      ),
+    // Never on load: this spends one of the user's own AI credits, and the
+    // recap above is worth reading without one.
+    enabled: coachStarted,
+    staleTime: Infinity,
+    gcTime: 60 * 60 * 1000,
+    retry: false,
+  });
+
   /** kg is canonical in storage; imperial is display-only. */
   const w = (kg: number) => {
     const v = isImperial ? kg * LB_PER_KG : kg;
@@ -133,12 +153,23 @@ export default function WorkoutSummaryPage() {
       {celebrate && <CelebrationBurst onDone={() => setCelebrate(false)} />}
 
       <div className="flex items-center gap-3">
-        <Link
-          href="/workouts"
+        {/* Back to wherever you came from — the weekly recap, the workouts
+            list, or the session itself — rather than always the list. Finish
+            uses router.replace, so the finished workout is not left in the
+            history and Back still lands somewhere sensible. Falls back to the
+            list when there is no history to go back to, e.g. a deep link or a
+            fresh tab, where back() would leave the app entirely. */}
+        <button
+          type="button"
+          onClick={() => {
+            if (typeof window !== 'undefined' && window.history.length > 1) router.back();
+            else router.push('/workouts');
+          }}
           className="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          aria-label="Back"
         >
           <ChevronLeft className="h-5 w-5" />
-        </Link>
+        </button>
         <div className="min-w-0 flex-1">
           <h1 className="text-xl font-bold truncate">{title} — Summary</h1>
           <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -299,6 +330,23 @@ export default function WorkoutSummaryPage() {
           ))}
         </div>
       )}
+
+      {/* Coach's read on this one session. Opt-in: it spends an AI call, and
+          the recap above is useful on its own without one. */}
+      <CoachReviewCard
+        title="Coach's pointers on this session"
+        blurb="Looks at what you just did against the last time you did it, and says what to change next time."
+        buttonLabel="Coach this session"
+        loadingLabel="Reading this session…"
+        started={coachStarted}
+        isLoading={coachStarted && sessionReview.isLoading}
+        isFetching={sessionReview.isFetching}
+        error={coachStarted ? sessionReview.error : null}
+        review={sessionReview.data?.data.review ?? null}
+        model={sessionReview.data?.data.model}
+        onStart={() => setCoachStarted(true)}
+        onRefresh={() => sessionReview.refetch()}
+      />
 
       <Button onClick={() => router.push('/workouts')} className="w-full">Done</Button>
     </div>

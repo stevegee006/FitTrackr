@@ -5,7 +5,7 @@ import { getWeeklyRecap } from './weekly-recap.service.js';
 import { AppError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
 
-const SYSTEM_PROMPT = `You are an experienced strength coach reviewing an athlete's recent training log. Be specific, practical and honest — reference their actual numbers rather than giving generic advice.
+export const SYSTEM_PROMPT = `You are an experienced strength coach reviewing an athlete's recent training log. Be specific, practical and honest — reference their actual numbers rather than giving generic advice.
 
 Return ONLY valid JSON with this exact structure:
 {
@@ -42,8 +42,8 @@ Return ONLY valid JSON with this exact structure:
       "label": "Mon",
       "workoutType": "PUSH",
       "focus": "short phrase",
-      "keyExercises": [
-        { "name": "Barbell Bench Press", "prescription": "4x6-8 @ 165 lbs", "why": "short reason" }
+      "exercises": [
+        { "name": "Barbell Bench Press", "sets": 4, "reps": "6-8", "load": 165, "why": "short reason" }
       ]
     }
   ],
@@ -54,8 +54,13 @@ Return ONLY valid JSON with this exact structure:
 Rules:
 - Plan exactly the number of sessions the athlete trains per week. If that is
   unknown, match the session count they actually did last week.
-- 3-4 keyExercises per day, not a full session listing. Prescribe load in the
-  athlete's units, based on what they actually lifted.
+- 3-4 exercises per day, not a full session listing.
+- "sets" is a NUMBER. "reps" is a string, either "8" or a range "6-8".
+- "load" is a NUMBER in the athlete's units, based on what they actually
+  lifted, or null for bodyweight work. No units inside the value, no text.
+- Use the athlete's EXACT exercise names wherever the movement already appears
+  in their log — these get matched back to their exercise library, and a
+  renamed variation cannot be matched.
 - Keep every string SHORT. "why" is at most 12 words; omit it rather than pad
   it. This is read on a phone between sets, and a wall of text is not a plan.
 - Progress an exercise that BEAT its rep range by adding load. Beating a range
@@ -68,6 +73,13 @@ Rules:
   modestly rather than inventing a peak week.
 - workoutType must be one of: PUSH, PULL, LEGS, UPPER, LOWER, FULL_BODY, CARDIO, CUSTOM
 - Never give medical advice or diagnose injuries.`;
+
+/** Model output is untrusted input: coerce, bound, and fall back. */
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(Math.max(n, min), max);
+}
 
 interface CoachWindow {
   days: number;
@@ -441,13 +453,22 @@ Return the JSON plan now.`;
               label: String(d?.label ?? '').trim(),
               workoutType: String(d?.workoutType ?? 'CUSTOM').trim(),
               focus: String(d?.focus ?? '').trim(),
-              keyExercises: Array.isArray(d?.keyExercises)
-                ? d.keyExercises
+              // Structured rather than a prescription string, so the plan can
+              // be turned into real workouts without parsing free text back
+              // out of it. Every field is clamped: this is model output about
+              // to become rows in the database.
+              exercises: Array.isArray(d?.exercises)
+                ? d.exercises
                     .filter((x: any) => x && x.name)
+                    .slice(0, 8)
                     .map((x: any) => ({
-                      name: String(x.name ?? ''),
-                      prescription: String(x.prescription ?? ''),
-                      why: String(x.why ?? ''),
+                      name: String(x.name).trim().slice(0, 255),
+                      sets: clampInt(x.sets, 1, 10, 3),
+                      reps: String(x.reps ?? '').trim().slice(0, 16),
+                      load: Number.isFinite(Number(x.load)) && Number(x.load) > 0
+                        ? Math.round(Number(x.load) * 100) / 100
+                        : null,
+                      why: String(x.why ?? '').trim(),
                     }))
                 : [],
             }))
