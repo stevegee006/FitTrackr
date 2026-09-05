@@ -16,7 +16,7 @@ import { WORKOUT_TYPE_LABELS, MUSCLE_GROUP_COLORS } from '@fittrackr/shared';
 import type { Workout, WorkoutSet, Exercise } from '@fittrackr/shared';
 import { useAuth } from '@/providers/AuthProvider';
 import { parseDateLocal, formatDuration } from '@/lib/utils';
-import { ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Timer, Sparkles, Check, Flame, Pause, Play, Flag, Link2, Unlink2, ArrowUp, ArrowDown, Watch, Pencil, BarChart3 } from 'lucide-react';
+import { ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Timer, Sparkles, Check, Flame, Pause, Play, Flag, Link2, Unlink2, ArrowUp, ArrowDown, Watch, Pencil, BarChart3, StickyNote } from 'lucide-react';
 import Link from 'next/link';
 
 // ─── Delete confirmation modal ────────────────────────────────────────────────
@@ -136,6 +136,8 @@ interface ExercisePref {
   isCardio: boolean | null;
   /** The exercise's own category, used when isCardio is null. */
   categoryIsCardio?: boolean;
+  /** A cue that follows the exercise session to session. */
+  notes?: string | null;
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -213,6 +215,8 @@ export default function WorkoutDetailPage() {
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
   const [editingRepRange, setEditingRepRange] = useState<Map<string, boolean>>(new Map());
   const [repRangeEdits, setRepRangeEdits] = useState<Record<string, { min: string; max: string }>>({});
+  const [editingNote, setEditingNote] = useState<string | null>(null);
+  const [noteDraft, setNoteDraft] = useState('');
   const [showAiPanel, setShowAiPanel] = useState<string | null>(null);
   // Superset link mode: exerciseId that is currently waiting to be paired
   const [linkingExerciseId, setLinkingExerciseId] = useState<string | null>(null);
@@ -490,6 +494,20 @@ export default function WorkoutDetailPage() {
         body: JSON.stringify({ repRangeMin, repRangeMax }),
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['exercise-prefs'] }),
+  });
+
+  // Stored on ExercisePreference, so it belongs to the exercise rather than to
+  // this workout and shows up again next session.
+  const saveNoteMutation = useMutation({
+    mutationFn: ({ exerciseId, notes }: { exerciseId: string; notes: string | null }) =>
+      apiFetch(`/exercises/${exerciseId}/preference`, {
+        method: 'PATCH',
+        body: JSON.stringify({ notes }),
+      }),
+    onSuccess: () => {
+      setEditingNote(null);
+      queryClient.invalidateQueries({ queryKey: ['exercise-prefs'] });
+    },
   });
 
   const createSupersetMutation = useMutation({
@@ -935,6 +953,22 @@ export default function WorkoutDetailPage() {
                 <Timer className="h-3.5 w-3.5" />
               </button>
 
+              {/* Exercise note */}
+              <button type="button"
+                onClick={e => {
+                  e.stopPropagation();
+                  setNoteDraft(pref?.notes ?? '');
+                  setEditingNote(editingNote === exerciseId ? null : exerciseId);
+                }}
+                className={`p-1 rounded-lg transition-colors ${
+                  pref?.notes
+                    ? 'text-amber-600 bg-amber-100 dark:bg-amber-900/40'
+                    : 'text-gray-400 hover:text-amber-500'
+                }`}
+                title={pref?.notes ? 'Edit note' : 'Add a note for this exercise'}>
+                <StickyNote className="h-3.5 w-3.5" />
+              </button>
+
               <span className="text-xs text-gray-500">{workingSets.length} sets</span>
 
               {/* Remove the whole exercise */}
@@ -947,6 +981,57 @@ export default function WorkoutDetailPage() {
             </div>
           )}
         </div>
+
+        {/* The note itself. Shown, not hidden behind the icon: a cue you have to
+            go looking for is a cue you will not read mid-set. */}
+        {!collapsed && editingNote !== exerciseId && pref?.notes && (
+          <button type="button"
+            onClick={e => {
+              e.stopPropagation();
+              setNoteDraft(pref.notes ?? '');
+              setEditingNote(exerciseId);
+            }}
+            className="w-full text-left px-3 py-1.5 border-b border-gray-100 dark:border-gray-800 bg-amber-50/60 dark:bg-amber-950/20">
+            <p className="text-xs text-amber-900 dark:text-amber-200 whitespace-pre-wrap">{pref.notes}</p>
+          </button>
+        )}
+
+        {!collapsed && editingNote === exerciseId && (
+          <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-800 space-y-2"
+            onClick={e => e.stopPropagation()}>
+            <textarea
+              autoFocus
+              rows={3}
+              value={noteDraft}
+              onChange={e => setNoteDraft(e.target.value)}
+              maxLength={2000}
+              placeholder="Seat height, grip, a cue to remember…"
+              className="w-full text-sm rounded-lg border border-gray-300 dark:border-gray-600 px-2 py-1.5 bg-white dark:bg-gray-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+            />
+            <div className="flex items-center gap-2">
+              <button type="button"
+                onClick={() => saveNoteMutation.mutate({ exerciseId, notes: noteDraft })}
+                disabled={saveNoteMutation.isPending}
+                className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold disabled:opacity-40">
+                Save
+              </button>
+              <button type="button"
+                onClick={() => setEditingNote(null)}
+                className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300">
+                Cancel
+              </button>
+              {/* Clearing is saving an empty string; the API maps that to NULL. */}
+              {pref?.notes && (
+                <button type="button"
+                  onClick={() => saveNoteMutation.mutate({ exerciseId, notes: null })}
+                  disabled={saveNoteMutation.isPending}
+                  className="ml-auto px-3 py-1.5 rounded-lg text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 disabled:opacity-40">
+                  Delete
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Deliberately outside the `!collapsed` branch: collapsing the card
             while the confirm is open must not silently drop the prompt. */}

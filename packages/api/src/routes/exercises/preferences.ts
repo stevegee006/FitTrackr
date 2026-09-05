@@ -25,7 +25,7 @@ export default async function exercisePreferenceRoutes(fastify: FastifyInstance)
 
       const pref = await fastify.prisma.exercisePreference.findUnique({
         where: { userId_exerciseId: { userId, exerciseId } },
-        select: { repRangeMin: true, repRangeMax: true, targetSets: true, isCardio: true },
+        select: { repRangeMin: true, repRangeMax: true, targetSets: true, isCardio: true, notes: true },
       });
 
       // The exercise's own category is the fallback when the user has never
@@ -41,6 +41,10 @@ export default async function exercisePreferenceRoutes(fastify: FastifyInstance)
           repRangeMax: pref?.repRangeMax ?? null,
           targetSets: pref?.targetSets ?? null,
           isCardio: pref?.isCardio ?? null,
+          // A cue that follows the exercise from session to session — seat
+          // height, grip, a niggle to watch. The column has existed since
+          // migration 0002 and was never wired to anything.
+          notes: pref?.notes ?? null,
           categoryIsCardio: exercise?.category === 'CARDIO',
         },
       };
@@ -58,6 +62,7 @@ export default async function exercisePreferenceRoutes(fastify: FastifyInstance)
         repRangeMax?: number | null;
         targetSets?: number | null;
         isCardio?: boolean | null;
+        notes?: string | null;
       };
 
       // Map explicitly rather than spreading the request body into Prisma —
@@ -67,6 +72,12 @@ export default async function exercisePreferenceRoutes(fastify: FastifyInstance)
         ...(body.repRangeMax !== undefined && { repRangeMax: body.repRangeMax }),
         ...(body.targetSets !== undefined && { targetSets: body.targetSets }),
         ...(body.isCardio !== undefined && { isCardio: body.isCardio }),
+        // Bounded, and an empty string clears the note rather than storing "".
+        ...(body.notes !== undefined && {
+          notes: typeof body.notes === 'string' && body.notes.trim()
+            ? body.notes.trim().slice(0, 2000)
+            : null,
+        }),
       };
 
       const result = await fastify.prisma.exercisePreference.upsert({

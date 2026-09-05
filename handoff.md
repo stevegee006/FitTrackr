@@ -21,7 +21,7 @@ setup instructions live in [README.md](README.md); **this file is about intent,
 state, and sharp edges** — the things you would otherwise have to rediscover by
 breaking something._
 
-> **Read sharp edges #56–#105 before touching iOS layout, asset generation, AI
+> **Read sharp edges #56–#106 before touching iOS layout, asset generation, AI
 > prompts, summaries/PRs/awards, the auth/refresh path, persisted timer state,
 > cardio/bodyweight handling, muscle-group enums and labels, the finish/reopen
 > flow, what counts as a performed set, or trusting any `git`/`gh`/preview command in
@@ -1271,6 +1271,18 @@ is exactly why it is written down here.
     being created, so a day skipped for having no matching exercises does not
     consume a slot a later day could use.
 
+106. **Exercise notes live on `ExercisePreference`, and the column already
+    existed.** The note is a cue that follows the exercise from session to
+    session — seat height, grip, a niggle — so it belongs to (user, exercise),
+    not to a workout. `exercise_preferences.notes` has been in the schema and
+    in migration `0002` since the table was created and was never wired to
+    anything, so this needed **no migration**: only the GET/PATCH on
+    `/exercises/:id/preference` and the UI. Worth checking for other
+    already-migrated columns before reaching for `0011`.
+    Note this is NOT the same field as `WorkoutSet.notes`, which is per set and
+    still unused by any UI, or a per-session note, which does not exist. An
+    empty string clears the note to NULL rather than storing `''`.
+
 ### Awards and benchmarks
 
 80. **Benchmark matching is deliberately strict, and must stay that way.**
@@ -1631,6 +1643,9 @@ And an eleventh batch — two bugs found by using the recap:
   always the workouts list — `router.back()`, falling back to the list when
   there is no history (a deep link or fresh tab), where it would otherwise
   leave the app.
+- **Exercise notes** (#106) — a cue attached to the exercise, shown inline on
+  the exercise card in the logger rather than hidden behind the icon, because a
+  cue you have to go looking for is one you will not read mid-set.
 - **The coach's review and the plan now agree** (#104) — the review recommended
   a second leg day while the plan kept the old split, off identical data.
 - **Two planned days can no longer collapse onto one date** (#105).
