@@ -1,21 +1,11 @@
 # HANDOFF — FitTrackr
 
-_Last updated: 2026-09-04 (through the coach-everywhere commit — week and
-session reviews, and the next-week plan can be written into real workouts;
-earlier: the PWA had been capping every API GET at 10 seconds and caching it
-for an hour;
-unperformed sets no longer count anywhere, a weekly recap with an AI plan for
-next week; Finish stamps `completedAt` and the summary has three entry points; five
-new muscle groups, a full exercise editor in admin, whole-exercise delete in
-the logger, optimistic set updates so the logger no longer
-round-trips on every commit; Awards tab with struck medals,
-AI Coach, weekly-goal streak and consistency badges, PR recompute, set-row
-headers, cardio-mode memory; earlier: random-logout and frozen-app
-fixes, cardio/bodyweight handling, exercise replay, duration editing;
-workout and program summaries, PR tracking, plate-calculator units and sled
-support, program generation rewritten to a week template, AI suggest's
-backwards deload fixed, RPE capped, watch reminder, logo and splash refresh,
-iOS layout fixes, and the project's first tests). Written as a handoff for the
+_Last updated: 2026-09-04 (through `6242178` — AI answers persist in Redis and
+the workout-type emoji became real icons; earlier the same day: exercise notes,
+coach reviews of a week and of a session, the next-week plan being written into
+real workouts, five new muscle groups with a full exercise editor, Finish
+actually finalising a workout, optimistic set updates, and the service worker
+that had been strangling every API GET. Written as a handoff for the
 next engineer (or AI session) picking this up. The user-facing feature list and
 setup instructions live in [README.md](README.md); **this file is about intent,
 state, and sharp edges** — the things you would otherwise have to rediscover by
@@ -193,6 +183,22 @@ ones: `ai-provider.service.ts` (provider-agnostic AI façade),
 aggregates), `personal-record.service.ts` (1RM + PR upserts),
 `csv-import.service.ts`, `seed.service.ts`, `wger.service.ts` (exercise
 lookup with 24 h Redis cache, fails soft).
+
+The AI/coach side: `coach.service.ts` (30-day review, next-week plan),
+`coach-reviews.service.ts` (the week and single-session reviews),
+`weekly-recap.service.ts` (one calendar week's facts, no AI),
+`plan-apply.service.ts` (writes a plan into real workouts) and
+`ai-cache.ts` (**every** AI answer goes through this — see #107).
+
+**Note the `*.service.ts` / plain-`.ts` split.** A file named `*.service.ts`
+may import `logger`, Prisma and Fastify; the plain sibling holds the pure
+logic and imports none of them. That is not stylistic: `logger` pulls in
+`config/env`, which `process.exit(1)`s at import time when `DATABASE_URL` is
+absent, so **a test importing a `*.service.ts` dies before its first
+assertion.** The pairs are `workout-summary.ts` / `workout.service.ts`,
+`program-expand.ts` / `program.service.ts`, `awards-rules.ts`, and
+`plan-apply.ts` / `plan-apply.service.ts`. Anything you want to unit-test goes
+in the plain file.
 
 ### Data model — `packages/api/prisma/schema.prisma`
 
@@ -1359,10 +1365,12 @@ is exactly why it is written down here.
     `translateZ(0)` are inline for this reason, as is the settings toggle knob
     offset.
 
-## Recent work log (2026-08-26 session)
+## Recent work log (2026-08-26 → 2026-09-04)
 
-Six changes, all driven by the author using the app in a gym. Recorded here
-because the *reasons* aren't in the diffs.
+Batches in the order they shipped, newest sections at the end. Recorded because
+the *reasons* are not in the diffs — the what is in `git log`.
+
+Six changes to begin with, all driven by the author using the app in a gym.
 
 - **Splash screens redesigned** (`fbc5ec1`) — `makeSplashSvg()` in
   `generate-icons.mjs` now draws the barbell directly on `#030712` with **no
@@ -1696,37 +1704,34 @@ Docker Hub images track `main` automatically; the Portainer stack is updated
 by hand with "Pull and redeploy". Live host is `fittrackr.geehive.com` with
 the API on `fittrackr-api.geehive.com`.
 
-**The big redeploy happened and the author confirmed it working** (2026-09-02):
-migrations `0006` and `0007` are applied, `/coach` and the Awards tab are live,
-the program summary works, cardio mode persists, and the random-logout /
-frozen-app fixes are in production. The two manual steps that redeploy needed
-(PRs → Recalculate, and Training days per week) are done.
+**All migrations `0001`–`0009` are applied and confirmed in production.**
+There is nothing pending on the database side: the five new muscle groups
+exist and are in use (the coach's own output shows Adductors and Abductors
+chips, so the two hip machines were re-tagged), and Finish stamps
+`completed_at`.
 
-**Pending now: `0008_muscle_groups` and `0009_workout_completed_at`, plus the
-eighth and ninth batches.** Both migrations are applied by the entrypoint on
-the next redeploy. Until then the five new muscle groups do not exist in the
-deployed database, so **the exercise editor's dropdown will offer values the
-API rejects** — a 422 from the enum, not a crash — and Finish will 500 on the
-missing `completed_at` column. In Portainer this is Stacks → the stack →
-**Update** with **"Re-pull
-image and redeploy" ON** — without that toggle it recreates the containers from
-the cached image and nothing changes. Then check the entrypoint actually
-migrated:
-`docker logs fittrackr-api-1 --since 5m 2>&1 | head -20` (see sharp edge #1
-for why its failure path matters).
+**The reverse proxy read timeout has been raised to 180 s** for the API host
+(Nginx Proxy Manager → the host's Advanced tab), which is what finally let the
+AI endpoints answer. See the Deployment section — that ceiling is a standing
+constraint on anything that calls a provider.
 
-Two manual passes after redeploying:
+**Confirmed working against real data**: the weekly recap, the coach's 30-day
+review, the coach's review of a week, the next-week plan, the awards tab,
+program and workout summaries, cardio mode, finish/reopen, and the muscle
+group labels.
 
-1. **Every existing workout reads as unfinished** (#85 — the back-fill was
-   deliberately not done). They will keep offering Start/Finish until each one
-   is finished once. Nothing is broken by leaving them; the only visible
-   effect is no "Finished" chip on the list and no `View Summary` button.
-2. **Admin → Exercises → re-tag the mistagged machines.** The migration adds
-   the muscle groups but changes no rows, deliberately. "Machine Hip Adductor"
-   is still `HAMSTRINGS` and "Machine Hip Abductor" still `GLUTES`; the pencil
-   now edits muscle, equipment and category. Their historical volume stays
-   attributed to the old muscle — per-muscle tallies read `primaryMuscle` at
-   query time, so re-tagging retroactively moves every past set too.
+**Built, green in CI, but NOT yet seen in the app** — everything from
+`3babadc` onward:
+
+- superset member reordering, and the AI-suggest analysis weighing set count
+  (`3babadc`);
+- the review and the plan agreeing on the split (`f85ebce`);
+- exercise notes (`586761e`);
+- AI answers persisting in Redis, and the workout-type icons (`6242178`).
+
+Redeploy is Portainer → Stacks → the stack → **Update** with **"Re-pull image
+and redeploy" ON** — without that toggle it recreates the containers from the
+cached image and nothing changes. No migration is needed for any of the above.
 
 Known outstanding user-facing items:
 
@@ -1738,119 +1743,107 @@ Known outstanding user-facing items:
   (the author had one reading ~29.8 million minutes). The validation stops it
   recurring but does not repair stored values — fix each with the duration
   pencil.
-- Program generation's RPE curve plateaus rather than ramps (#62).
-- **None of the last three batches has been rendered in the app.** Everything
-  typechecks, `next build` compiles and generates all 19 pages, the API suite
-  passes and the frontend logic is covered by harnesses (27 + 44 assertions) —
-  but nothing was driven in a browser, because there is no local Postgres or
-  Redis here and logging into the live stack was not an option. Specifically
-  unproven by anything but a fake API:
-  - the set checkbox ticking instantly, and a rejected patch visibly reverting
-    (pull the wifi mid-set once);
-  - the exercise-header trash → confirm → row disappears, and the superset
-    case where removing one of two members dissolves the group;
-  - the admin editor actually saving muscle/equipment/category, which needs
-    `0008` deployed first or the new values 422;
-  - Finish → the finished banner and `View Summary` replacing the Finish
-    button, Reopen putting the page back, and the chart icons reaching the
-    summary from both the header and the workouts list;
-  - the whole `/recap` page, including the AI next-week plan, which has never
-    been run against a real provider — the JSON shape it expects back is
-    unverified, and that is where the coach review needed two attempts before.
-    The first attempt failed for an unrelated reason (#95), so the plan prompt
-    itself has still never reached a model;
-  - the service-worker bypass (#95). It only takes effect once the new worker
-    activates, so on the installed PWA expect one reload — `skipWaiting` and
-    `clientsClaim` are set, so it should not need a reinstall. If the plan
-    still reports a network error afterwards, the next suspect is a proxy read
-    timeout in front of the API, not the app.
+- **Workouts logged before `0009` read as unfinished** (#85 — the back-fill was
+  deliberately not done). They keep offering Start/Finish until each is
+  finished once. Nothing is broken by leaving them; the only visible effect is
+  no "Finished" chip and no `View Summary` button.
 - The program summary shows its empty state for every program that predates
-  `0006` (#65). Correct, not broken — but worth seeing once.
-- If logouts persist after the redeploy, the remaining suspect is **two
-  clients** (installed PWA plus a browser tab) refreshing against each other:
-  single-flight guards one JS context, not two.
+  `0006` (#65). Correct, not broken.
+- Program generation's RPE curve plateaus rather than ramps (#62).
+- **`GET /health/slow` is a diagnostic left in deliberately** (see Deployment).
+  It sleeps up to 60 s and answers, so the ceiling in front of the API can be
+  measured rather than guessed at. Unauthenticated and rate-limited. Remove it
+  once the proxy configuration is settled for good.
+- **Nothing in this codebase has ever been driven in a browser from the
+  development machine.** There is no local Postgres or Redis here, so every
+  frontend change is verified by `tsc`, `next build`, and unit tests over the
+  pure logic — then by the author using the deployed app. Two production
+  outages came from that gap (#77, and the service worker in #95), so treat a
+  green build as necessary and not sufficient.
 
 ## Next steps (not built, roughly by value)
 
-0. **Redeploy for `0008` + `0009`, re-tag the two hip machines, then confirm
-   on a device** — see Current state. Neither the new muscle groups nor
-   `completed_at` exists in the deployed database yet, so until this happens
-   the editor's dropdown offers values the API rejects and Finish 500s.
-1. ~~**Optimistic updates in the workout logger**~~ **DONE** for the set
-   PATCH and DELETE and the whole-exercise delete (#36). What is left is the
-   *page's* mutations — add set, add warmup, the warmup ladder, reorder.
-   Add-set is the
-   next one worth doing and the fiddliest: it needs a temp-id placeholder row,
-   and `SetRow` must not be able to PATCH a temp id if the user types into it
-   before the POST returns. Doing #2 first makes the ladder case tractable.
-2. **A bulk set-create endpoint** (#76) so exercise replay and the warmup
+0. **Redeploy and confirm the last four commits on a device** — see Current
+   state. No migration is needed; nothing from `3babadc` onward has been seen
+   in the app.
+1. **A frontend test runner.** Still the gap that has actually hurt: the React
+   #310 crash (#77) and the service worker capping every API GET (#95) would
+   both have been caught by *any* render test, and neither was caught by a
+   green build. `lib/streak.ts`, the duration helpers, `lib/infer-exercise.ts`
+   and the api-client refresh logic are covered only by throwaway harnesses in
+   a scratchpad. This is worth more than any feature below it.
+2. **Finish the optimistic updates** (#36). Done for the set PATCH/DELETE and
+   the whole-exercise delete; what is left is the page's own mutations — add
+   set, add warmup, the warmup ladder, reorder. Add-set is the fiddliest: it
+   needs a temp-id placeholder row, and `SetRow` must not be able to PATCH a
+   temp id if the user types into it before the POST returns. Doing #3 first
+   makes the ladder case tractable.
+3. **A bulk set-create endpoint** (#76) so exercise replay and the warmup
    ladder are one request instead of N, and cannot partly succeed.
-2b. **A frontend test runner.** `lib/streak.ts`, the duration helpers and the
-   api-client refresh logic are only covered by throwaway harnesses. The
-   React #310 crash (#77) would also have been caught by *any* render test —
-   that is the gap that actually hurt.
-3. **Make `docker-entrypoint.sh` fail hard** instead of falling through to
-   `db push` and then starting anyway (sharp edge #1). Highest
-   damage-per-effort item on the backend.
-4. **Fix the CORS boundary check** (#6) — a one-line change to require a
+4. **A shared unit-display helper** (#53). Three unit bugs have shipped from
+   each component deciding conversion for itself, and the duplication is now
+   SEVEN deep — every new page (summaries, coach, recap, awards) has
+   re-declared `LB_PER_KG` and its own converter. `formatDuration` in
+   `lib/utils` is the pattern that worked for time: do the same for weight and
+   distance, `formatWeight(kg, units)` plus a `useUnits()` hook.
+5. **Make `docker-entrypoint.sh` fail hard** instead of falling through to
+   `db push` and then starting anyway (#1). Highest damage-per-effort item on
+   the backend.
+6. **Fix the CORS boundary check** (#6) — a one-line change to require a
    leading dot or an exact match — and **add an rpID allowlist** (#5).
-4b. **Reach the exercise editor from the logger.** The editor exists but only
-   in the admin panel, so noticing a mistagged exercise mid-workout means
-   remembering to go and fix it later. `ExerciseEditForm` is standalone and
-   the route is admin-only — this needs a non-admin
-   `PATCH /exercises/:id` scoped to custom exercises, or an admin-gated
-   shortcut, so decide which before building it.
-5. **Store cardio as a property, not an inference** (#39) — read
+7. **Reach the exercise editor from the logger.** It exists only in the admin
+   panel, so noticing a mistagged exercise mid-workout means remembering to fix
+   it later. `ExerciseEditForm` is standalone but the route is admin-only, so
+   this needs either a non-admin `PATCH /exercises/:id` scoped to custom
+   exercises or an admin-gated shortcut — decide which before building it.
+8. **Store cardio as a property, not an inference** (#39) — read
    `Exercise.category === 'CARDIO'` (or add a flag) so the time/distance
    inputs appear without a reload.
-6. **Kill the dark-mode FOUC** (#37) with a blocking inline script, and pick
+9. **Kill the dark-mode FOUC** (#37) with a blocking inline script, and pick
    one source of truth for the preference (#38).
-7. **Prune `exerciseOrder` in `deleteSet`** (#13) so the array stops drifting,
-   and drop the frontend's defensive filter once it does.
-8. **Cap Epley reps** (#16) and **make `volumeByMuscle` actual volume** (#17),
-   or rename it `setsByMuscle` and stop calling the dashboard rings "volume".
-9. **Delete the MacroTracker carryover** — `USDA_FDC_API_KEY` and its admin
-   settings surface (#24), `exerciseApiKey` (#25), `CATEGORY_MAP` (#26),
-   `JWT_REFRESH_SECRET` (#23), the stale `TUTORIAL_KEYS` (#47), the unused
-   deps (#46). Cheap, and each one is a future "why is this here?".
-10. **Re-check admin from the DB** in the admin hook (#7) rather than
-    trusting the token claim.
-11. **Add an eslint config** so `next lint` stops being a no-op (#44), and
+10. **Prune `exerciseOrder` in `deleteSet`** (#13) so the array stops drifting,
+    and drop the frontend's defensive filter once it does.
+    `deleteWorkoutExercise` already prunes; `deleteSet` does not.
+11. **Cap Epley reps** (#16) and **make `volumeByMuscle` actual volume** (#17),
+    or rename it `setsByMuscle` and stop calling the dashboard rings "volume".
+12. **Delete the MacroTracker carryover** — `USDA_FDC_API_KEY` and its admin
+    settings surface (#24), `exerciseApiKey` (#25), `CATEGORY_MAP` (#26),
+    `JWT_REFRESH_SECRET` (#23), the stale `TUTORIAL_KEYS` (#47), the unused
+    deps (#46). Cheap, and each is a future "why is this here?".
+13. **Re-check admin from the DB** in the admin hook (#7) rather than trusting
+    the token claim.
+14. **Add an eslint config** so `next lint` stops being a no-op (#44), and
     **add `error.tsx`** so a render error doesn't blank the screen (#45).
-12. **Split `profile/page.tsx` (1956 lines) and `admin/page.tsx` (1266)** —
-    both are ~12 components in one file.
-13. **An `@theme` token layer in `globals.css`** if the design system is ever
-    to be formalized, which would also resolve the emerald/indigo accent
-    split and the three-way theme-color disagreement (#48).
-14. **Redis-backed rate limiting** (#10) — only matters if a second replica
+15. **Split the two giant page files** — `profile/page.tsx` is past 2,100 lines
+    holding ~14 components, `admin/page.tsx` ~1,270. `AwardsTab` and
+    `ExerciseEditForm` were each put in their own file rather than added; do
+    that for the rest.
+16. **Remove `GET /health/slow`** once the proxy configuration is settled — it
+    exists to measure the ceiling in front of the API (see Deployment) and is
+    not meant to be permanent.
+17. **An `@theme` token layer in `globals.css`** if the design system is ever
+    formalized, which would also resolve the emerald/indigo accent split and
+    the three-way theme-color disagreement (#48).
+18. **Redis-backed rate limiting** (#10) — only matters if a second replica
     ever exists.
-15. **Have the AI emit absolute per-week RPE** instead of a monotonic delta
+19. **Have the AI emit absolute per-week RPE** instead of a monotonic delta
     (#62), so programs ramp and deload rather than plateauing at the cap.
-16. **Draw the splash wordmark as vector paths** (#59) if the Segoe-UI-vs-SF-Pro
+20. **Draw the splash wordmark as vector paths** (#59) if the Segoe-UI-vs-SF-Pro
     difference on iOS ever matters. Would also make the splash independent of
     whatever fonts the generating machine happens to have.
-17. **A shared unit-display helper** (#53). Three unit bugs have shipped from
-    each component deciding conversion for itself. `formatDuration` in
-    `lib/utils` is the pattern that worked for time — do the same for weight
-    and distance: `formatWeight(kg, units)` plus a `useUnits()` hook. Every
-    new page (summaries, coach, awards) has re-declared `LB_PER_KG` and its
-    own converter, so the duplication is now five deep.
-18. **Split `profile/page.tsx`** — it is past 2,100 lines and holds ~14
-    components. `AwardsTab` was put in its own file rather than added to it;
-    do that for the rest.
-19. **More award families.** The medal machinery is generic — only the tier
+21. **More award families.** The medal machinery is generic — only the tier
     tables in `awards-rules.ts` decide what exists. Obvious additions: a
     bodyweight pull-up/dip family (reps rather than load), total-volume
     milestones, "logged N workouts". Each is one array entry plus a matcher
     test.
-20. **Retire `emoji` from the award tiers.** It predates `Medal.tsx` and is
-    now a fallback nothing renders — check nothing reads it off the API
-    response first.
+22. **Retire `emoji` from the award tiers.** It predates `Medal.tsx` and is now
+    a fallback nothing renders — check nothing reads it off the API response
+    first.
 
 ## Testing pattern used throughout
 
-There is **no test framework and no working linter**, and exactly **one** test
-file:
+There is **no test framework and no working linter**. The API has a small
+suite of plain node scripts; the frontend has nothing that runs in CI:
 
 ```bash
 pnpm --filter @fittrackr/api test    # tsc, then each test/*.test.mjs
@@ -1911,6 +1904,15 @@ examples worth imitating rather than re-deriving:
 
 A guard that rejects everything, or a timer that never fires, passes a
 one-sided test — always assert the negative case too.
+
+**For anything DRAWN, rasterise it and look at it.** SVG path data cannot be
+reviewed by reading it, which is the lesson of #60 (a font that silently fell
+back to monospace) and of the icon set added later. `sharp` is not a workspace
+dependency — resolve it the way `generate-icons.mjs` does, from the global npm
+directory — compose the shapes into one SVG, write a PNG, and open it. The
+same trick shows a set of icons at their real 20px size next to the large
+version, which is where legibility problems actually appear. Note the Browser
+pane cannot screenshot a local `file://`, so a PNG is the route, not HTML.
 
 Everything else is manual: build (`pnpm build` catches the TypeScript
 strict-mode errors, which have broken CI more than once — see commits
