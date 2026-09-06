@@ -29,6 +29,25 @@ class MainViewController: CAPBridgeViewController {
         return descriptor
     }
 
+    /**
+     Register the app's own plugins.
+
+     Capacitor 6+ does NOT discover plugins by scanning the Objective-C
+     runtime any more — it instantiates the classes named in
+     `packageClassList`, which the CLI generates from installed npm packages.
+     A plugin that lives in the app rather than in a package is therefore never
+     loaded, no matter how correctly it is written: it compiles, the app runs,
+     and `Capacitor.Plugins` simply lacks it, with no error anywhere.
+
+     `capacitorDidLoad()` is the supported hook for exactly this, and it
+     survives `cap sync` — editing the generated capacitor.config.json would
+     not.
+     */
+    override open func capacitorDidLoad() {
+        bridge?.registerPluginInstance(WorkoutActivityPlugin())
+        bridge?.registerPluginInstance(ServerConfigPlugin())
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         webView?.navigationDelegate = self

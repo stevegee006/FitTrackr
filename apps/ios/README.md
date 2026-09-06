@@ -215,6 +215,25 @@ register anything on its own in Capacitor 7, and **fails silently**: the app
 builds, runs, and `Capacitor.Plugins` simply lacks the plugin. There is no
 error in Xcode and none in the JS console.
 
+**Conformance is necessary but NOT sufficient.** Capacitor 6+ stopped
+discovering plugins by scanning the Objective-C runtime; it instantiates the
+classes named in `packageClassList` in the generated
+`ios/App/App/capacitor.config.json`, and the CLI builds that list from
+installed **npm packages**. A plugin living in the app is never in it.
+
+So app-local plugins must be registered by hand, in `MainViewController`:
+
+```swift
+override open func capacitorDidLoad() {
+    bridge?.registerPluginInstance(WorkoutActivityPlugin())
+    bridge?.registerPluginInstance(ServerConfigPlugin())
+}
+```
+
+That hook survives `cap sync`; editing the generated config file would not.
+**Anything added to `native/` from now on needs a line here**, or it will look
+correct and do nothing.
+
 The check that actually answers it, in Safari's inspector attached to the app:
 
 ```js
