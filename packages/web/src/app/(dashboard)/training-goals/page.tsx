@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { MUSCLE_GROUP_LABELS, MUSCLE_GROUP_COLORS, TRAINING_GOAL_LABELS } from '@fittrackr/shared';
 import type { TrainingGoal, MuscleGroup } from '@fittrackr/shared';
-import { Sparkles, Target, CheckCircle } from 'lucide-react';
+import { Sparkles, Target, CheckCircle, PowerOff, RotateCcw } from 'lucide-react';
 
 export default function TrainingGoalsPage() {
   const queryClient = useQueryClient();
@@ -29,12 +29,38 @@ export default function TrainingGoalsPage() {
       apiFetch('/training-goals/generate', { method: 'POST', body: JSON.stringify(form) }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['training-goals'] });
+      // Generating makes the new goal active, so the dashboard rings and the
+      // trends targets are stale the moment this returns.
+      queryClient.invalidateQueries({ queryKey: ['training-goal-active'] });
       setShowGenerator(false);
+    },
+  });
+
+  /**
+   * Turn the targets on or off.
+   *
+   * No active goal is a legitimate state, not an empty one: targets that no
+   * longer match how someone trains are worse than none, because every ring
+   * on the dashboard then measures against a number nobody believes. The rings
+   * fall back to unbounded totals, which is honest.
+   */
+  const setActiveMutation = useMutation({
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
+      apiFetch(`/training-goals/${id}/active`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['training-goals'] });
+      // The dashboard rings and the coach both read the active goal.
+      queryClient.invalidateQueries({ queryKey: ['training-goal-active'] });
+      queryClient.invalidateQueries({ queryKey: ['workout-volume'] });
     },
   });
 
   const goals = data?.data ?? [];
   const active = goals.find((g) => g.isActive);
+  const inactive = goals.filter((g) => !g.isActive);
 
   return (
     <div className="space-y-6">
@@ -116,6 +142,15 @@ export default function TrainingGoalsPage() {
             </span>
             <span className="text-sm font-semibold">{TRAINING_GOAL_LABELS[active.primaryGoal]}</span>
             <span className="text-xs text-gray-500">· {active.weeklyFrequency}x/week</span>
+            <button
+              type="button"
+              onClick={() => setActiveMutation.mutate({ id: active.id, isActive: false })}
+              disabled={setActiveMutation.isPending}
+              className="ml-auto inline-flex items-center gap-1 text-xs text-gray-500 hover:text-red-500 disabled:opacity-40 transition-colors"
+            >
+              <PowerOff className="h-3.5 w-3.5" />
+              Deactivate
+            </button>
           </div>
 
           <p className="text-xs text-gray-500 dark:text-gray-400 italic">{active.reasoning}</p>
@@ -151,7 +186,48 @@ export default function TrainingGoalsPage() {
             <Target className="h-6 w-6 text-indigo-500" />
           </div>
           <p className="font-semibold text-gray-700 dark:text-gray-200">No volume targets yet</p>
-          <p className="mt-1 text-sm text-gray-500">Generate AI-powered weekly set targets</p>
+          <p className="mt-1 text-sm text-gray-500">
+            {inactive.length > 0
+              ? 'Reactivate one below, or generate new targets'
+              : 'Generate AI-powered weekly set targets'}
+          </p>
+        </Card>
+      )}
+
+      {/* Nothing is deleted on deactivate — a set of targets is the output of
+          an AI call, and regenerating to get last month's back would be both
+          slow and not guaranteed to reproduce them. */}
+      {inactive.length > 0 && (
+        <Card className="space-y-3">
+          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+            Previous targets
+          </p>
+          {inactive.map((goal) => (
+            <div key={goal.id} className="flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">
+                  {TRAINING_GOAL_LABELS[goal.primaryGoal]}
+                  <span className="ml-1.5 text-xs font-normal text-gray-500">
+                    {goal.weeklyFrequency}x/week
+                  </span>
+                </p>
+                <p className="text-[11px] text-gray-400">
+                  {new Date(goal.createdAt).toLocaleDateString(undefined, {
+                    month: 'short', day: 'numeric', year: 'numeric',
+                  })}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveMutation.mutate({ id: goal.id, isActive: true })}
+                disabled={setActiveMutation.isPending}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs font-medium text-gray-600 dark:text-gray-300 hover:border-indigo-300 disabled:opacity-40 transition-colors shrink-0"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                Activate
+              </button>
+            </div>
+          ))}
         </Card>
       )}
     </div>

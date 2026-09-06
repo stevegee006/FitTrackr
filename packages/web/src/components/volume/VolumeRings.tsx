@@ -62,25 +62,26 @@ function Ring({
             strokeLinecap="round" className="transition-all duration-500"
           />
         </g>
+        {/*
+          The value alone, centred. The target used to sit under it INSIDE the
+          circle, which pushed both toward the stroke and left the number
+          cramped — worse once a training goal existed, since every ring gained
+          a second line at once. Outside, the number gets the whole circle.
+        */}
         <text
-          x={size / 2} y={size / 2 - 4}
+          x={size / 2} y={size / 2}
           textAnchor="middle" dominantBaseline="central"
           className={`fill-current font-bold ${targetHit ? 'text-green-500' : isOver ? 'text-red-500' : 'text-gray-800 dark:text-gray-100'}`}
-          fontSize={size * 0.24}
+          fontSize={size * 0.3}
         >
           {displayValue ?? value}
         </text>
-        {max != null && (
-          <text
-            x={size / 2} y={size / 2 + size * 0.18}
-            textAnchor="middle" dominantBaseline="central"
-            className="fill-current text-gray-400"
-            fontSize={size * 0.14}
-          >
-            /{max}
-          </text>
-        )}
       </svg>
+      {/* "goal 4" rather than "5/4": the value is already the headline above,
+          and a fraction repeating it reads as a mistake when you are over. */}
+      {max != null && (
+        <p className="text-[10px] leading-none text-gray-400 dark:text-gray-500">goal {max}</p>
+      )}
       <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</p>
     </div>
   );

@@ -19,6 +19,19 @@ export default async function trainingGoalRoutes(fastify: FastifyInstance) {
     },
   });
 
+  // PATCH /training-goals/:id/active — activate, or clear the targets entirely
+  fastify.patch('/training-goals/:id/active', {
+    preHandler: [fastify.authenticate],
+    handler: async (req) => {
+      const { id } = req.params as { id: string };
+      const { isActive } = (req.body ?? {}) as { isActive?: boolean };
+      const data = await goalService.setTrainingGoalActive(
+        fastify, req.user.sub, id, isActive === true,
+      );
+      return { data };
+    },
+  });
+
   fastify.post('/training-goals/generate', {
     preHandler: [fastify.authenticate],
     handler: async (req, reply) => {

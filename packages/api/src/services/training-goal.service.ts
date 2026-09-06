@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { GenerateTrainingGoalInput } from '@fittrackr/shared';
 import { aiChatCompletion } from './ai-provider.service.js';
 import { logger } from '../utils/logger.js';
+import { NotFoundError } from '../utils/errors.js';
 
 const SYSTEM_PROMPT = `You are an expert strength & conditioning coach. Generate weekly training volume targets per muscle group based on the user's goal, experience, and frequency.
 
@@ -88,5 +89,40 @@ export async function getTrainingGoals(fastify: FastifyInstance, userId: string)
   return fastify.prisma.trainingGoal.findMany({
     where: { userId },
     orderBy: { createdAt: 'desc' },
+  });
+}
+
+/**
+ * Turn a goal on or off.
+ *
+ * Activating clears the others first — the dashboard, the coach and the
+ * planner all read "the active goal" singular, and two would make which one
+ * they see an accident of row order.
+ *
+ * Deactivating leaves none active, which is a legitimate state: targets that
+ * no longer reflect how someone is training are worse than no targets, since
+ * every ring then measures against a number nobody believes.
+ */
+export async function setTrainingGoalActive(
+  fastify: FastifyInstance,
+  userId: string,
+  goalId: string,
+  isActive: boolean,
+) {
+  const goal = await fastify.prisma.trainingGoal.findFirst({
+    where: { id: goalId, userId },
+  });
+  if (!goal) throw new NotFoundError('Training goal');
+
+  if (isActive) {
+    await fastify.prisma.trainingGoal.updateMany({
+      where: { userId, isActive: true },
+      data: { isActive: false },
+    });
+  }
+
+  return fastify.prisma.trainingGoal.update({
+    where: { id: goalId },
+    data: { isActive },
   });
 }
