@@ -63,4 +63,89 @@ JSON
 install_icon "$here/ios/App/App/Assets.xcassets" ios
 install_icon "$here/ios/App/FitTrackrWatch Watch App/Assets.xcassets" watchos
 
+# ── Launch screen ────────────────────────────────────────────────────────────
+#
+# The shell loads the web app over the network, so there is a real gap between
+# tapping the icon and the first paint — longer than a local app, and longer
+# still on a cold cellular connection. Without a launch screen that gap is a
+# blank window, which reads as a hang.
+#
+# A storyboard rather than a static image: one asset cannot fit every device,
+# and iOS stopped accepting per-size launch images long ago. The logo sits at a
+# fixed 200pt, centred, over the app's own background colour, so it is correct
+# on every screen without a single device-specific file.
+#
+# The image is the wordmark lifted from the PWA's own splash screens, at native
+# resolution, so the native shell and the installed PWA open identically.
+
+catalog="$here/ios/App/App/Assets.xcassets"
+storyboard="$here/ios/App/App/Base.lproj/LaunchScreen.storyboard"
+
+if [ -d "$catalog" ]; then
+  set="$catalog/Splash.imageset"
+  mkdir -p "$set"
+  cp "$here/icon/Splash.png" "$here/icon/Splash@2x.png" "$here/icon/Splash@3x.png" "$set/"
+  cat > "$set/Contents.json" <<'JSON'
+{
+  "images" : [
+    { "filename" : "Splash.png",    "idiom" : "universal", "scale" : "1x" },
+    { "filename" : "Splash@2x.png", "idiom" : "universal", "scale" : "2x" },
+    { "filename" : "Splash@3x.png", "idiom" : "universal", "scale" : "3x" }
+  ],
+  "info" : { "author" : "xcode", "version" : 1 }
+}
+JSON
+  echo "installed: $set"
+fi
+
+if [ -f "$storyboard" ]; then
+  # Keep Capacitor's original once, so a bad edit is recoverable without
+  # regenerating the whole project.
+  [ -f "$storyboard.orig" ] || cp "$storyboard" "$storyboard.orig"
+
+  cat > "$storyboard" <<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="22154" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="01J-lp-oVM">
+    <dependencies>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="22131"/>
+        <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <scenes>
+        <scene sceneID="EHf-IW-A2E">
+            <objects>
+                <viewController id="01J-lp-oVM" sceneMemberID="viewController">
+                    <view key="view" contentMode="scaleToFill" id="Ze5-6b-2t3">
+                        <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                        <subviews>
+                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="Splash" translatesAutoresizingMaskIntoConstraints="NO" id="spl-as-h01">
+                                <rect key="frame" x="96.5" y="345" width="200" height="162"/>
+                                <constraints>
+                                    <constraint firstAttribute="width" constant="200" id="spl-wid"/>
+                                    <constraint firstAttribute="height" constant="162" id="spl-hei"/>
+                                </constraints>
+                            </imageView>
+                        </subviews>
+                        <viewLayoutGuide key="safeArea" id="Bcu-3y-fUS"/>
+                        <color key="backgroundColor" red="0.011764705882352941" green="0.027450980392156863" blue="0.070588235294117646" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <constraints>
+                            <constraint firstItem="spl-as-h01" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="spl-ctx"/>
+                            <constraint firstItem="spl-as-h01" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" id="spl-cty"/>
+                        </constraints>
+                    </view>
+                </viewController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="iYj-Kq-Ea1" userLabel="First Responder" sceneMemberID="firstResponder"/>
+            </objects>
+            <point key="canvasLocation" x="0.0" y="0.0"/>
+        </scene>
+    </scenes>
+    <resources>
+        <image name="Splash" width="200" height="162"/>
+    </resources>
+</document>
+XML
+  echo "installed: $storyboard (original kept at $storyboard.orig)"
+fi
+
 echo "Done. Clean the build folder (Shift-Cmd-K) if Xcode keeps showing the old icon."
