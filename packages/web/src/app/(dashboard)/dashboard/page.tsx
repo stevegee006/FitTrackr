@@ -241,20 +241,25 @@ export default function DashboardPage() {
             </button>
           ))}
         </div>
-        <div className="flex gap-2 mt-2">
+        {/*
+          Stacked, not inline. An icon beside the label in a quarter-width
+          button leaves too little room for two-word types: "Upper Body" and
+          "Lower Body" wrapped mid-button and pushed the row out of line. The
+          row above already solves this by putting the icon above the label,
+          so this one matches it rather than inventing a second treatment.
+        */}
+        <div className="grid grid-cols-4 gap-2 mt-2">
           {(['UPPER', 'LOWER', 'CARDIO', 'CUSTOM'] as WorkoutType[]).map((type) => (
             <button
               key={type}
               type="button"
               onClick={() => createWorkoutMutation.mutate(type)}
               disabled={createWorkoutMutation.isPending}
-              className="flex-1 py-1.5 rounded-lg bg-gray-50 dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 border border-gray-200 dark:border-gray-700 text-[10px] font-medium text-gray-600 dark:text-gray-300 transition-all active:scale-95"
+              className="flex flex-col items-center gap-1 p-2 rounded-xl bg-gray-50 dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 border border-gray-200 dark:border-gray-700 hover:border-indigo-300 transition-all active:scale-95"
             >
-              <span className="inline-flex items-center justify-center gap-1">
-                <WorkoutTypeIcon type={type} className="h-3.5 w-3.5"
-                  style={{ color: WORKOUT_TYPE_COLORS[type] }} />
-                {WORKOUT_TYPE_LABELS[type]}
-              </span>
+              <WorkoutTypeIcon type={type} className="h-5 w-5"
+                style={{ color: WORKOUT_TYPE_COLORS[type] }} />
+              <span className="text-[10px] font-medium text-gray-600 dark:text-gray-300 text-center leading-tight">{WORKOUT_TYPE_LABELS[type]}</span>
             </button>
           ))}
         </div>

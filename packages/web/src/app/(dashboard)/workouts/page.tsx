@@ -460,17 +460,16 @@ export default function WorkoutsPage() {
                 </button>
               ))}
             </div>
-            <div className="flex gap-2">
+            {/* Stacked to match the row above — see the dashboard for why. */}
+            <div className="grid grid-cols-4 gap-2">
               {(['UPPER', 'LOWER', 'CARDIO', 'CUSTOM'] as WorkoutType[]).map((type) => (
                 <button key={type} type="button"
                   onClick={() => createMutation.mutate({ workoutType: type, logDate: selectedDate })}
                   disabled={createMutation.isPending}
-                  className="flex-1 py-1.5 rounded-lg bg-gray-50 dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 border border-gray-200 dark:border-gray-700 text-[11px] font-medium text-gray-600 dark:text-gray-300 transition-all active:scale-95">
-                  <span className="inline-flex items-center justify-center gap-1">
-                    <WorkoutTypeIcon type={type} className="h-3.5 w-3.5"
-                      style={{ color: WORKOUT_TYPE_COLORS[type] }} />
-                    {WORKOUT_TYPE_LABELS[type]}
-                  </span>
+                  className="flex flex-col items-center gap-1 p-2 rounded-xl bg-gray-50 dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 border border-gray-200 dark:border-gray-700 hover:border-indigo-300 transition-all active:scale-95">
+                  <WorkoutTypeIcon type={type} className="h-5 w-5"
+                    style={{ color: WORKOUT_TYPE_COLORS[type] }} />
+                  <span className="text-[11px] font-medium text-gray-700 dark:text-gray-300 text-center leading-tight">{WORKOUT_TYPE_LABELS[type]}</span>
                 </button>
               ))}
             </div>
