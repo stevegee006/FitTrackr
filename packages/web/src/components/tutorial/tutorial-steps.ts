@@ -38,8 +38,10 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'start-workout',
     title: 'Start a Workout',
-    body: 'Tap here to log your first workout, or use the quick-start buttons on the Workouts page to launch a Push, Pull, Legs, or Full Body session instantly.',
-    targetKey: 'start-workout',
+    body: 'Tap a type to create a session instantly — Push, Pull, Legs, Full Body, or one of the others below.',
+    // NOT 'start-workout': that element only exists in the empty state, so the
+    // tour dead-ended here for anyone who had already trained this week.
+    targetKey: 'quick-start',
     placement: 'bottom',
   },
 

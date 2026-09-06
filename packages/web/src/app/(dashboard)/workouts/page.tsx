@@ -441,7 +441,7 @@ export default function WorkoutsPage() {
 
         {/* Add workout section */}
         {!isFuture && (
-          <div className="mt-3 space-y-2">
+          <div className="mt-3 space-y-2" data-tutorial="workout-quick-start">
             <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
               {selectedWorkouts.length > 0 ? 'Add another workout' : 'Start a workout'}
             </p>

@@ -99,18 +99,33 @@ export function TutorialOverlay({
 }: TutorialOverlayProps) {
   const [targetRect, setTargetRect] = useState<Rect | null>(null);
   const [tooltipPos, setTooltipPos] = useState<{ top: number; left: number } | null>(null);
+  /**
+   * The step names an element that is not on the page.
+   *
+   * This used to END the tour. With a targetKey set the tooltip was positioned
+   * from `tooltipPos`, which stayed null when nothing was found — so the
+   * tooltip rendered unpositioned and effectively invisible, leaving a dark
+   * overlay with no card and no way forward. Every step whose target is
+   * conditionally rendered was a dead end: `start-workout` only exists in the
+   * empty state, so the tour died at that step for anyone who had trained
+   * that week.
+   *
+   * Falling back to the centred, spotlight-free treatment means a missing
+   * target costs a highlight rather than the rest of the tour.
+   */
+  const [targetMissing, setTargetMissing] = useState(false);
 
-  const measure = useCallback(() => {
+  const measure = useCallback((): boolean => {
     if (!step.targetKey) {
       setTargetRect(null);
       setTooltipPos(null);
-      return;
+      return true;
     }
     const el = findTarget(step.targetKey);
     if (!el) {
       setTargetRect(null);
       setTooltipPos(null);
-      return;
+      return false;
     }
     const r = el.getBoundingClientRect();
     const rect = {
@@ -124,13 +139,31 @@ export function TutorialOverlay({
     // Estimate tooltip size (288px = w-72, ~200px height)
     const pos = getTooltipPosition(rect, step.placement, 288, 200);
     setTooltipPos(pos);
+    return true;
   }, [step]);
 
   useEffect(() => {
     if (!isActive || isNavigating) return;
-    // Small delay to let DOM settle
-    const timer = setTimeout(measure, 50);
-    return () => clearTimeout(timer);
+    setTargetMissing(false);
+
+    // Retried rather than measured once. A single 50ms shot cannot tell "not
+    // on this page" from "this page has not finished rendering", and a step
+    // that arrives via `route` is routinely still mounting. Only after the
+    // last attempt is the target declared absent.
+    const attempts = [50, 250, 600, 1200];
+    let cancelled = false;
+    const timers = attempts.map((delay, i) =>
+      setTimeout(() => {
+        if (cancelled) return;
+        const found = measure();
+        if (!found && i === attempts.length - 1) setTargetMissing(true);
+      }, delay),
+    );
+
+    return () => {
+      cancelled = true;
+      timers.forEach(clearTimeout);
+    };
   }, [isActive, isNavigating, stepIndex, measure]);
 
   // Recalculate on resize/scroll
@@ -176,7 +209,7 @@ export function TutorialOverlay({
     );
   }
 
-  const isCentered = !step.targetKey;
+  const isCentered = !step.targetKey || targetMissing;
 
   return (
     <div className="fixed inset-0 z-[60]">

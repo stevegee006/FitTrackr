@@ -224,7 +224,7 @@ export default function DashboardPage() {
       </Card>
 
       {/* Quick start */}
-      <Card className="p-3">
+      <Card className="p-3" data-tutorial="quick-start">
         <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Quick Start</p>
         <div className="grid grid-cols-4 gap-2">
           {(['PUSH', 'PULL', 'LEGS', 'FULL_BODY'] as WorkoutType[]).map((type) => (
@@ -288,7 +288,7 @@ export default function DashboardPage() {
         </div>
 
         {workouts.length === 0 ? (
-          <Card className="py-10 text-center" data-tutorial="start-workout">
+          <Card className="py-10 text-center">
             <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-800/50">
               <WorkoutTypeIcon type="FULL_BODY" className="h-7 w-7 text-indigo-500" />
             </div>
