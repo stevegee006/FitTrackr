@@ -165,7 +165,10 @@ export function TutorialOverlay({
     // without a visible staircase; 2.5s is long enough for a query to resolve
     // and short enough not to feel stuck.
     const INTERVAL = 100;
-    const LIMIT = 2500;
+    // 1.2s. Long enough for a route change plus a query, short enough that a
+    // step whose target is genuinely absent does not read as a hang — which is
+    // exactly how 2.5s felt on the steps that had nothing to find.
+    const LIMIT = 1200;
     let waited = 0;
     let settled = false;
     let cancelled = false;

@@ -204,14 +204,16 @@ export default function ProgramsPage() {
           <h1 className="text-2xl font-bold tracking-tight">Programs</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">AI-generated training programs</p>
         </div>
-        <Button onClick={() => setShowGenerator(true)} className="gap-1.5">
+        {/* Tutorial target: the form it opens is rendered only after this is
+            clicked, so a tour pointing at the form had nothing to highlight. */}
+        <Button onClick={() => setShowGenerator(true)} className="gap-1.5" data-tutorial="program-generator">
           <Sparkles className="h-4 w-4" />
           Generate
         </Button>
       </div>
 
       {showGenerator && (
-        <Card className="space-y-4" data-tutorial="program-generator">
+        <Card className="space-y-4">
           <h2 className="font-semibold">Generate New Program</h2>
           <div className="grid grid-cols-2 gap-3">
             <div>

@@ -93,7 +93,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'programs',
     title: 'AI Training Programs',
-    body: 'Generate a personalized multi-week training program with AI. Set your goal, experience level, duration, and days per week — the AI builds a progressive overload plan. Supports OpenAI, Anthropic, and Gemini (BYOAI).',
+    body: 'Tap Generate to build a personalised multi-week program with AI. Pick your goal, experience level, duration, and days per week, and it writes a progressive overload plan. Works with OpenAI, Anthropic, or Gemini — your own key.',
     targetKey: 'program-generator',
     placement: 'bottom',
     route: '/programs',
@@ -101,7 +101,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'training-goals',
     title: 'Volume Targets',
-    body: 'Generate AI-powered weekly set targets per muscle group. These populate the ring targets on your dashboard so you always know how much more volume each muscle needs.',
+    body: 'Tap Generate for AI weekly set targets per muscle group. These become the ring targets on your dashboard, so you always know how much volume each muscle still needs.',
     targetKey: 'training-goal-generator',
     placement: 'bottom',
     route: '/training-goals',
