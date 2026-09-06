@@ -34,6 +34,12 @@ export async function buildApp() {
   const app = Fastify({
     loggerInstance: logger,
     trustProxy: true,
+    // Fastify defaults to 1MiB, which the screenshot import blew straight
+    // through: a phone screenshot is 1-3MB before base64 adds a third. The
+    // client downscales now, so this is headroom for several images rather
+    // than the mechanism — but at the default, two large images failed before
+    // the handler ever ran.
+    bodyLimit: 20 * 1024 * 1024,
   });
 
   // Plugins
@@ -68,6 +74,22 @@ export async function buildApp() {
           code: 'VALIDATION_ERROR',
           message: 'Validation failed',
           details: error.flatten().fieldErrors,
+        },
+      });
+    }
+
+    // Fastify's own client errors — 413 body too large, 429 rate limited, 400
+    // malformed JSON — carry a statusCode and a useful message. Falling
+    // through to the 500 branch below threw both away and reported "an
+    // unexpected error occurred (ref ...)", which sent a real body-limit
+    // rejection to the logs as if it were a crash.
+    const statusCode = (error as { statusCode?: number }).statusCode;
+    if (typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500) {
+      request.log.warn({ err: error, statusCode }, 'Client error');
+      return reply.code(statusCode).send({
+        error: {
+          code: (error as { code?: string }).code ?? 'BAD_REQUEST',
+          message: (error as { message?: string }).message ?? 'Request rejected.',
         },
       });
     }

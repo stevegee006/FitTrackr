@@ -213,18 +213,61 @@ export default function WorkoutsPage() {
     setAiForm({ workoutType: '', preferences: '' });
   }
 
-  function handleImageFiles(files: FileList | null) {
-    if (!files || files.length === 0) return;
-    Array.from(files).forEach((file) => {
+  /**
+   * Shrink before upload.
+   *
+   * A phone screenshot is 1-3MB, and base64 adds a third on top — so a single
+   * image could exceed the API's body limit on its own, and two reliably did.
+   * The request was then rejected before the handler ran, which surfaced as an
+   * opaque server error rather than anything about size.
+   *
+   * 1536px on the long edge is what the vision model works from anyway;
+   * sending more pixels costs upload time and tokens and buys no accuracy.
+   * JPEG at 0.85 keeps set/rep digits legible while cutting the payload by
+   * roughly a factor of ten.
+   *
+   * Falls back to the original on any failure. A slightly-too-large image that
+   * might work beats no import at all.
+   */
+  function downscaleImage(file: File): Promise<string> {
+    const MAX_EDGE = 1536;
+    return new Promise((resolve) => {
       const reader = new FileReader();
-      reader.onload = (e) => {
-        const b64 = e.target?.result as string;
-        setImportImages((prev) => [...prev, b64]);
-        setAiPreview(null);
-        setAiError('');
+      reader.onload = () => {
+        const original = reader.result as string;
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const scale = Math.min(1, MAX_EDGE / Math.max(img.width, img.height));
+            if (scale === 1 && original.length < 900_000) return resolve(original);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(img.width * scale);
+            canvas.height = Math.round(img.height * scale);
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return resolve(original);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL('image/jpeg', 0.85));
+          } catch {
+            resolve(original);
+          }
+        };
+        img.onerror = () => resolve(original);
+        img.src = original;
       };
+      reader.onerror = () => resolve('');
       reader.readAsDataURL(file);
     });
+  }
+
+  async function handleImageFiles(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setAiPreview(null);
+    setAiError('');
+    for (const file of Array.from(files)) {
+      const b64 = await downscaleImage(file);
+      if (b64) setImportImages((prev) => [...prev, b64]);
+    }
   }
 
   function removeImportImage(index: number) {
