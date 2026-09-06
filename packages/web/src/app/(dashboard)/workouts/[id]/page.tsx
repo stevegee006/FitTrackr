@@ -173,6 +173,18 @@ export default function WorkoutDetailPage() {
   // has fired accidentally from a mis-tap on the collapsing header.
   const [confirmDeleteExerciseId, setConfirmDeleteExerciseId] = useState<string | null>(null);
   const startAnchorRef = useRef<number>(0);
+  /**
+   * Latch: the session is over, so the Live Activity must NOT be recreated.
+   *
+   * Ending the activity is not enough on its own. `finishMutation` calls
+   * `setClockRunning(false)`, and `clockRunning` is a dependency of the sync
+   * effect below — so the effect re-ran immediately after the end and started
+   * a fresh, paused activity, which then sat on the Lock Screen until it was
+   * dismissed by hand. A ref rather than state on purpose: it must take effect
+   * for the render that `setClockRunning` itself triggers, and a state update
+   * would not have been applied yet.
+   */
+  const sessionOverRef = useRef(false);
 
   // ── Timer localStorage persistence ──────────────────────────────────────────
   // Key: fittrackr:timer:<workoutId>
@@ -431,6 +443,7 @@ export default function WorkoutDetailPage() {
   const deleteMutation = useMutation({
     mutationFn: () => apiFetch(`/workouts/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
+      sessionOverRef.current = true;
       clearTimerState();
       void endWorkoutActivity();
       void stopWatchWorkout();
@@ -475,6 +488,8 @@ export default function WorkoutDetailPage() {
     onSuccess: () => {
       // Stop the ticker WITHOUT persisting — pauseClock() saves, so calling it
       // after clearTimerState() re-created the key it had just removed.
+      // Before setClockRunning, which retriggers the sync effect.
+      sessionOverRef.current = true;
       setClockRunning(false);
       clearTimerState();
       // The session is over — the Live Activity goes with it. Left running it
@@ -499,6 +514,8 @@ export default function WorkoutDetailPage() {
   const reopenMutation = useMutation({
     mutationFn: () => apiFetch(`/workouts/${id}/reopen`, { method: 'POST' }),
     onSuccess: () => {
+      // Reopening makes it a live session again, so the activity may return.
+      sessionOverRef.current = false;
       queryClient.invalidateQueries({ queryKey: ['workout', id] });
       queryClient.invalidateQueries({ queryKey: ['workouts'] });
     },
@@ -603,6 +620,8 @@ export default function WorkoutDetailPage() {
    */
   useEffect(() => {
     if (!workoutStarted || !workout) return;
+    // Finished or deleted — see `sessionOverRef`.
+    if (sessionOverRef.current) return;
 
     const working = (workout.sets ?? []).filter((x) => !x.isWarmup);
     void syncWorkoutActivity({
@@ -631,6 +650,7 @@ export default function WorkoutDetailPage() {
   }, [clockRunning]);
 
   const startClock = useCallback(() => {
+    sessionOverRef.current = false;
     const anchor = Date.now();
     startAnchorRef.current = anchor;
     setElapsed(0);

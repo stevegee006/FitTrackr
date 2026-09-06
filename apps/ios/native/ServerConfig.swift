@@ -16,7 +16,8 @@ import Foundation
 enum ServerConfig {
     private static let key = "fittrackr.serverURL"
 
-    /// Falls back to whatever capacitor.config.ts shipped with.
+    /// The chosen host, or the compiled default — which is normally ABSENT,
+    /// since shipping one points every install at whoever made the build.
     static var current: URL? {
         if let stored = UserDefaults.standard.string(forKey: key),
            let url = URL(string: stored) {
@@ -34,7 +35,8 @@ enum ServerConfig {
         UserDefaults.standard.string(forKey: key) != nil
     }
 
-    /// The `server.url` baked into the bundled capacitor.config.json.
+    /// The `server.url` baked into the bundled capacitor.config.json. Nil in
+    /// normal builds; only non-nil if someone deliberately re-adds one.
     static var compiledDefault: URL? {
         guard
             let path = Bundle.main.url(forResource: "capacitor.config", withExtension: "json"),

@@ -80,16 +80,24 @@ public class WorkoutActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    /**
+     End every activity this app owns, not just the remembered one.
+
+     `Self.current` is in-memory, so it is empty after a relaunch — and an
+     activity started before the app was killed would then be unstoppable from
+     here, left counting on the Lock Screen with no way to clear it but a
+     swipe. `Activity.activities` is the live list from the system, which is
+     the only source that survives the process.
+     */
     @objc func end(_ call: CAPPluginCall) {
         guard #available(iOS 16.1, *) else { return call.resolve() }
-        guard let activity = Self.current as? Activity<WorkoutActivityAttributes> else {
-            return call.resolve()
-        }
         Self.current = nil
 
         Task {
             // `.immediate` — an activity outliving its workout is worse than none.
-            await activity.end(dismissalPolicy: .immediate)
+            for activity in Activity<WorkoutActivityAttributes>.activities {
+                await activity.end(dismissalPolicy: .immediate)
+            }
             call.resolve()
         }
     }

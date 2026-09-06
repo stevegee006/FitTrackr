@@ -15,10 +15,10 @@
   </head>
   <body>
     <!--
-      Placeholder only. The shell loads https://fittrackr.geehive.com via
-      `server.url` in capacitor.config.ts, so this is what you see when the
-      server is unreachable — not the app.
+      Placeholder only. capacitor.config.ts ships NO `server.url`, so this is
+      what Capacitor falls back to until a host has been chosen — and what you
+      see if the chosen one is unreachable. Never the app itself.
     -->
-    <p>Can’t reach FitTrackr.<br />Check your connection and reopen the app.</p>
+    <p>No FitTrackr server set.<br />Enter the address of your instance to continue.</p>
   </body>
 </html>

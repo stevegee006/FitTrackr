@@ -341,11 +341,31 @@ what compiles**. Both paths need copying before a build, or an edit lands
 nowhere and the compiler quietly builds yesterday:
 
 ```
-cd apps/ios   && cp native/*.swift ios/App/App/   && cp native/watch/*.swift "ios/App/FitTrackrWatch Watch App/"   && npx cap sync ios
+cd apps/ios   && cp native/*.swift ios/App/   && cp native/*.swift ios/App/App/   && cp native/watch/*.swift "ios/App/FitTrackrWatch Watch App/"   && npx cap sync ios
 ```
 
+Yes, three destinations. `ios/App/` and `ios/App/App/` both accumulated
+copies, and the project references the OUTER ones — which is how a plugin
+registered in `native/MainViewController.swift` stayed missing from
+`Capacitor.Plugins` after a rebuild that reported success.
+
 The tell that you have hit this: an error whose path starts `ios/App/...`
-naming a line you just fixed in `native/`.
+naming a line you just fixed in `native/`, or a change that simply does not
+take.
+
+### The app icon
+
+```
+sh apps/ios/scripts/install-icons.sh
+```
+
+Installs `icon/AppIcon-1024.png` into both asset catalogues. Run it after
+regenerating the Xcode project, since `apps/ios/ios` is gitignored and the
+catalogues go with it.
+
+The source is full-bleed and has no alpha on purpose — iOS applies its own
+squircle mask, so an icon carrying its own rounded corners shows black
+wedges past the mask, and alpha is rejected outright at validation.
 
 ### Testing it
 

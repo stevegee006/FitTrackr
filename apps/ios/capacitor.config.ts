@@ -29,12 +29,18 @@ const config: CapacitorConfig = {
   webDir: 'www',
   server: {
     /**
-     * The DEFAULT only. `MainViewController.instanceDescriptor()` overrides
-     * this from UserDefaults at launch, so a friend running their own instance
-     * points the app at it from Profile → Settings (or the first-run prompt)
-     * rather than editing this file and rebuilding.
+     * DELIBERATELY no `url`.
+     *
+     * The host is a runtime setting — `MainViewController.instanceDescriptor()`
+     * reads it from UserDefaults at launch, and the first-run prompt asks for
+     * it. Baking one in made every build carry the author's instance, so a
+     * friend installing it landed on someone else's server staring at a login
+     * for an account they do not have. Shipping no default means the app has
+     * to ask, which is the correct behaviour for something self-hosted.
+     *
+     * With no url, Capacitor falls back to `webDir` until a host is chosen —
+     * ./www is a "no server configured" placeholder, never the app.
      */
-    url: 'https://fittrackr.geehive.com',
     cleartext: false,
     /**
      * Required for switching hosts without a relaunch — without it the webview

@@ -21,6 +21,7 @@ import { Server, AlertTriangle } from 'lucide-react';
 export function ServerSettingsCard() {
   const [native, setNative] = useState(false);
   const [current, setCurrent] = useState('');
+  const [hasDefault, setHasDefault] = useState(false);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -34,6 +35,9 @@ export function ServerSettingsCard() {
       if (!cfg) return;
       setCurrent(cfg.url);
       setDraft(cfg.url);
+      // Builds normally ship without one, so "Use default" would reset to
+      // nothing at all — worse than useless.
+      setHasDefault(Boolean(cfg.default));
     });
   }, []);
 
@@ -103,14 +107,16 @@ export function ServerSettingsCard() {
         >
           Connect
         </button>
-        <button
-          type="button"
-          onClick={reset}
-          disabled={busy}
-          className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300 disabled:opacity-40"
-        >
-          Use default
-        </button>
+        {hasDefault && (
+          <button
+            type="button"
+            onClick={reset}
+            disabled={busy}
+            className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300 disabled:opacity-40"
+          >
+            Use default
+          </button>
+        )}
       </div>
 
       <p className="text-[11px] text-gray-400 dark:text-gray-500">
