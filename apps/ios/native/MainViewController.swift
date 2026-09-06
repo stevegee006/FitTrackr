@@ -55,10 +55,75 @@ class MainViewController: CAPBridgeViewController {
     }
 
     private var hasPromptedOnLaunch = false
+    private var splashView: UIView?
+    private var splashFailsafe: Timer?
 
     override func viewDidLoad() {
         super.viewDidLoad()
         webView?.navigationDelegate = self
+        showSplash()
+    }
+
+    // MARK: - Splash
+
+    /**
+     A splash the app controls, held until the web app has actually loaded.
+
+     The LaunchScreen storyboard is not enough here. iOS dismisses it when the
+     APP finishes launching, not when its content appears — and this shell's
+     content is a website fetched over the network. The storyboard therefore
+     vanishes within a fraction of a second, leaving one to several seconds of
+     empty webview before anything renders. Worse, that empty webview is the
+     same `#030712` as the storyboard, so the two are indistinguishable and it
+     reads as though no splash exists at all.
+
+     Deliberately identical to the storyboard — same colour, same 200pt logo,
+     same position — so the handover between them is invisible and the whole
+     launch looks like one continuous screen.
+
+     No `@capacitor/splash-screen`: this is a dozen lines against a dependency
+     that would need its own config, its own sync step, and a JS call to hide.
+     The webview already tells us when it has finished.
+     */
+    private func showSplash() {
+        guard splashView == nil else { return }
+
+        let overlay = UIView(frame: view.bounds)
+        overlay.backgroundColor = UIColor(red: 3 / 255, green: 7 / 255, blue: 18 / 255, alpha: 1)
+        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+
+        let logo = UIImageView(image: UIImage(named: "Splash"))
+        logo.contentMode = .scaleAspectFit
+        logo.translatesAutoresizingMaskIntoConstraints = false
+        overlay.addSubview(logo)
+
+        NSLayoutConstraint.activate([
+            logo.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+            logo.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
+            logo.widthAnchor.constraint(equalToConstant: 200),
+            logo.heightAnchor.constraint(equalToConstant: 162),
+        ])
+
+        view.addSubview(overlay)
+        splashView = overlay
+
+        // Never let the splash become the app. A server that accepts the
+        // connection and then never finishes loading would otherwise leave the
+        // logo on screen forever, with no way to reach the server setting.
+        splashFailsafe?.invalidate()
+        splashFailsafe = Timer.scheduledTimer(withTimeInterval: 15, repeats: false) { [weak self] _ in
+            self?.hideSplash()
+        }
+    }
+
+    private func hideSplash() {
+        splashFailsafe?.invalidate()
+        splashFailsafe = nil
+        guard let overlay = splashView else { return }
+        splashView = nil
+        UIView.animate(withDuration: 0.25, animations: { overlay.alpha = 0 }) { _ in
+            overlay.removeFromSuperview()
+        }
     }
 
     /**
@@ -153,11 +218,22 @@ class MainViewController: CAPBridgeViewController {
 }
 
 extension MainViewController: WKNavigationDelegate {
+    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        hideSplash()
+    }
+
     public func webView(_ webView: WKWebView,
                         didFailProvisionalNavigation navigation: WKNavigation!,
                         withError error: Error) {
-        // -999 is "cancelled", which happens routinely when a load is replaced.
+        // -999 is "cancelled", which happens routinely when a load is replaced
+        // — a switch of server, say. The splash stays up: another load is
+        // starting, and flashing it away and back would look like a glitch.
         if (error as NSError).code == NSURLErrorCancelled { return }
+
+        // A real failure, so uncover the prompt. It would present above the
+        // splash regardless, but leaving the logo behind it misrepresents what
+        // is happening.
+        hideSplash()
 
         promptForServer(
             reason: "Couldn't reach \(ServerConfig.currentString).\n\nCheck the address, or that the server is running."
