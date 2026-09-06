@@ -33,8 +33,14 @@ class MainViewController: CAPBridgeViewController {
         super.viewDidLoad()
         webView?.navigationDelegate = self
 
-        if !ServerConfig.isConfigured && ServerConfig.compiledDefault == nil {
-            promptForServer(reason: "Enter the address of your FitTrackr server.")
+        // Prompt whenever the user has not CHOSEN a server, even when this
+        // build ships with a default. Gating on `compiledDefault == nil` was
+        // wrong: anyone installing a build made by someone else silently lands
+        // on that person's instance, staring at a login screen for an account
+        // they do not have — and the in-app setting lives behind that login.
+        // Prefilled with the default, so accepting it is one tap.
+        if !ServerConfig.isConfigured {
+            promptForServer(reason: "Which FitTrackr server should this app use?")
         }
     }
 

@@ -124,6 +124,11 @@ These are the GUI steps that cannot be scripted.
    If Xcode asks about an Objective-C bridging header when you add the `.m`
    files, say **yes** and leave the generated header empty.
 
+   **Untick "Copy items if needed."** With it ticked Xcode duplicates the files
+   into `ios/App/`, and the copies are what get compiled — so edits to
+   `native/` in the repo silently do nothing, and the two versions drift.
+   Referencing them keeps one copy under version control.
+
 4. **Replace the sample widget.** Xcode generated a `FitTrackrWidgetBundle`
    with placeholder widgets. Edit it so its `body` contains only
    `WorkoutLiveActivity()`, and delete the sample widget/attributes files it

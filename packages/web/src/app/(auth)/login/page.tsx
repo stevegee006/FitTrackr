@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/Card';
 import { getApiUrl } from '@/lib/api-client';
 import { startAuthentication } from '@simplewebauthn/browser';
 import { Eye, EyeOff } from 'lucide-react';
+import { ServerSettingsCard } from '@/components/settings/ServerSettingsCard';
 
 interface SsoProviderInfo {
   id: string;
@@ -261,6 +262,16 @@ export default function LoginPage() {
           </Link>
         </p>
       )}
+
+      {/* Native iOS shell only — renders nothing on the web.
+
+          It has to be HERE and not just in Profile → Settings: the settings
+          screen is behind a login, and you cannot log in to the wrong server.
+          Anyone self-hosting who installs this build lands on someone else's
+          instance with no way out. */}
+      <div className="mt-6">
+        <ServerSettingsCard />
+      </div>
     </Card>
   );
 }
