@@ -11,7 +11,7 @@ setup instructions live in [README.md](README.md); **this file is about intent,
 state, and sharp edges** — the things you would otherwise have to rediscover by
 breaking something._
 
-> **Read sharp edges #56–#112 before touching iOS layout, asset generation, AI
+> **Read sharp edges #56–#113 before touching iOS layout, asset generation, AI
 > prompts, summaries/PRs/awards, the auth/refresh path, persisted timer state,
 > cardio/bodyweight handling, muscle-group enums and labels, the finish/reopen
 > flow, what counts as a performed set, or trusting any `git`/`gh`/preview command in
@@ -1372,6 +1372,40 @@ is exactly why it is written down here.
     than importing `@capacitor/core`, so the web bundle gains no dependency and
     every call is a no-op that resolves in Safari and in the PWA.
 
+113. **Three ways a Capacitor plugin fails SILENTLY, all hit in one sitting.**
+    Every one produces an app that builds, launches and runs normally while the
+    plugin simply does not exist — no error in Xcode, none in the JS console:
+    - the source file not being in the **App target** (it was added to the
+      widget extension, which does not link Capacitor);
+    - registering via a `CAP_PLUGIN` macro in a `.m` file, which is the
+      Capacitor 5-era approach and registers nothing in 7 — plugins conform to
+      **`CAPBridgedPlugin`** and declare `identifier`, `jsName`,
+      `pluginMethods`;
+    - and, even with that correct, **Capacitor 6+ no longer discovers plugins
+      by scanning the Objective-C runtime.** It instantiates the classes named
+      in `packageClassList` in the generated `capacitor.config.json`, which the
+      CLI builds from installed **npm packages** — so an app-local plugin is
+      never in it. Those must be registered by hand in
+      `MainViewController.capacitorDidLoad()`, which survives `cap sync`.
+      **Anything added to `apps/ios/native/` needs a line there.**
+
+    The check that distinguishes all three, in Safari's inspector attached to
+    the app (Develop → Simulator → the page):
+
+    ```js
+    Object.keys(Capacitor.Plugins)
+    ```
+
+    A stock project lists four built-ins; ours must also show
+    `WorkoutActivity` and `ServerConfig`. Run this BEFORE testing a feature —
+    inferring from "the Live Activity didn't appear" cost three rounds of
+    looking at the wrong layer.
+114. **Xcode compiles COPIES if "Copy items if needed" is ticked.** The sources
+    live in `apps/ios/native/`, but adding them with that box ticked duplicates
+    them into `ios/App/` and those copies are what build — so editing the repo
+    and rebuilding changes nothing, silently. Either untick it when adding, or
+    remember to `cp native/*.swift ios/App/` after every pull.
+
 ### Awards and benchmarks
 
 80. **Benchmark matching is deliberately strict, and must stay that way.**
@@ -1734,7 +1768,7 @@ And an eleventh batch — two bugs found by using the recap:
   always the workouts list — `router.back()`, falling back to the list when
   there is no history (a deep link or fresh tab), where it would otherwise
   leave the app.
-- **A native iOS shell with a session Live Activity** (#109–#112) — a thin
+- **A native iOS shell with a session Live Activity** (#109–#114) — a thin
   Capacitor app in `apps/ios/` that loads the deployed site, plus a widget
   extension showing elapsed workout time, sets done, and the rest countdown
   with its exercise and set, on the Lock Screen and in the Dynamic Island. One
