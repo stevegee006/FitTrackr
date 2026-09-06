@@ -25,6 +25,7 @@ public class WatchWorkoutPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "status", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "start", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "summary", returnType: CAPPluginReturnPromise),
     ]
 
     /// Lets the web app hide the feature rather than offer something that
@@ -57,5 +58,31 @@ public class WatchWorkoutPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func stop(_ call: CAPPluginCall) {
         PhoneWatchConnector.shared.stopWorkout()
         call.resolve(["stopped": true])
+    }
+
+    /**
+     Average heart rate and active energy for the session that started at
+     `startedAt` (epoch milliseconds).
+
+     Resolves with `found: false` rather than rejecting when HealthKit has
+     nothing yet — which is ordinary for the first seconds after finishing,
+     since the watch saving the workout and it appearing in the phone's store
+     are not the same moment. The web side retries on that.
+     */
+    @objc func summary(_ call: CAPPluginCall) {
+        guard let startedAtMs = call.getDouble("startedAt") else {
+            return call.resolve(["found": false, "reason": "no startedAt"])
+        }
+        let startedAt = Date(timeIntervalSince1970: startedAtMs / 1000)
+
+        Task {
+            guard let result = await PhoneWatchConnector.shared.workoutSummary(startedAt: startedAt) else {
+                return call.resolve(["found": false])
+            }
+            var payload: [String: Any] = ["found": true]
+            if let bpm = result.avgHeartRate { payload["avgHeartRateBpm"] = bpm }
+            if let kcal = result.activeEnergyKcal { payload["activeEnergyKcal"] = kcal }
+            call.resolve(payload)
+        }
     }
 }

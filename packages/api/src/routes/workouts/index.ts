@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import {
   createWorkoutSchema, updateWorkoutSchema, addSetSchema, updateSetSchema, finishWorkoutSchema,
+  workoutHealthSchema,
   // Interpolated into the prompt below rather than written out: a muscle group
   // the model is never told about is one it can never return.
   muscleGroupValues, equipmentValues, exerciseCategoryValues,
@@ -188,6 +189,17 @@ export default async function workoutRoutes(fastify: FastifyInstance) {
       const { id } = req.params as any;
       const body = finishWorkoutSchema.parse(req.body ?? {});
       const data = await workoutService.finishWorkout(fastify, req.user.sub, id, body);
+      return { data };
+    },
+  });
+
+  // PATCH /workouts/:id/health — what the watch measured, once HealthKit has it
+  fastify.patch('/workouts/:id/health', {
+    preHandler: [fastify.authenticate],
+    handler: async (req) => {
+      const { id } = req.params as any;
+      const body = workoutHealthSchema.parse(req.body ?? {});
+      const data = await workoutService.recordWorkoutHealth(fastify, req.user.sub, id, body);
       return { data };
     },
   });

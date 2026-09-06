@@ -28,6 +28,19 @@ export const finishWorkoutSchema = z.object({
   durationMin: z.number().int().positive().max(1440).nullish(),
 });
 
+/**
+ * Measurements read back from HealthKit after the watch saves the session.
+ *
+ * Both nullable, because a workout logged without a watch has neither and must
+ * not be recorded as zero. The bounds are sanity rails rather than physiology:
+ * a resting-band heart rate or a five-figure calorie burn means the wrong
+ * workout was matched, and writing it would corrupt the summary silently.
+ */
+export const workoutHealthSchema = z.object({
+  avgHeartRateBpm: z.number().int().min(30).max(240).nullish(),
+  activeEnergyKcal: z.number().int().min(0).max(10000).nullish(),
+});
+
 export const addSetSchema = z.object({
   exerciseId: z.string().uuid(),
   setNumber: z.number().int().min(1),
@@ -63,6 +76,7 @@ export const createWorkoutTemplateSchema = z.object({
 export type CreateWorkoutInput = z.infer<typeof createWorkoutSchema>;
 export type UpdateWorkoutInput = z.infer<typeof updateWorkoutSchema>;
 export type FinishWorkoutInput = z.infer<typeof finishWorkoutSchema>;
+export type WorkoutHealthInput = z.infer<typeof workoutHealthSchema>;
 export type AddSetInput = z.infer<typeof addSetSchema>;
 export type UpdateSetInput = z.infer<typeof updateSetSchema>;
 export type CreateWorkoutTemplateInput = z.infer<typeof createWorkoutTemplateSchema>;

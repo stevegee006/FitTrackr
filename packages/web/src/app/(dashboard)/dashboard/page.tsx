@@ -87,7 +87,7 @@ export default function DashboardPage() {
   const { data: volumeData, isLoading: volumeLoading } = useQuery({
     queryKey: ['workout-volume', weekStart, weekEnd],
     queryFn: () =>
-      apiFetch<{ data: { volumeByMuscle: Record<string, number>; totalWeightKg: number } }>(
+      apiFetch<{ data: { volumeByMuscle: Record<string, number>; totalWeightKg: number; activeEnergyKcal?: number } }>(
         `/workouts/volume?from=${weekStart}&to=${weekEnd}`
       ),
   });
@@ -215,6 +215,7 @@ export default function DashboardPage() {
           volumeByMuscle={volumeByMuscle}
           weeklySetTargets={weeklySetTargets}
           totalWeightKg={volumeData?.data?.totalWeightKg}
+          activeEnergyKcal={volumeData?.data?.activeEnergyKcal}
           units={settingsData?.data?.preferredUnits}
           streak={streak}
           streakDaysThisWeek={streakInfo.thisWeekDays}

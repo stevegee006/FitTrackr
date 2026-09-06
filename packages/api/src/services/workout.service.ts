@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { CreateWorkoutInput, UpdateWorkoutInput, AddSetInput, UpdateSetInput, FinishWorkoutInput } from '@fittrackr/shared';
+import type { CreateWorkoutInput, UpdateWorkoutInput, AddSetInput, UpdateSetInput, FinishWorkoutInput, WorkoutHealthInput } from '@fittrackr/shared';
 import { NotFoundError, ForbiddenError } from '../utils/errors.js';
 import { checkAndUpdatePersonalRecords, getPRsForWorkout, recomputePersonalRecords } from './personal-record.service.js';
 import { tally, diffTally, performedSets } from './workout-summary.js';
@@ -267,6 +267,34 @@ export async function finishWorkout(
 }
 
 /**
+ * Record what the watch measured for a session.
+ *
+ * Separate from finishWorkout on purpose. The numbers are not available when
+ * Finish is pressed: the watch has to end its session, and HealthKit has to
+ * save the workout, before anything can be read back. Folding them into finish
+ * would mean either blocking the summary on HealthKit or losing them entirely.
+ *
+ * Only ever writes values that were supplied — a later call with nothing to
+ * report must not blank what an earlier one recorded.
+ */
+export async function recordWorkoutHealth(
+  fastify: FastifyInstance,
+  userId: string,
+  workoutId: string,
+  data: WorkoutHealthInput,
+) {
+  await assertWorkoutOwner(fastify, userId, workoutId);
+
+  return fastify.prisma.workout.update({
+    where: { id: workoutId },
+    data: {
+      ...(data.avgHeartRateBpm != null && { avgHeartRateBpm: data.avgHeartRateBpm }),
+      ...(data.activeEnergyKcal != null && { activeEnergyKcal: data.activeEnergyKcal }),
+    },
+  });
+}
+
+/**
  * Reopen a finished workout so it can be logged into again.
  *
  * Finishing must not be a one-way door: the author finishes a session, notices
@@ -439,6 +467,12 @@ export async function getWorkoutSummary(
       workoutType: workout.workoutType,
       logDate: workout.logDate.toISOString().split('T')[0],
       durationMin: workout.durationMin,
+      completedAt: workout.completedAt?.toISOString() ?? null,
+      // NULL means the session was never measured — a phone-only workout, or
+      // one from before the watch app. The recap says nothing rather than
+      // showing a zero that looks like a terrible effort.
+      avgHeartRateBpm: workout.avgHeartRateBpm,
+      activeEnergyKcal: workout.activeEnergyKcal,
     },
     totals: {
       exercises: exerciseIds.length,
@@ -508,7 +542,30 @@ export async function getWeeklyVolume(
     }
   }
 
-  return { volumeByMuscle, totalWeightKg: Math.round(totalWeightKg) };
+  // Active energy is per WORKOUT, not per set, so it is summed separately from
+  // the set-derived numbers above. Only workouts that actually carry a
+  // measurement contribute; `recorded` lets the dashboard distinguish "no
+  // calories burned" from "nothing was measured this week", which look
+  // identical as a bare zero.
+  const energyRows = await fastify.prisma.workout.findMany({
+    where: {
+      userId,
+      logDate: {
+        gte: new Date(from + 'T00:00:00Z'),
+        lte: new Date(to + 'T23:59:59Z'),
+      },
+      activeEnergyKcal: { not: null },
+    },
+    select: { activeEnergyKcal: true },
+  });
+  const activeEnergyKcal = energyRows.reduce((sum, w) => sum + (w.activeEnergyKcal ?? 0), 0);
+
+  return {
+    volumeByMuscle,
+    totalWeightKg: Math.round(totalWeightKg),
+    activeEnergyKcal,
+    energyWorkouts: energyRows.length,
+  };
 }
 
 export async function getWorkoutRange(

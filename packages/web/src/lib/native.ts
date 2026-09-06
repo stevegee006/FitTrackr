@@ -169,6 +169,9 @@ interface WatchWorkoutBridge {
   status(): Promise<{ healthAvailable: boolean; paired: boolean; appInstalled: boolean }>;
   start(options: { workoutName: string }): Promise<{ started: boolean; reason?: string }>;
   stop(): Promise<{ stopped: boolean }>;
+  summary(options: { startedAt: number }): Promise<{
+    found: boolean; avgHeartRateBpm?: number; activeEnergyKcal?: number;
+  }>;
 }
 
 export interface WatchStatus {
@@ -197,4 +200,35 @@ export async function startWatchWorkout(workoutName: string): Promise<void> {
 export async function stopWatchWorkout(): Promise<void> {
   try { await (plugins()?.WatchWorkout as WatchWorkoutBridge | undefined)?.stop(); }
   catch { /* ignore */ }
+}
+
+export interface WatchWorkoutSummary {
+  avgHeartRateBpm: number | null;
+  activeEnergyKcal: number | null;
+}
+
+/**
+ * What the watch measured, read back out of HealthKit.
+ *
+ * Returns null when there is nothing yet, which is ORDINARY rather than an
+ * error: the watch ending its session and the workout appearing in the phone's
+ * HealthKit store are seconds apart, so the caller retries. Treating the first
+ * empty answer as "no data" would lose the measurement on nearly every
+ * session.
+ *
+ * `startedAt` is epoch milliseconds. The native side matches by time and
+ * activity type, since the phone never learns the workout's identifier — the
+ * watch owns the session and saves it on its own side.
+ */
+export async function getWatchWorkoutSummary(startedAt: number): Promise<WatchWorkoutSummary | null> {
+  try {
+    const bridge = plugins()?.WatchWorkout as WatchWorkoutBridge | undefined;
+    if (!bridge) return null;
+    const res = await bridge.summary({ startedAt });
+    if (!res?.found) return null;
+    return {
+      avgHeartRateBpm: res.avgHeartRateBpm ?? null,
+      activeEnergyKcal: res.activeEnergyKcal ?? null,
+    };
+  } catch { return null; }
 }

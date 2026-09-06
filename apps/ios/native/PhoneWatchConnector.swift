@@ -76,7 +76,73 @@ final class PhoneWatchConnector: NSObject {
         guard HKHealthStore.isHealthDataAvailable() else { return }
         try await healthStore.requestAuthorization(
             toShare: [HKQuantityType.workoutType()],
-            read: [HKQuantityType.workoutType(), HKQuantityType(.heartRate)]
+            read: [
+                HKQuantityType.workoutType(),
+                HKQuantityType(.heartRate),
+                // Needed to read the session's energy back afterwards. Missing
+                // it does not fail loudly — the statistics simply come back
+                // nil, which reads as "the watch measured nothing".
+                HKQuantityType(.activeEnergyBurned),
+            ]
+        )
+    }
+
+    /**
+     What the watch actually measured, read back after HealthKit saves it.
+
+     Matched by TIME rather than by identifier, because the phone never learns
+     the workout's UUID — the watch owns the session and saves it on its own
+     side. The window starts a minute before the session did, to tolerate the
+     small disagreement between the phone's clock reading and the sample the
+     watch actually anchored to.
+
+     Returns nil when there is nothing yet. That is the normal case for the
+     first few seconds after finishing: `finishWorkout()` on the wrist and the
+     sample arriving in the phone's HealthKit store are not the same instant,
+     and the caller is expected to retry rather than treat it as "no data".
+     */
+    func workoutSummary(startedAt: Date) async -> (avgHeartRate: Int?, activeEnergyKcal: Int?)? {
+        guard HKHealthStore.isHealthDataAvailable() else { return nil }
+
+        // Narrowed to the activity type this app records. Without it the newest
+        // workout in the window could easily be an Outdoor Walk the watch
+        // logged on its own, and its heart rate would be written to a lifting
+        // session as if it were the truth.
+        let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            HKQuery.predicateForSamples(
+                withStart: startedAt.addingTimeInterval(-60),
+                end: nil,
+                options: .strictStartDate
+            ),
+            HKQuery.predicateForWorkouts(with: .traditionalStrengthTraining),
+        ])
+        let newestFirst = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+
+        let workout: HKWorkout? = await withCheckedContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: .workoutType(),
+                predicate: predicate,
+                limit: 1,
+                sortDescriptors: [newestFirst]
+            ) { _, samples, _ in
+                continuation.resume(returning: samples?.first as? HKWorkout)
+            }
+            healthStore.execute(query)
+        }
+
+        guard let workout else { return nil }
+
+        let bpm = HKUnit.count().unitDivided(by: .minute())
+        let heart = workout.statistics(for: HKQuantityType(.heartRate))?
+            .averageQuantity()?.doubleValue(for: bpm)
+        let energy = workout.statistics(for: HKQuantityType(.activeEnergyBurned))?
+            .sumQuantity()?.doubleValue(for: .kilocalorie())
+
+        // Rounded here rather than in JavaScript: 138.4 bpm is false precision
+        // for a workout summary, and the column is an integer.
+        return (
+            heart.map { Int($0.rounded()) },
+            energy.map { Int($0.rounded()) }
         )
     }
 

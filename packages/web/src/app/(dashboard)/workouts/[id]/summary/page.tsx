@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
@@ -10,10 +10,11 @@ import { Spinner } from '@/components/ui/Spinner';
 import { Button } from '@/components/ui/Button';
 import { DurationEditModal } from '@/components/workout/DurationEditModal';
 import { CelebrationBurst, consumeCelebrate } from '@/components/workout/CelebrationBurst';
-import { ChevronLeft, Trophy, TrendingUp, TrendingDown, Minus, Sparkles, Pencil } from 'lucide-react';
+import { ChevronLeft, Trophy, TrendingUp, TrendingDown, Minus, Sparkles, Pencil, Heart, Flame } from 'lucide-react';
 import { WORKOUT_TYPE_LABELS } from '@fittrackr/shared';
 import { formatDuration } from '@/lib/utils';
 import { CoachReviewCard, type CoachReview } from '@/components/coach/CoachReviewCard';
+import { getWatchWorkoutSummary } from '@/lib/native';
 
 const LB_PER_KG = 2.20462;
 
@@ -48,6 +49,11 @@ interface WorkoutSummary {
     workoutType: keyof typeof WORKOUT_TYPE_LABELS;
     logDate: string;
     durationMin: number | null;
+    /** Absent on an older API. */
+    completedAt?: string | null;
+    /** NULL means never measured — no watch — not a burn of zero. */
+    avgHeartRateBpm?: number | null;
+    activeEnergyKcal?: number | null;
   };
   totals: {
     exercises: number; sets: number; totalReps: number; volumeKg: number;
@@ -95,6 +101,67 @@ export default function WorkoutSummaryPage() {
   // after an early return runs conditionally and throws React error #310,
   // which took every workout detail page down in production once (#77).
   const [coachStarted, setCoachStarted] = useState(false);
+
+  const queryClient = useQueryClient();
+  /**
+   * Pull heart rate and calories out of HealthKit and store them.
+   *
+   * Runs here rather than on Finish because the numbers do not exist yet at
+   * that moment: the watch has to end its session and HealthKit has to save
+   * the workout first. Hence the retries — an empty first answer is normal,
+   * not a signal that there is nothing to find.
+   *
+   * Gated on `avgHeartRateBpm == null` so it happens once and never again:
+   * revisiting an old recap must not re-query, and a workout that genuinely
+   * had no watch must not retry forever on every visit. `askedRef` stops
+   * React's double-mount in development running it twice.
+   */
+  const askedRef = useRef(false);
+  const summaryWorkout = data?.data?.workout;
+  useEffect(() => {
+    if (!summaryWorkout || askedRef.current) return;
+    if (summaryWorkout.avgHeartRateBpm != null || summaryWorkout.activeEnergyKcal != null) return;
+    // Only a finished session has anything to look for.
+    if (!summaryWorkout.completedAt) return;
+    askedRef.current = true;
+
+    const endedAt = new Date(summaryWorkout.completedAt).getTime();
+    if (!Number.isFinite(endedAt)) return;
+    // Reconstructed, because the recap never knew the start instant. The
+    // native side sorts newest-first and filters to this app's activity type,
+    // so a generous floor costs nothing while a tight one risks missing a
+    // session whose clock disagreed slightly with the watch's.
+    const startedAt = summaryWorkout.durationMin != null
+      ? endedAt - summaryWorkout.durationMin * 60_000
+      : endedAt - 4 * 60 * 60_000;
+
+    let cancelled = false;
+    (async () => {
+      // HealthKit is seconds behind the watch. Six tries over ~30s covers it
+      // without leaving a timer running behind a screen nobody is looking at.
+      for (let attempt = 0; attempt < 6 && !cancelled; attempt++) {
+        const found = await getWatchWorkoutSummary(startedAt);
+        if (found && (found.avgHeartRateBpm != null || found.activeEnergyKcal != null)) {
+          if (cancelled) return;
+          try {
+            await apiFetch(`/workouts/${id}/health`, {
+              method: 'PATCH',
+              body: JSON.stringify(found),
+            });
+            if (!cancelled) {
+              queryClient.invalidateQueries({ queryKey: ['workout-summary', id] });
+              queryClient.invalidateQueries({ queryKey: ['workout-volume'] });
+            }
+          } catch { /* the recap is still worth showing without it */ }
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+    })();
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [summaryWorkout?.id, summaryWorkout?.completedAt]);
 
   // What the next fetch should do. A ref, not query state, so refetch() reads
   // the intent at call time and a remount cannot replay a refresh and re-spend
@@ -221,6 +288,34 @@ export default function WorkoutSummaryPage() {
             </div>
           ))}
         </div>
+        {/* Only when the watch actually measured it. A zero here would read as
+            a genuinely feeble session rather than as "no watch". */}
+        {(s.workout.avgHeartRateBpm != null || s.workout.activeEnergyKcal != null) && (
+          <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 flex items-center justify-center gap-6">
+            {s.workout.avgHeartRateBpm != null && (
+              <div className="flex items-center gap-1.5">
+                <Heart className="h-4 w-4 text-rose-500" />
+                <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                  {s.workout.avgHeartRateBpm}
+                </span>
+                <span className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  avg bpm
+                </span>
+              </div>
+            )}
+            {s.workout.activeEnergyKcal != null && (
+              <div className="flex items-center gap-1.5">
+                <Flame className="h-4 w-4 text-orange-500" />
+                <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                  {s.workout.activeEnergyKcal}
+                </span>
+                <span className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  kcal
+                </span>
+              </div>
+            )}
+          </div>
+        )}
         {(s.totals.durationSec > 0 || s.totals.distanceM > 0) && (
           <p className="mt-3 text-center text-xs text-gray-600 dark:text-gray-300">
             {s.totals.durationSec > 0 && `${clock(s.totals.durationSec)} of timed work`}

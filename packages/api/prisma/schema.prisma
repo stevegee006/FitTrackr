@@ -273,6 +273,12 @@ model Workout {
   // workout logged before migration 0009 reads — see the note there.
   completedAt   DateTime?   @map("completed_at")
   workoutType   WorkoutType @map("workout_type")
+  // Read back from HealthKit after the Apple Watch saves the session. NULL
+  // means "not recorded" rather than zero: a workout logged on the phone, or
+  // one finished before the watch app existed, genuinely has no measurement
+  // and must not be averaged in as a nought.
+  avgHeartRateBpm  Int?     @map("avg_heart_rate_bpm")
+  activeEnergyKcal Int?     @map("active_energy_kcal")
   notes         String?     @db.Text
   exerciseOrder String[]    @default([]) @map("exercise_order")
   // Set when the session was started from a program day, so adherence and the

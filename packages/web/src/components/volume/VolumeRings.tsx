@@ -14,6 +14,8 @@ interface VolumeRingsProps {
   volumeByMuscle: Partial<Record<MuscleGroup, number>>;
   weeklySetTargets?: Partial<Record<MuscleGroup, number>>;
   totalWeightKg?: number;
+  /** Summed from the workouts that were recorded on a watch. */
+  activeEnergyKcal?: number;
   units?: 'METRIC' | 'IMPERIAL';
   streak?: number;
   /** Distinct training days so far in the current week. */
@@ -95,6 +97,7 @@ export function VolumeRings({
   volumeByMuscle,
   weeklySetTargets,
   totalWeightKg,
+  activeEnergyKcal,
   units = 'METRIC',
   streak,
   streakDaysThisWeek,
@@ -119,15 +122,25 @@ export function VolumeRings({
     : null;
   const weightLabel = units === 'IMPERIAL' ? 'lbs lifted' : 'kg lifted';
 
+  // Only when something was actually measured. A zero ring would say "you
+  // burned nothing this week" about a week nobody wore a watch for.
+  const showEnergy = activeEnergyKcal != null && activeEnergyKcal > 0;
+
+  // Four 84px rings plus gap-6 is 408px, which overflows every phone. Shrink
+  // rather than wrap: a wrapped fourth ring reads as a separate stat block.
+  const ringCount = 2 + (weightDisplay != null ? 1 : 0) + (showEnergy ? 1 : 0);
+  const ringSize = ringCount >= 4 ? 68 : 84;
+  const ringGap = ringCount >= 4 ? 'gap-3' : 'gap-6';
+
   return (
     <div>
-      <div className="flex justify-center gap-6 py-2">
+      <div className={`flex justify-center ${ringGap} py-2`}>
         <Ring
           value={workoutCount}
           max={weeklyFrequency ?? null}
           label="Workouts"
           color="#6366f1"
-          size={84}
+          size={ringSize}
           bgStroke={bgStroke}
         />
         <Ring
@@ -135,7 +148,7 @@ export function VolumeRings({
           max={totalTarget && totalTarget > 0 ? totalTarget : null}
           label="Total Sets"
           color="#10b981"
-          size={84}
+          size={ringSize}
           bgStroke={bgStroke}
         />
         {weightDisplay != null && (
@@ -144,9 +157,20 @@ export function VolumeRings({
             max={null}
             label={weightLabel}
             color="#f59e0b"
-            size={84}
+            size={ringSize}
             bgStroke={bgStroke}
             displayValue={formatWeight(weightDisplay)}
+          />
+        )}
+        {showEnergy && (
+          <Ring
+            value={activeEnergyKcal!}
+            max={null}
+            label="kcal burned"
+            color="#f97316"
+            size={ringSize}
+            bgStroke={bgStroke}
+            displayValue={formatWeight(activeEnergyKcal!)}
           />
         )}
       </div>
