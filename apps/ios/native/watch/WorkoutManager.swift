@@ -1,5 +1,6 @@
 import Foundation
 import HealthKit
+import Combine
 
 /**
  The actual workout recording, on the watch.
