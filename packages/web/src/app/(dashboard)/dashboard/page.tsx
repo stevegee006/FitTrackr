@@ -10,7 +10,7 @@ import { WorkoutCard } from '@/components/workout/WorkoutCard';
 import { WorkoutTypeIcon } from '@/components/workout/WorkoutTypeIcon';
 import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
-import { Plus, Sparkles, BarChart3 } from 'lucide-react';
+import { Plus, Sparkles, BarChart3, BookOpen, Target, ChevronRight } from 'lucide-react';
 import type { Workout, UserProfile, TrainingGoal, MuscleGroup, WorkoutType } from '@fittrackr/shared';
 import { MUSCLE_GROUP_LABELS, WORKOUT_TYPE_LABELS, WORKOUT_TYPE_COLORS } from '@fittrackr/shared';
 import Link from 'next/link';
@@ -265,6 +265,33 @@ export default function DashboardPage() {
           ))}
         </div>
       </Card>
+
+      {/*
+        The only route to these two pages.
+
+        Both have existed and worked for a long time with nothing anywhere
+        linking to them — the bottom nav holds five fixed items and neither is
+        among them. The onboarding tour navigates to both by route, so it was
+        showing new users two screens they could never reach again afterwards.
+      */}
+      <div className="grid grid-cols-2 gap-3">
+        <Link
+          href="/exercises"
+          className="flex items-center gap-2 p-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-indigo-300 dark:hover:border-indigo-700 transition-all active:scale-95"
+        >
+          <BookOpen className="h-4 w-4 shrink-0 text-indigo-500" />
+          <span className="flex-1 text-xs font-medium text-gray-700 dark:text-gray-200">Exercise Library</span>
+          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+        </Link>
+        <Link
+          href="/training-goals"
+          className="flex items-center gap-2 p-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-indigo-300 dark:hover:border-indigo-700 transition-all active:scale-95"
+        >
+          <Target className="h-4 w-4 shrink-0 text-emerald-500" />
+          <span className="flex-1 text-xs font-medium text-gray-700 dark:text-gray-200">Training Goals</span>
+          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+        </Link>
+      </div>
 
       {/* This week's workouts */}
       <div>
