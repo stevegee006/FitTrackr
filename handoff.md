@@ -1,16 +1,28 @@
 # HANDOFF — FitTrackr
 
-_Last updated: 2026-09-04 (through `6242178` — AI answers persist in Redis and
-the workout-type emoji became real icons; earlier the same day: exercise notes,
-coach reviews of a week and of a session, the next-week plan being written into
-real workouts, five new muscle groups with a full exercise editor, Finish
-actually finalising a workout, optimistic set updates, and the service worker
-that had been strangling every API GET. Written as a handoff for the
+_Last updated: 2026-09-06 (through `44e5180` — a **native iOS app** now exists:
+a Capacitor shell around the deployed web app, with a session Live Activity, a
+runtime-configurable server, and an **Apple Watch app that records the workout
+as a real `HKWorkoutSession`**, whose heart rate and active energy are read
+back into the session summary. Also this batch: the tutorial no longer dies
+partway, screenshot import works on real screenshots, and the exercise library
+and training goals are reachable at all. Previously (2026-09-04, `6242178`): AI
+answers persist in Redis, workout-type icons, exercise notes, coach reviews,
+the next-week plan written into real workouts, five new muscle groups, Finish
+finalising a workout, optimistic set updates, and the service worker that had
+been strangling every API GET. Written as a handoff for the
 next engineer (or AI session) picking this up. The user-facing feature list and
 setup instructions live in [README.md](README.md); **this file is about intent,
 state, and sharp edges** — the things you would otherwise have to rediscover by
 breaking something._
 
+> **iOS/watchOS work starts at #110.** The whole native app was built and
+> shipped to a device in two sittings, and nearly every hour lost went to
+> something that failed *silently*: plugins that never registered, files Xcode
+> compiled from a copy, five separate install gates that all report as the same
+> sentence, and a splash screen that was working correctly and looked broken.
+> #113–#121 are that story. Read them before touching `apps/ios`.
+>
 > **Read sharp edges #56–#113 before touching iOS layout, asset generation, AI
 > prompts, summaries/PRs/awards, the auth/refresh path, persisted timer state,
 > cardio/bodyweight handling, muscle-group enums and labels, the finish/reopen
@@ -24,6 +36,9 @@ breaking something._
 > app.
 >
 > **Four test suites, 196 assertions:** `pnpm --filter @fittrackr/api test`.
+> There is still no frontend test runner, and this batch is a fresh argument
+> for one: the tutorial dead-ending, the orphaned pages, and the cramped rings
+> were all found by a human looking at a screen.
 
 ## Goal
 
@@ -1314,7 +1329,8 @@ is exactly why it is written down here.
 ### The native iOS shell
 
 109. **The shell loads the DEPLOYED SITE; it does not bundle the web app.**
-    `apps/ios/capacitor.config.ts` sets `server.url` to
+    (Superseded — builds now ship NO default; see the 09-06 log.)
+    `apps/ios/capacitor.config.ts` used to set `server.url` to
     `https://fittrackr.geehive.com`, so the webview's origin is the real https
     origin rather than `capacitor://localhost`. That single decision is what
     keeps the port cheap: **passkeys keep working** (rpID is the hostname, #4),
@@ -1510,6 +1526,63 @@ is exactly why it is written down here.
     dependency and installs the container before the watch app. Switching
     schemes is only needed to attach the debugger to the phone — for native
     console output — not to get a current build onto it.
+122. **Ending a Live Activity is not enough — something has to stop it being
+    recreated.** `endWorkoutActivity()` was called correctly on finish, and
+    the activity came straight back: `finishMutation` calls
+    `setClockRunning(false)`, `clockRunning` is a dependency of the sync
+    effect, so the effect re-ran in the same tick and started a fresh, paused
+    activity. What the user sees is a frozen timer that has to be swiped away,
+    which looks exactly like a failure to end it.
+
+    The latch is a **ref, not state** — it has to hold for the render that
+    `setClockRunning` itself triggers, and a state update would not have
+    applied yet. Released again by reopening or starting a clock.
+
+    Separately, `end()` must sweep `Activity.activities` rather than the one
+    it remembered: a static property is empty after a relaunch, so an activity
+    started by a previous process was unstoppable from inside the app.
+123. **A tutorial step whose target is conditionally rendered is a dead end,
+    and it took three passes to see why.** In order:
+
+    1. The step after AI Coach pointed at `start-workout`, which only exists
+       inside the dashboard's `workouts.length === 0` empty state. With a
+       `targetKey` set, the tooltip was positioned from `tooltipPos`, which
+       stays null when nothing is found — so it rendered unpositioned and
+       invisible. A dark overlay with no card and no way forward, which reads
+       as "the tutorial stopped".
+    2. Making a missing target fall back to a centred card fixed the dead end
+       but introduced a flicker, because the tooltip was still being rendered
+       *while* the retry loop searched. Steps that navigate are the common
+       case: the target mounts only after its query resolves.
+    3. The real cause on Programs and Training Goals: both targets live inside
+       `{showGenerator && ...}` and exist only AFTER the user clicks Generate.
+       They were never coming, so no amount of retrying could help. Both steps
+       now point at the Generate BUTTON, which is always present.
+
+    The general lesson: `resolving` and `missing` are different states and
+    want opposite treatment — wait quietly, versus fall back. Collapsing them
+    into one boolean is what produced two rounds of wrong fixes. And before
+    adding a tutorial step, check its target is not behind a condition; a
+    quick audit found `workout-quick-start` had NO matching element anywhere.
+124. **Fastify's own errors were being reported as crashes.** The error
+    handler checked `AppError` and `ZodError`, then fell through to a 500 with
+    a random ref for everything else — so a 413 body-too-large, a 429, or a
+    malformed-JSON 400 all became "an unexpected error occurred (ref abc123)"
+    and were logged as unhandled. Precise, correct rejections were
+    undiagnosable from either end.
+
+    Found via screenshot import, which was sending full-resolution base64: a
+    phone screenshot is 1-3MB and base64 adds a third, against Fastify's
+    **1MiB default `bodyLimit`**. The request was rejected before the route
+    handler ran, so the route's own error handling never applied. The client
+    downscales to 1536px now — which is what the vision model works from
+    anyway — and the limit is 20MB of headroom rather than the mechanism.
+125. **Pages with no route into them.** `/exercises` and `/training-goals`
+    both worked and neither was linked from anywhere: the bottom nav has five
+    fixed slots and neither was among them. The onboarding tour navigated to
+    both by route, so it was showing new users two screens they could never
+    reach again. Worth an occasional audit — grep the `(dashboard)` routes
+    against `nav-items.ts` and any `<Link href>`.
 
 ### Awards and benchmarks
 
@@ -1565,7 +1638,7 @@ is exactly why it is written down here.
     `translateZ(0)` are inline for this reason, as is the settings toggle knob
     offset.
 
-## Recent work log (2026-08-26 → 2026-09-04)
+## Recent work log (2026-08-26 → 2026-09-06)
 
 Batches in the order they shipped, newest sections at the end. Recorded because
 the *reasons* are not in the diffs — the what is in `git log`.
@@ -1906,6 +1979,65 @@ And an eleventh batch — two bugs found by using the recap:
   new code: time and distance are now checked *first*, both on the page and in
   the plan prompt, and a recorded 0 kg reads as no load rather than "0 lbs".
 
+### 2026-09-05 → 09-06 — the native iOS app, on real hardware
+
+Two sittings. The first got a Capacitor shell running in the simulator with a
+Live Activity; the second got it onto a phone, added an Apple Watch app, and
+fixed everything that only breaks on a device.
+
+**What the shell is.** `apps/ios` is a Capacitor project that does NOT bundle
+the web app — it loads the deployed site. That keeps passkeys working (rpID is
+the hostname), keeps CORS working, keeps Next on `output: 'standalone'`, and
+means every web deploy reaches the app on next launch with no rebuild. The PWA
+remains a fully working fallback rather than a second thing to keep in step.
+
+- **Live Activity** (`d1cafc9`, `f4843ae`, `730c236`) — one activity for the
+  whole session, not one per feature, updated through a single idempotent
+  `sync` call so the web side never tracks whether one exists. It counts on
+  its own via `Text(timerInterval:)`, so there is no push, no APNs and no paid
+  entitlement. Ending it needed a latch (#122): `endWorkoutActivity()` was
+  being called correctly and then immediately undone by the sync effect.
+- **The server is a runtime setting** (`f4843ae`, `7fb045b`, `730c236`,
+  `77f043e`) — stored in `UserDefaults`, fed to Capacitor's instance
+  descriptor before the webview loads, so it is still an ordinary
+  `server.url`. Builds ship with NO default: baking one in meant every install
+  pointed at the author's instance, staring at a login for an account the user
+  does not have, with the in-app setting behind that login.
+- **The Apple Watch app** (`a7bb263`, `84aeb34`, `223b7ec`) — the reason it is
+  a watch app rather than an `HKWorkout` write is that only an
+  `HKWorkoutSession` **on the wrist** samples heart rate and derives active
+  energy from it. A workout written from the phone lands in Fitness with
+  neither and earns no honest Move-ring credit.
+  `HKHealthStore.startWatchApp(toHandle:)` is the only way an iPhone can start
+  a watch app at all; that constraint is what makes "press Start on the phone
+  and the watch begins recording" possible.
+- **Heart rate and calories in the summary** (`4b5436e`, migration `0010`) —
+  read back from HealthKit AFTER the fact, because the values do not exist
+  when Finish is pressed. Matched by time *and* activity type; without the
+  type filter the newest workout in the window can be an Outdoor Walk the
+  watch logged by itself. NULL means "never measured", not zero, everywhere.
+- **Icon and splash** (`730c236`, `a68f9a9`, `b7fe470`) — generated from the
+  PWA's own assets by `scripts/install-icons.sh`, which exists because
+  `apps/ios/ios` is gitignored and hand-placed assets vanish on regeneration.
+
+**Web fixes found by using the app on a phone**, all in the same batch:
+
+- **The tutorial died after the AI Coach step** (`8cbafb8`, `b37fc1d`,
+  `44e5180`) — three separate causes, see #123. Worth reading as a set: the
+  first fix was right but incomplete, the second addressed a symptom of the
+  first, and only the third found that two steps pointed at forms that render
+  only after a button is clicked.
+- **Screenshot import failed on any real screenshot** (`489cbb0`) — full-res
+  base64 over Fastify's 1MiB default body limit, reported as a 500 because the
+  error handler discarded `error.statusCode`. See #124; the handler fix
+  matters more than the import one.
+- **The exercise library and training goals were unreachable** (`efd689c`) —
+  both pages worked, nothing linked to either, and the tour navigated to them
+  by route. It was showing new users two screens they could never find again.
+- **Training goals can be deactivated** (`cdf7c55`) — and the ring target
+  moved outside the circle, which only became a problem once a goal existed
+  and every ring gained a second line at once.
+
 ## Current state
 
 Deployed and in daily real use by the author against real workout data. The
@@ -1913,11 +2045,14 @@ Docker Hub images track `main` automatically; the Portainer stack is updated
 by hand with "Pull and redeploy". Live host is `fittrackr.geehive.com` with
 the API on `fittrackr-api.geehive.com`.
 
-**All migrations `0001`–`0009` are applied and confirmed in production.**
-There is nothing pending on the database side: the five new muscle groups
-exist and are in use (the coach's own output shows Adductors and Abductors
-chips, so the two hip machines were re-tagged), and Finish stamps
-`completed_at`.
+**Migrations `0001`–`0009` are applied and confirmed in production.
+`0010_workout_health_metrics` is NEW and needs `prisma migrate deploy`** — it
+adds `avg_heart_rate_bpm` and `active_energy_kcal` to `workouts`. Until it
+runs, the summary's PATCH will fail and no heart rate is ever stored.
+
+The five new muscle groups exist and are in use (the coach's own output shows
+Adductors and Abductors chips, so the two hip machines were re-tagged), and
+Finish stamps `completed_at`.
 
 **The reverse proxy read timeout has been raised to 180 s** for the API host
 (Nginx Proxy Manager → the host's Advanced tab), which is what finally let the
@@ -1928,6 +2063,24 @@ constraint on anything that calls a provider.
 review, the coach's review of a week, the next-week plan, the awards tab,
 program and workout summaries, cardio mode, finish/reopen, and the muscle
 group labels.
+
+**Confirmed working on real hardware (iPhone 16 Pro + Apple Watch Series 11)**:
+the shell, the first-run server prompt, the Live Activity in the Dynamic
+Island, the splash, the app icon, and — end to end — pressing Start on the
+phone waking the watch into a recording `HKWorkoutSession`, then Finish
+stopping and saving it.
+
+**The iOS app is a personal-team build, so it EXPIRES after seven days.** Both
+the phone and watch app stop launching; rebuilding from Xcode resets it. It
+presents as "integrity could not be verified" or a silent refusal to open, not
+as anything mentioning expiry.
+
+**Not yet verified**: the heart-rate and calories read-back. It needs migration
+`0010` deployed and a real session on the wrist; the numbers appear on the
+recap up to ~30s after finishing. If they do not,
+`await Capacitor.Plugins.WatchWorkout.summary({startedAt: Date.now() - 3600000})`
+in Safari's inspector separates "HealthKit has nothing" from "the web side is
+not storing it".
 
 **Built, green in CI, but NOT yet seen in the app** — everything from
 `3babadc` onward:
@@ -1972,30 +2125,39 @@ Known outstanding user-facing items:
 
 ## Next steps (not built, roughly by value)
 
-0. **Redeploy and confirm the last four commits on a device** — see Current
-   state. No migration is needed; nothing from `3babadc` onward has been seen
-   in the app.
-1. **A frontend test runner.** Still the gap that has actually hurt: the React
-   #310 crash (#77) and the service worker capping every API GET (#95) would
-   both have been caught by *any* render test, and neither was caught by a
-   green build. `lib/streak.ts`, the duration helpers, `lib/infer-exercise.ts`
+0. **Deploy `0010` and confirm heart rate reaches the recap** — see Current
+   state. This is the one piece of the watch feature never seen working.
+1. **Get the iOS project into version control, or accept it is disposable.**
+   `apps/ios/ios` is gitignored, so the Xcode project — the watch target, its
+   Info keys, the HealthKit capabilities, the deployment target, every target
+   membership — exists only on one Mac. Rebuilding it from the README is
+   perhaps an hour, and the README is now accurate enough to do that. But a
+   disk failure loses a day, and #116's three copy destinations are a symptom
+   of the same rootlessness. Either commit the `.xcodeproj` or write the
+   target setup as an `xcodegen`/`tuist` spec.
+2. **A frontend test runner.** Still the gap that has actually hurt, and this
+   batch made the case again: the tutorial dead-ending (#123), the orphaned
+   pages (#125) and the cramped rings were all found by a human looking at a
+   screen, on top of the React #310 crash (#77) and the service worker capping
+   every API GET (#95). Every one would have been caught by *any* render test;
+   none was caught by a green build. `lib/streak.ts`, the duration helpers, `lib/infer-exercise.ts`
    and the api-client refresh logic are covered only by throwaway harnesses in
    a scratchpad. This is worth more than any feature below it.
-2. **Finish the optimistic updates** (#36). Done for the set PATCH/DELETE and
+3. **Finish the optimistic updates** (#36). Done for the set PATCH/DELETE and
    the whole-exercise delete; what is left is the page's own mutations — add
    set, add warmup, the warmup ladder, reorder. Add-set is the fiddliest: it
    needs a temp-id placeholder row, and `SetRow` must not be able to PATCH a
    temp id if the user types into it before the POST returns. Doing #3 first
    makes the ladder case tractable.
-3. **A bulk set-create endpoint** (#76) so exercise replay and the warmup
+4. **A bulk set-create endpoint** (#76) so exercise replay and the warmup
    ladder are one request instead of N, and cannot partly succeed.
-4. **A shared unit-display helper** (#53). Three unit bugs have shipped from
+5. **A shared unit-display helper** (#53). Three unit bugs have shipped from
    each component deciding conversion for itself, and the duplication is now
    SEVEN deep — every new page (summaries, coach, recap, awards) has
    re-declared `LB_PER_KG` and its own converter. `formatDuration` in
    `lib/utils` is the pattern that worked for time: do the same for weight and
    distance, `formatWeight(kg, units)` plus a `useUnits()` hook.
-5. **Make `docker-entrypoint.sh` fail hard** instead of falling through to
+6. **Make `docker-entrypoint.sh` fail hard** instead of falling through to
    `db push` and then starting anyway (#1). Highest damage-per-effort item on
    the backend.
 6. **Fix the CORS boundary check** (#6) — a one-line change to require a
