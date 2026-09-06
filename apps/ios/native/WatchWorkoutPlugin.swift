@@ -30,11 +30,15 @@ public class WatchWorkoutPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Lets the web app hide the feature rather than offer something that
     /// cannot work — no watch paired, or the app not installed on it.
     @objc func status(_ call: CAPPluginCall) {
-        call.resolve([
-            "healthAvailable": HKHealthStore.isHealthDataAvailable(),
-            "paired": PhoneWatchConnector.shared.isPaired,
-            "appInstalled": PhoneWatchConnector.shared.isWatchAppInstalled,
-        ])
+        Task {
+            // Reading through an unactivated session reports "no watch".
+            await PhoneWatchConnector.shared.waitUntilActivated()
+            call.resolve([
+                "healthAvailable": HKHealthStore.isHealthDataAvailable(),
+                "paired": PhoneWatchConnector.shared.isPaired,
+                "appInstalled": PhoneWatchConnector.shared.isWatchAppInstalled,
+            ])
+        }
     }
 
     @objc func start(_ call: CAPPluginCall) {

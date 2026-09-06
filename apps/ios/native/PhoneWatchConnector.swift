@@ -28,9 +28,39 @@ final class PhoneWatchConnector: NSObject {
 
     private override init() {
         super.init()
+        activate()
+    }
+
+    /// Idempotent — safe to call on every launch path.
+    func activate() {
         guard WCSession.isSupported() else { return }
-        WCSession.default.delegate = self
-        WCSession.default.activate()
+        let session = WCSession.default
+        session.delegate = self
+        if session.activationState != .activated { session.activate() }
+    }
+
+    /**
+     Wait for the session to activate before reading anything from it.
+
+     `isPaired` and `isWatchAppInstalled` are meaningless until activation
+     completes: they report `false`, which is indistinguishable from "no watch
+     is paired". Because the singleton activates when it is first touched, the
+     first call after launch would always answer false and every later one
+     true — the app would claim to have no watch exactly once per launch, and
+     the first workout of a session would silently skip the wrist.
+
+     Polled rather than continuation-based on purpose. This runs once at
+     launch, never in a hot path, and a bounded poll cannot hang the caller if
+     the delegate never fires — whereas a stranded continuation leaves the
+     JavaScript promise pending forever.
+     */
+    func waitUntilActivated() async {
+        guard WCSession.isSupported() else { return }
+        activate()
+        for _ in 0..<30 {
+            if WCSession.default.activationState == .activated { return }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
     }
 
     var isPaired: Bool {
@@ -51,6 +81,7 @@ final class PhoneWatchConnector: NSObject {
     }
 
     func startWorkout(named name: String) async throws {
+        await waitUntilActivated()
         try await requestAuthorization()
 
         let config = HKWorkoutConfiguration()

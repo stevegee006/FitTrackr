@@ -47,6 +47,11 @@ class MainViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(WorkoutActivityPlugin())
         bridge?.registerPluginInstance(ServerConfigPlugin())
         bridge?.registerPluginInstance(WatchWorkoutPlugin())
+
+        // Begin WCSession activation now rather than on first use. Activation
+        // is asynchronous, and anything that reads the session before it
+        // completes is told there is no watch.
+        PhoneWatchConnector.shared.activate()
     }
 
     override func viewDidLoad() {
