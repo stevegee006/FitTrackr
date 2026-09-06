@@ -6,7 +6,7 @@ import ActivityKit
  Capacitor bridge for the session Live Activity.
 
  Exposed to JavaScript as `Capacitor.Plugins.WorkoutActivity` with two methods:
- `sync` and `end`. Deliberately only two — `sync` starts the activity if there
+ `sync` and `end`, registered via `CAPBridgedPlugin`. Deliberately only two — `sync` starts the activity if there
  is none and updates it otherwise, so the web side never has to track whether
  one exists. Every state change (clock started, paused, resumed, a set ticked,
  rest begun or finished) is the same call with a different payload, which makes
@@ -19,7 +19,22 @@ import ActivityKit
  resolve rather than reject.
  */
 @objc(WorkoutActivityPlugin)
-public class WorkoutActivityPlugin: CAPPlugin {
+public class WorkoutActivityPlugin: CAPPlugin, CAPBridgedPlugin {
+
+    // Capacitor 7 registers plugins through this protocol. The old approach —
+    // a CAP_PLUGIN macro in a companion .m file — no longer registers anything
+    // on its own, and fails SILENTLY: the app builds, runs, and
+    // `Capacitor.Plugins` simply does not contain the plugin. Check with
+    // `Object.keys(Capacitor.Plugins)` in Safari's inspector rather than
+    // guessing.
+    //
+    // `jsName` is the name JavaScript looks up; `identifier` is the ObjC class.
+    public let identifier = "WorkoutActivityPlugin"
+    public let jsName = "WorkoutActivity"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "sync", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "end", returnType: CAPPluginReturnPromise),
+    ]
 
     /// The activity currently on screen, if any. `Any?` because the concrete
     /// `Activity<WorkoutActivityAttributes>` type is only available on iOS

@@ -124,18 +124,30 @@ export async function getServerConfig() {
   } catch { return null; }
 }
 
-/** Returns false when the address was rejected. The app reloads on success. */
-export async function setServerUrl(url: string): Promise<boolean> {
+/**
+ * `unavailable` is NOT the same as `invalid`, and conflating them cost a
+ * debugging session: with the plugin unregistered this returned false, and the
+ * UI said "that address was rejected" about a perfectly good URL. If the
+ * bridge is missing the app needs rebuilding, which is a completely different
+ * instruction to give someone.
+ */
+export type ServerSetResult = 'ok' | 'invalid' | 'unavailable';
+
+export async function setServerUrl(url: string): Promise<ServerSetResult> {
+  const bridge = plugins()?.ServerConfig as ServerConfigBridge | undefined;
+  if (!bridge) return 'unavailable';
   try {
-    const res = await (plugins()?.ServerConfig as ServerConfigBridge | undefined)?.set({ url });
-    return res?.ok ?? false;
-  } catch { return false; }
+    const res = await bridge.set({ url });
+    return res?.ok ? 'ok' : 'invalid';
+  } catch { return 'invalid'; }
 }
 
 /** Back to the URL this build shipped with. */
-export async function resetServerUrl(): Promise<boolean> {
+export async function resetServerUrl(): Promise<ServerSetResult> {
+  const bridge = plugins()?.ServerConfig as ServerConfigBridge | undefined;
+  if (!bridge) return 'unavailable';
   try {
-    const res = await (plugins()?.ServerConfig as ServerConfigBridge | undefined)?.reset();
-    return res?.ok ?? false;
-  } catch { return false; }
+    const res = await bridge.reset();
+    return res?.ok ? 'ok' : 'invalid';
+  } catch { return 'invalid'; }
 }

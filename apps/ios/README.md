@@ -112,17 +112,14 @@ These are the GUI steps that cannot be scripted.
    |---|---|
    | `WorkoutActivityAttributes.swift` | **both** App and FitTrackrWidget |
    | `WorkoutLiveActivity.swift` | FitTrackrWidget only |
-   | `WorkoutActivityPlugin.swift` + `.m` | App only |
+   | `WorkoutActivityPlugin.swift` | App only |
    | `ServerConfig.swift` | App only |
-   | `ServerConfigPlugin.swift` + `.m` | App only |
+   | `ServerConfigPlugin.swift` | App only |
    | `MainViewController.swift` | App only |
 
    `WorkoutActivityAttributes.swift` being in only ONE target is the most
    common mistake — it surfaces as "cannot find type
    'WorkoutActivityAttributes'" in whichever target is missing it.
-
-   If Xcode asks about an Objective-C bridging header when you add the `.m`
-   files, say **yes** and leave the generated header empty.
 
    **Untick "Copy items if needed."** With it ticked Xcode duplicates the files
    into `ios/App/`, and the copies are what get compiled — so edits to
@@ -198,6 +195,35 @@ the symptoms.
 
 Signed-in sessions belong to a server, so switching means signing in again.
 
+## Registering a plugin (Capacitor 7)
+
+A plugin must conform to **`CAPBridgedPlugin`** and declare its own identity:
+
+```swift
+@objc(MyPlugin)
+public class MyPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "MyPlugin"        // the ObjC class
+    public let jsName = "My"                   // what JavaScript looks up
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "doThing", returnType: CAPPluginReturnPromise),
+    ]
+}
+```
+
+The older approach — a `CAP_PLUGIN` macro in a companion `.m` file — does not
+register anything on its own in Capacitor 7, and **fails silently**: the app
+builds, runs, and `Capacitor.Plugins` simply lacks the plugin. There is no
+error in Xcode and none in the JS console.
+
+The check that actually answers it, in Safari's inspector attached to the app:
+
+```js
+Object.keys(Capacitor.Plugins)
+```
+
+A stock project lists `CapacitorHttp`, `Console`, `WebView`, `CapacitorCookies`.
+Ours should add `WorkoutActivity` and `ServerConfig`.
+
 ## How the web side talks to it
 
 `packages/web/src/lib/native.ts` detects Capacitor's injected
@@ -228,7 +254,7 @@ second and the widget counts on its own, so only real changes cross the bridge
 | `gem install cocoapods` → "ffi requires Ruby >= 3.0" | macOS system Ruby is 2.6. Use Homebrew's CocoaPods rather than pinning old gems |
 | `cap add ios` → cannot read `capacitor.config.ts` | `typescript` not installed — run `pnpm install` from the repo root first |
 | "Cannot find type 'WorkoutActivityAttributes'" | That file is in only one target; it needs **both** |
-| `Capacitor.Plugins.WorkoutActivity` is undefined in JS | The matching `.m` file is missing from the App target — Capacitor finds plugins through the Objective-C runtime |
+| `Capacitor.Plugins.WorkoutActivity` is undefined in JS | The plugin is not conforming to `CAPBridgedPlugin`, or its file is not in the App target. **This fails silently** — the app builds and runs. Check with `Object.keys(Capacitor.Plugins)` in Safari's inspector |
 | App loads but no Live Activity | `NSSupportsLiveActivities` missing, or Live Activities off in Settings → FitTrackr |
 | Dynamic Island shows nothing, Lock Screen fine | Not an iPhone 14 Pro or later — expected |
 | Server never changes from the default | The storyboard still points at `CAPBridgeViewController` |

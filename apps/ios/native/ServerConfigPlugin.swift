@@ -11,7 +11,17 @@ import Capacitor
  Add this file to the APP target (not the widget).
  */
 @objc(ServerConfigPlugin)
-public class ServerConfigPlugin: CAPPlugin {
+public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
+
+    // See the note in WorkoutActivityPlugin: Capacitor 7 registers through
+    // this protocol, and the older .m-file macro fails silently.
+    public let identifier = "ServerConfigPlugin"
+    public let jsName = "ServerConfig"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "get", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "set", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "reset", returnType: CAPPluginReturnPromise),
+    ]
 
     @objc func get(_ call: CAPPluginCall) {
         call.resolve([

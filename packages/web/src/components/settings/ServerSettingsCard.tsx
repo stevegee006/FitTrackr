@@ -39,22 +39,29 @@ export function ServerSettingsCard() {
 
   if (!native) return null;
 
+  const MESSAGES: Record<string, string> = {
+    invalid: 'That address was rejected. Use https, or a local network address.',
+    // Distinguished deliberately: "rejected" sent someone hunting a URL
+    // problem when the real fault was that the app had no bridge at all.
+    unavailable:
+      'This build has no server plugin — rebuild the app in Xcode to change the server.',
+  };
+
   async function save() {
     setBusy(true);
     setError(null);
-    const ok = await setServerUrl(draft);
+    const result = await setServerUrl(draft);
     setBusy(false);
-    if (!ok) {
-      setError('That address was rejected. Use https, or a local network address.');
-      return;
-    }
+    if (result !== 'ok') setError(MESSAGES[result]);
     // On success the app reloads onto the new host, so nothing after this runs.
   }
 
   async function reset() {
     setBusy(true);
-    await resetServerUrl();
+    setError(null);
+    const result = await resetServerUrl();
     setBusy(false);
+    if (result !== 'ok') setError(MESSAGES[result]);
   }
 
   return (
