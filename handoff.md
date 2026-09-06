@@ -1462,7 +1462,31 @@ is exactly why it is written down here.
     `requestAuthorization(toShare:read:)` and `HKQuantityType(.heartRate)`.
     Raised to 17.0. The floor was fictional either way: the Live Activity
     needs 16.1, so the app could never have run on the versions the setting
-    claimed to support.
+119. **Getting onto an Apple Watch has FIVE separate gates, each with its own
+    unhelpful message.** In the order they bite:
+
+    - *"App could not be installed at this time"* (from the Watch app on the
+      iPhone) — **Developer Mode on the WATCH**, which is separate from the
+      phone's. Settings -> Privacy & Security -> Developer Mode, restart, then
+      confirm the prompt again after the reboot.
+    - *"Cannot be installed because its integrity could not be verified"* —
+      the developer certificate needs trusting **on the watch too**: Settings
+      -> General -> VPN & Device Management. This is also what a lapsed 7-day
+      free profile looks like later, when the fix is just rebuilding.
+    - *Crash on launch, `NSHealthUpdateUsageDescription must be set`* — a
+      missing usage string does not deny permission, it **terminates the
+      process**. It names only the write key; add that alone and it crashes
+      again on the read key.
+    - *`Missing com.apple.developer.healthkit entitlement`* — the HealthKit
+      **capability** is per-target and was on App, not the watch. Usage
+      strings and the entitlement are different mechanisms; both required.
+    - *`Build input file cannot be found: ...-Info.plist`* — the target's
+      `INFOPLIST_FILE` survived the file being deleted from disk. Xcode still
+      renders its keys in the Info tab from the project file, so it looks
+      present right up until `Command Ld failed`.
+
+    Install to the watch from **Xcode** rather than the iPhone's Watch app:
+    the phone reports every one of these as the same sentence.
 
 ### Awards and benchmarks
 
