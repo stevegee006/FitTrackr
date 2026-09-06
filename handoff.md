@@ -1437,7 +1437,32 @@ is exactly why it is written down here.
     **Why it stayed hidden for weeks:** simulator builds never mount a DDI.
     Everything — the Live Activity included — was verified in the simulator,
     so the broken Xcode install only surfaced the first time a physical device
-    was needed, which is the watch feature that cannot be simulated at all.
+116. **The watch target's files are COPIES too, in a second location.** #114
+    said `cp native/*.swift ios/App/App/`; the watch target adds
+    `cp native/watch/*.swift "ios/App/FitTrackrWatch Watch App/"`. Adding
+    files by dragging copies them whatever the intent — the giveaway is a
+    compiler error whose path starts `ios/App/` citing a line already fixed
+    in `native/`, so a `git pull` appears to do nothing. Note the space in
+    the directory name; it must be quoted.
+
+    Dragging into a group whose folder IS the source folder is worse than
+    useless: Xcode copies the files onto themselves as `Foo 2.swift`, and
+    renaming them back fails because the originals are still there. Use
+    **File → Add Files** and set Action to **Reference files in place**
+    (Xcode 26 replaced the "Copy items if needed" checkbox with that
+    dropdown).
+117. **`ObservableObject` and `@Published` are Combine, not Foundation.** A
+    SwiftUI *view* file gets Combine transitively and compiles fine; a plain
+    model file with `import Foundation` does not. Symptom is two errors that
+    look unrelated — "does not conform to protocol 'ObservableObject'" plus
+    one "init(wrappedValue:) is not available due to missing import of
+    defining module 'Combine'" per `@Published`.
+118. **Capacitor scaffolds the App target at iOS 14.0.** Anything newer fails
+    to compile there with "is only available in iOS 15.0 or newer" — hit by
+    `requestAuthorization(toShare:read:)` and `HKQuantityType(.heartRate)`.
+    Raised to 17.0. The floor was fictional either way: the Live Activity
+    needs 16.1, so the app could never have run on the versions the setting
+    claimed to support.
 
 ### Awards and benchmarks
 

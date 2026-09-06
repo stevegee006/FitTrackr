@@ -303,13 +303,25 @@ running on the wrist until the system kills it — losing the whole workout.
 1. File → New → Target → **App** under watchOS. Name it `FitTrackrWatch`,
    and when asked, attach it to the existing **App** target so it installs
    alongside the phone app.
-2. Add the four files from `native/watch/` to the **watch** target only:
+2. **Delete both files Xcode generates** — `ContentView.swift` and its
+   `FitTrackrWatchApp.swift`. The generated app file declares `@main`, and so
+   does ours; two in one target is a hard error, and because the names match
+   it reads like a phantom duplicate rather than a collision.
+3. Add the four files from `native/watch/` to the **watch** target only:
    `WorkoutManager.swift`, `WatchConnector.swift`, `FitTrackrWatchApp.swift`,
-   `WatchWorkoutView.swift`. Delete the `ContentView.swift` Xcode generates.
-3. Add `PhoneWatchConnector.swift` and `WatchWorkoutPlugin.swift` from
-   `native/` to the **App** target.
-4. **Watch target → Signing & Capabilities → + Capability → HealthKit.**
-5. **Watch target → Info**, add:
+   `WatchWorkoutView.swift`. Say **no** to the Objective-C bridging header
+   Xcode offers — the target is pure Swift, and a stale
+   `SWIFT_OBJC_BRIDGING_HEADER` has already cost this project an hour once.
+4. Add `PhoneWatchConnector.swift` and `WatchWorkoutPlugin.swift` to the
+   **App** target.
+5. **App target → General → Minimum Deployments → iOS 17.0.** Capacitor
+   scaffolds the App target at iOS 14, and the phone-side HealthKit calls
+   need 15+: `requestAuthorization(toShare:read:)` and the
+   `HKQuantityType(.heartRate)` shorthand both fail to compile below it. The
+   app already cannot run under 16.1 anyway, since Live Activities need it —
+   the 14.0 floor was enforcing support the app never actually had.
+6. **Watch target → Signing & Capabilities → + Capability → HealthKit.**
+7. **Watch target → Info**, add:
 
    | Key | Type | Value |
    |---|---|---|
@@ -319,8 +331,21 @@ running on the wrist until the system kills it — losing the whole workout.
 
    `workout-processing` is not optional — without it the session is suspended
    when the screen sleeps and stops collecting.
-6. The **App** target needs the same two usage strings, plus the HealthKit
+8. The **App** target needs the same two usage strings, plus the HealthKit
    capability it already has.
+
+### Keeping the sources in sync
+
+Xcode copied these files rather than referencing them, so **the repo is not
+what compiles**. Both paths need copying before a build, or an edit lands
+nowhere and the compiler quietly builds yesterday:
+
+```
+cd apps/ios   && cp native/*.swift ios/App/App/   && cp native/watch/*.swift "ios/App/FitTrackrWatch Watch App/"   && npx cap sync ios
+```
+
+The tell that you have hit this: an error whose path starts `ios/App/...`
+naming a line you just fixed in `native/`.
 
 ### Testing it
 
