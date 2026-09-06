@@ -84,6 +84,10 @@ storyboard="$here/ios/App/App/Base.lproj/LaunchScreen.storyboard"
 if [ -d "$catalog" ]; then
   set="$catalog/Splash.imageset"
   mkdir -p "$set"
+  # Capacitor ships its own splash-2732x2732*.png in here. Left behind they are
+  # unreferenced by the Contents.json below — dead weight in the bundle, and
+  # confusing to anyone reading the catalogue later.
+  rm -f "$set"/*.png
   cp "$here/icon/Splash.png" "$here/icon/Splash@2x.png" "$here/icon/Splash@3x.png" "$set/"
   cat > "$set/Contents.json" <<'JSON'
 {
