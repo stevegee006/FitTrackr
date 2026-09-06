@@ -280,6 +280,53 @@ second and the widget counts on its own, so only real changes cross the bridge
 | "Untrusted Developer" on launch | Settings → General → VPN & Device Management → Trust |
 | Device missing from Xcode's dropdown | Developer Mode not enabled on the phone |
 
+## The Apple Watch app
+
+The watch app exists for one reason: **only an `HKWorkoutSession` running on
+the wrist samples heart rate and derives active energy from it.** A workout
+written from the phone appears in Fitness with neither, and so earns no honest
+Move-ring credit. This is what replaces starting the workout on the watch by
+hand.
+
+`HKHealthStore.startWatchApp(with:)` is the only way an iPhone can start a
+watch app — there is no general launch API. It hands over an
+`HKWorkoutConfiguration` that arrives in the watch app's
+`WKApplicationDelegate.handle(_:)`, which begins recording. Everything after
+that goes over WatchConnectivity.
+
+Stop uses `transferUserInfo`, not `sendMessage`: the latter needs the watch
+reachable at that instant, and a stop that silently fails leaves a session
+running on the wrist until the system kills it — losing the whole workout.
+
+### Adding the watch target
+
+1. File → New → Target → **App** under watchOS. Name it `FitTrackrWatch`,
+   and when asked, attach it to the existing **App** target so it installs
+   alongside the phone app.
+2. Add the four files from `native/watch/` to the **watch** target only:
+   `WorkoutManager.swift`, `WatchConnector.swift`, `FitTrackrWatchApp.swift`,
+   `WatchWorkoutView.swift`. Delete the `ContentView.swift` Xcode generates.
+3. Add `PhoneWatchConnector.swift` and `WatchWorkoutPlugin.swift` from
+   `native/` to the **App** target.
+4. **Watch target → Signing & Capabilities → + Capability → HealthKit.**
+5. **Watch target → Info**, add:
+
+   | Key | Type | Value |
+   |---|---|---|
+   | `NSHealthShareUsageDescription` | String | Reads heart rate to record your workout. |
+   | `NSHealthUpdateUsageDescription` | String | Saves your workout to Health. |
+   | `WKBackgroundModes` | Array → String | `workout-processing` |
+
+   `workout-processing` is not optional — without it the session is suspended
+   when the screen sleeps and stops collecting.
+6. The **App** target needs the same two usage strings, plus the HealthKit
+   capability it already has.
+
+### Testing it
+
+**Device only.** HealthKit workout sessions do not work usefully in the
+simulator, so this needs the iPhone provisioned and a paired Watch.
+
 ## Known limits
 
 - Dynamic Island: iPhone 14 Pro and later. Others get the Lock Screen only.

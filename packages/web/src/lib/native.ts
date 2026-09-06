@@ -151,3 +151,50 @@ export async function resetServerUrl(): Promise<ServerSetResult> {
     return res?.ok ? 'ok' : 'invalid';
   } catch { return 'invalid'; }
 }
+
+// ─── Apple Watch workout ─────────────────────────────────────────────────────
+
+/**
+ * Recording the session on the watch.
+ *
+ * This is what a phone-written HKWorkout cannot do: an `HKWorkoutSession` on
+ * the wrist samples heart rate and derives active energy from it, so the
+ * session earns real Move-ring credit. Writing a workout from the phone gets
+ * it into Fitness with neither.
+ *
+ * The phone launches the watch app via `HKHealthStore.startWatchApp`, which is
+ * the only way an iPhone can start one at all.
+ */
+interface WatchWorkoutBridge {
+  status(): Promise<{ healthAvailable: boolean; paired: boolean; appInstalled: boolean }>;
+  start(options: { workoutName: string }): Promise<{ started: boolean; reason?: string }>;
+  stop(): Promise<{ stopped: boolean }>;
+}
+
+export interface WatchStatus {
+  healthAvailable: boolean;
+  paired: boolean;
+  appInstalled: boolean;
+}
+
+export async function getWatchStatus(): Promise<WatchStatus | null> {
+  try {
+    return await (plugins()?.WatchWorkout as WatchWorkoutBridge | undefined)?.status() ?? null;
+  } catch { return null; }
+}
+
+/**
+ * Begin recording on the watch. Safe to call when there is no watch — every
+ * failure resolves, because a missing watch must never interrupt the workout
+ * being logged on the phone.
+ */
+export async function startWatchWorkout(workoutName: string): Promise<void> {
+  try { await (plugins()?.WatchWorkout as WatchWorkoutBridge | undefined)?.start({ workoutName }); }
+  catch { /* ignore */ }
+}
+
+/** Stop and SAVE on the watch. Queued if the watch is momentarily unreachable. */
+export async function stopWatchWorkout(): Promise<void> {
+  try { await (plugins()?.WatchWorkout as WatchWorkoutBridge | undefined)?.stop(); }
+  catch { /* ignore */ }
+}

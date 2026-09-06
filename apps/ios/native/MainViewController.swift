@@ -46,6 +46,7 @@ class MainViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(WorkoutActivityPlugin())
         bridge?.registerPluginInstance(ServerConfigPlugin())
+        bridge?.registerPluginInstance(WatchWorkoutPlugin())
     }
 
     override func viewDidLoad() {

@@ -8,7 +8,9 @@ import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { SetRow, SetRowHeader } from '@/components/workout/SetRow';
 import { RestTimerModal, type RestContext, type RestActivity } from '@/components/workout/RestTimerModal';
-import { syncWorkoutActivity, endWorkoutActivity } from '@/lib/native';
+import {
+  syncWorkoutActivity, endWorkoutActivity, startWatchWorkout, stopWatchWorkout,
+} from '@/lib/native';
 import { DurationEditModal, MAX_DURATION_MIN } from '@/components/workout/DurationEditModal';
 import { markCelebrate } from '@/components/workout/CelebrationBurst';
 import { ExerciseSearchForm } from '@/components/exercise/ExerciseSearchForm';
@@ -431,6 +433,7 @@ export default function WorkoutDetailPage() {
     onSuccess: () => {
       clearTimerState();
       void endWorkoutActivity();
+      void stopWatchWorkout();
       queryClient.invalidateQueries({ queryKey: ['workouts'] });
       queryClient.invalidateQueries({ queryKey: ['workout-volume'] });
       router.replace('/workouts');
@@ -477,6 +480,9 @@ export default function WorkoutDetailPage() {
       // The session is over — the Live Activity goes with it. Left running it
       // would sit on the Lock Screen counting up from a finished workout.
       void endWorkoutActivity();
+      // And the watch stops and SAVES: an HKWorkoutSession left running drains
+      // the battery and is eventually killed by the system, recording nothing.
+      void stopWatchWorkout();
       queryClient.invalidateQueries({ queryKey: ['workouts'] });
       queryClient.invalidateQueries({ queryKey: ['workout-volume'] });
       queryClient.invalidateQueries({ queryKey: ['personal-records'] });
@@ -631,8 +637,17 @@ export default function WorkoutDetailPage() {
     setClockRunning(true);
     setWorkoutStarted(true);
     saveTimerState(anchor, true);
+
+    // Start the Apple Watch recording at the same moment. This is what the
+    // "start your watch" reminder existed to prompt by hand — a session on the
+    // wrist samples heart rate and earns real Move-ring credit, which a
+    // phone-written workout cannot. No-op without a watch, and it cannot fail
+    // in a way that affects the clock above.
+    void startWatchWorkout(
+      workout?.name ?? (workout ? WORKOUT_TYPE_LABELS[workout.workoutType] : null) ?? 'Workout',
+    );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timerKey]);
+  }, [timerKey, workout?.name, workout?.workoutType]);
 
   /**
    * Start Workout goes through the reminder when it's enabled, so the clock and
