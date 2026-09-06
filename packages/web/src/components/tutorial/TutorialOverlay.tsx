@@ -100,20 +100,26 @@ export function TutorialOverlay({
   const [targetRect, setTargetRect] = useState<Rect | null>(null);
   const [tooltipPos, setTooltipPos] = useState<{ top: number; left: number } | null>(null);
   /**
-   * The step names an element that is not on the page.
+   * Where this step's target has got to.
    *
-   * This used to END the tour. With a targetKey set the tooltip was positioned
-   * from `tooltipPos`, which stayed null when nothing was found — so the
-   * tooltip rendered unpositioned and effectively invisible, leaving a dark
-   * overlay with no card and no way forward. Every step whose target is
-   * conditionally rendered was a dead end: `start-workout` only exists in the
-   * empty state, so the tour died at that step for anyone who had trained
-   * that week.
+   *  - `resolving` — still looking. Dim overlay and NOTHING else.
+   *  - `ready`     — found and measured; spotlight it.
+   *  - `missing`   — not on this page. Fall back to a centred card.
    *
-   * Falling back to the centred, spotlight-free treatment means a missing
-   * target costs a highlight rather than the rest of the tour.
+   * Three states because the two failure modes are different, and both used to
+   * render as "tooltip with no position", i.e. invisible.
+   *
+   * A genuinely absent target ENDED the tour: `start-workout` only exists in
+   * the dashboard's empty state, so the tour died there for anyone who had
+   * trained that week. `missing` makes that cost a highlight, not the tour.
+   *
+   * A target that has not mounted YET is the common case on steps that
+   * navigate — the generator cards on Programs and Training Goals render only
+   * once their queries resolve. Rendering an unpositioned tooltip while
+   * waiting is what made those steps flicker before settling; `resolving`
+   * shows the dim overlay alone, so the step simply appears when it is ready.
    */
-  const [targetMissing, setTargetMissing] = useState(false);
+  const [phase, setPhase] = useState<'resolving' | 'ready' | 'missing'>('resolving');
 
   const measure = useCallback((): boolean => {
     if (!step.targetKey) {
@@ -144,27 +150,55 @@ export function TutorialOverlay({
 
   useEffect(() => {
     if (!isActive || isNavigating) return;
-    setTargetMissing(false);
 
-    // Retried rather than measured once. A single 50ms shot cannot tell "not
-    // on this page" from "this page has not finished rendering", and a step
-    // that arrives via `route` is routinely still mounting. Only after the
-    // last attempt is the target declared absent.
-    const attempts = [50, 250, 600, 1200];
+    if (!step.targetKey) {
+      measure();
+      setPhase('ready');
+      return;
+    }
+
+    setPhase('resolving');
+
+    // Polled rather than measured once: a single shot cannot tell "not on this
+    // page" from "this page has not finished rendering", and steps reached via
+    // `route` are routinely still mounting. 100ms keeps the appearance prompt
+    // without a visible staircase; 2.5s is long enough for a query to resolve
+    // and short enough not to feel stuck.
+    const INTERVAL = 100;
+    const LIMIT = 2500;
+    let waited = 0;
+    let settled = false;
     let cancelled = false;
-    const timers = attempts.map((delay, i) =>
-      setTimeout(() => {
-        if (cancelled) return;
-        const found = measure();
-        if (!found && i === attempts.length - 1) setTargetMissing(true);
-      }, delay),
-    );
+
+    function attempt() {
+      if (settled || cancelled) return;
+      if (measure()) {
+        settled = true;
+        setPhase('ready');
+        // One more pass once the page has stopped moving. A card measured the
+        // instant it mounts is often measured before its data, images and
+        // fonts land, which leaves the spotlight sitting slightly off it.
+        window.setTimeout(() => { if (!cancelled) measure(); }, 350);
+        return;
+      }
+      waited += INTERVAL;
+      if (waited >= LIMIT) {
+        settled = true;
+        setPhase('missing');
+      }
+    }
+
+    attempt();
+    const poll = window.setInterval(() => {
+      if (cancelled || settled) return window.clearInterval(poll);
+      attempt();
+    }, INTERVAL);
 
     return () => {
       cancelled = true;
-      timers.forEach(clearTimeout);
+      window.clearInterval(poll);
     };
-  }, [isActive, isNavigating, stepIndex, measure]);
+  }, [isActive, isNavigating, stepIndex, measure, step.targetKey]);
 
   // Recalculate on resize/scroll
   useEffect(() => {
@@ -200,8 +234,10 @@ export function TutorialOverlay({
 
   if (!isActive) return null;
 
-  // While navigating, show dark overlay only (no tooltip or spotlight)
-  if (isNavigating) {
+  // While navigating, or while the step's target is still mounting, show the
+  // dim overlay ONLY. Rendering the tooltip before it can be positioned is
+  // what produced the flicker on the Programs and Training Goals steps.
+  if (isNavigating || phase === 'resolving') {
     return (
       <div className="fixed inset-0 z-[60]">
         <div className="absolute inset-0 bg-black/60" />
@@ -209,7 +245,7 @@ export function TutorialOverlay({
     );
   }
 
-  const isCentered = !step.targetKey || targetMissing;
+  const isCentered = !step.targetKey || phase === 'missing';
 
   return (
     <div className="fixed inset-0 z-[60]">
