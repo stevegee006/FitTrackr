@@ -1486,7 +1486,30 @@ is exactly why it is written down here.
       present right up until `Command Ld failed`.
 
     Install to the watch from **Xcode** rather than the iPhone's Watch app:
-    the phone reports every one of these as the same sentence.
+120. **A LaunchScreen storyboard does not cover a REMOTE web app.** iOS
+    dismisses it when the *app* finishes launching, not when its content
+    appears. This shell's content is a website, so the storyboard was gone in
+    a fraction of a second and the next second or two was an empty webview.
+
+    What made it unfalsifiable: the storyboard background and the webview
+    background are both `#030712`, so "launch screen" and "nothing" look
+    identical. Every check passed — `UILaunchStoryboardName` set,
+    `LaunchScreen.storyboardc` present in the built `.app`, imageset
+    installed, app deleted to clear the launch snapshot cache — and the screen
+    still looked blank, because it *was* working and finishing early.
+
+    Fixed with an overlay `MainViewController` owns, removed on
+    `webView(_:didFinish:)`. It is drawn to match the storyboard exactly —
+    same colour, same 200pt logo, same position — so the handover is
+    invisible. Two guards: a 15s failsafe, because a host that connects and
+    never finishes would otherwise leave the logo up forever with no route to
+    the server setting; and no hiding on `NSURLErrorCancelled` (-999), which
+    is routine when one load replaces another.
+121. **Running the WATCH scheme installs the phone app too.** The watch app is
+    embedded in the iOS bundle, so Xcode builds the App target as a
+    dependency and installs the container before the watch app. Switching
+    schemes is only needed to attach the debugger to the phone — for native
+    console output — not to get a current build onto it.
 
 ### Awards and benchmarks
 
