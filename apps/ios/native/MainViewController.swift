@@ -54,19 +54,32 @@ class MainViewController: CAPBridgeViewController {
         PhoneWatchConnector.shared.activate()
     }
 
+    private var hasPromptedOnLaunch = false
+
     override func viewDidLoad() {
         super.viewDidLoad()
         webView?.navigationDelegate = self
+    }
 
-        // Prompt whenever the user has not CHOSEN a server, even when this
-        // build ships with a default. Gating on `compiledDefault == nil` was
-        // wrong: anyone installing a build made by someone else silently lands
-        // on that person's instance, staring at a login screen for an account
-        // they do not have — and the in-app setting lives behind that login.
-        // Prefilled with the default, so accepting it is one tap.
-        if !ServerConfig.isConfigured {
-            promptForServer(reason: "Which FitTrackr server should this app use?")
-        }
+    /**
+     Ask for a server on first run.
+
+     In `viewDidAppear`, NOT `viewDidLoad`: presenting a `UIAlertController`
+     from `viewDidLoad` fails silently because the view is not in the window
+     hierarchy yet. UIKit logs a warning at most, and the app simply sits on
+     the placeholder with no way to enter anything — which is what it did.
+
+     Prompt whenever the user has not CHOSEN a server, rather than only when
+     the build ships without one. Builds no longer carry a default at all, but
+     the distinction still matters: anyone installing a build made by someone
+     else must not silently land on that person's instance, staring at a login
+     for an account they do not have, with the in-app setting behind it.
+     */
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard !hasPromptedOnLaunch, !ServerConfig.isConfigured else { return }
+        hasPromptedOnLaunch = true
+        promptForServer(reason: "Which FitTrackr server should this app use?")
     }
 
     // MARK: - Prompt
@@ -97,15 +110,24 @@ class MainViewController: CAPBridgeViewController {
         alert.addAction(UIAlertAction(title: "Connect", style: .default) { [weak self, weak alert] _ in
             let entered = alert?.textFields?.first?.text ?? ""
             guard ServerConfig.set(entered) != nil else {
-                self?.promptForServer(
-                    reason: "That address doesn't look right. Use https, or a local network address."
-                )
+                // Re-present on the next runloop turn; presenting from inside
+                // the dismissal of another alert is dropped.
+                DispatchQueue.main.async {
+                    self?.promptForServer(
+                        reason: "That address doesn't look right. Use https, or a local network address."
+                    )
+                }
                 return
             }
             self?.loadConfiguredServer()
         })
 
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        // No Cancel when there is nowhere to cancel BACK to. Dismissing the
+        // only way to enter a host leaves the app on a placeholder with no
+        // route to the setting, recoverable only by deleting and reinstalling.
+        if ServerConfig.current != nil {
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        }
         present(alert, animated: true)
     }
 
