@@ -59,6 +59,24 @@ pnpm cap:add                 # creates apps/ios/ios/
 pnpm cap:open                # opens ios/App/App.xcworkspace
 ```
 
+If `pnpm cap:add` dies on **`certificate verify failed (unable to get local
+issuer certificate)`**, that is Ruby's CA bundle, not CocoaPods. The project
+itself was created successfully — only the dependency fetch failed — so retry
+just that step:
+
+```bash
+cd ios/App && SSL_CERT_FILE=/etc/ssl/cert.pem pod install
+```
+
+Prefix any later `pnpm cap:sync` the same way, since that runs `pod install`
+again. Ordinary Xcode builds do not touch the spec index, so this only bites
+when dependencies change.
+
+**`--packagemanager SPM` does not avoid CocoaPods.** The flag exists and is
+accepted, but the CLI runs its environment check before honouring it and still
+refuses to continue without CocoaPods installed. Do not go down that path
+expecting to skip the Ruby setup.
+
 The scripts are `cap:add` / `cap:sync` / `cap:open`, **not** `add` / `sync` /
 `open`: `pnpm add` and `pnpm install` are pnpm's own commands and would shadow
 a script of that name, which fails with a confusing "missing package" error
@@ -200,6 +218,9 @@ second and the widget counts on its own, so only real changes cross the bridge
 |---|---|
 | `pnpm add` prints pnpm usage / "missing package" | The scripts are `cap:add`, `cap:sync`, `cap:open` — bare `add` collides with pnpm's own command |
 | `cap add ios` → "pod: command not found" | CocoaPods missing: `brew install cocoapods` |
+| `cap add ios` → "certificate verify failed" | Ruby's CA bundle. Re-run `pod install` with `SSL_CERT_FILE=/etc/ssl/cert.pem`, or drop off a TLS-inspecting VPN |
+| `brew install` → "Command Line Tools are too outdated" | `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`, or reinstall the CLT |
+| `gem install cocoapods` → "ffi requires Ruby >= 3.0" | macOS system Ruby is 2.6. Use Homebrew's CocoaPods rather than pinning old gems |
 | `cap add ios` → cannot read `capacitor.config.ts` | `typescript` not installed — run `pnpm install` from the repo root first |
 | "Cannot find type 'WorkoutActivityAttributes'" | That file is in only one target; it needs **both** |
 | `Capacitor.Plugins.WorkoutActivity` is undefined in JS | The matching `.m` file is missing from the App target — Capacitor finds plugins through the Objective-C runtime |
