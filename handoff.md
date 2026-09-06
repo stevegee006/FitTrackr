@@ -1405,6 +1405,39 @@ is exactly why it is written down here.
     them into `ios/App/` and those copies are what build — so editing the repo
     and rebuilding changes nothing, silently. Either untick it when adding, or
     remember to `cp native/*.swift ios/App/` after every pull.
+115. **`xcodebuild -runFirstLaunch` can silently install NOTHING.** Symptom:
+    the phone is listed in Xcode as *Unavailable* with "The developer disk
+    image could not be mounted", and `xcrun devicectl list preferredDDI`
+    reports no DDI for **any** platform — iOS, macOS, tvOS, watchOS,
+    visionOS. That "all five" detail is the tell: an iOS-version mismatch
+    would leave the other four intact, so it is a wholesale install failure,
+    not a version problem.
+
+    `-runFirstLaunch` returns instantly, exit 0, no output, and installs
+    nothing — package receipts claim the payloads are present while the files
+    are not. `xcodebuild -downloadPlatform iOS` also reports success for the
+    same reason. Both are lying. The fix is to apply Xcode's own embedded
+    packages by hand, which ignores receipts:
+
+    ```
+    for p in /Applications/Xcode.app/Contents/Resources/Packages/*.pkg; do
+      sudo installer -pkg "$p" -target /
+    done
+    ```
+
+    `CoreTypes.pkg` (~287 MB) is the one carrying the disk images; they land
+    in `/Library/Developer/DeveloperDiskImages/`. Quit Xcode fully and replug
+    the phone afterwards.
+
+    Two false leads this cost an hour of: Xcode.app was 4.8 GB, which looks
+    like a truncated download but is normal now that platforms are separate
+    payloads; and `find ... -iname "*DDI*"` appears to find matches that are
+    really `NSFoo+BarAdditions.h` — "a-DDI-tions". Search for `*.dmg`.
+
+    **Why it stayed hidden for weeks:** simulator builds never mount a DDI.
+    Everything — the Live Activity included — was verified in the simulator,
+    so the broken Xcode install only surfaced the first time a physical device
+    was needed, which is the watch feature that cannot be simulated at all.
 
 ### Awards and benchmarks
 
