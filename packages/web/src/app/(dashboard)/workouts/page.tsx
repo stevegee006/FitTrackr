@@ -7,7 +7,7 @@ import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { WORKOUT_TYPE_LABELS, WORKOUT_TYPE_COLORS, MUSCLE_GROUP_LABELS } from '@fittrackr/shared';
 import type { Workout, WorkoutType, Exercise, MuscleGroup } from '@fittrackr/shared';
-import { todayString, parseDateLocal, formatDate, formatDuration } from '@/lib/utils';
+import { todayString, parseDateLocal, formatDate, formatDuration, formatDistance } from '@/lib/utils';
 import { inferExerciseDetails } from '@/lib/infer-exercise';
 import { WorkoutTypeIcon } from '@/components/workout/WorkoutTypeIcon';
 import Link from 'next/link';
@@ -87,6 +87,15 @@ export default function WorkoutsPage() {
     queryKey: ['workouts', firstDay, lastDay],
     queryFn: () => apiFetch<{ data: Workout[] }>(`/workouts?from=${firstDay}&to=${lastDay}&limit=100`),
   });
+
+  // Imported walks and rides carry a distance, and it must be shown in the
+  // units the user chose — a mile reported as 1.61 km is the kind of small lie
+  // that makes the rest of the numbers suspect.
+  const { data: settingsData } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => apiFetch<{ data: { preferredUnits: string } }>('/users/me/settings'),
+  });
+  const preferredUnits = settingsData?.data?.preferredUnits;
 
   const createMutation = useMutation({
     mutationFn: ({ workoutType, logDate }: { workoutType: WorkoutType; logDate: string }) =>
@@ -442,10 +451,10 @@ export default function WorkoutsPage() {
                               <Dumbbell className="h-3 w-3" />{setCount} sets
                             </span>
                           )}
-                          {w.distanceM != null && w.distanceM > 0 && (
+                          {formatDistance(w.distanceM, preferredUnits) && (
                             <span className="inline-flex items-center gap-1 text-xs text-gray-500">
                               <Route className="h-3 w-3" />
-                              {(w.distanceM / 1000).toFixed(2)} km
+                              {formatDistance(w.distanceM, preferredUnits)}
                             </span>
                           )}
                           {formatDuration(w.durationMin) && (

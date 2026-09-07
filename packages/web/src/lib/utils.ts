@@ -66,6 +66,30 @@ export function formatDuration(minutes: number | null | undefined): string | nul
   return `${h}h ${m}m`;
 }
 
+export const METRES_PER_MILE = 1609.344;
+
+/**
+ * Distance for display, in the user's units.
+ *
+ * The seventh place in this codebase to convert metres, and the first shared
+ * one — see handoff #53. `formatDuration` above is the pattern that stopped
+ * time bugs recurring; this is the same move for distance. Every new page that
+ * re-derived the conversion itself has been a chance to ship another unit bug,
+ * and three have shipped that way.
+ *
+ * Returns null for nothing-to-show so callers render nothing rather than
+ * "NaN km".
+ */
+export function formatDistance(
+  metres: number | null | undefined,
+  units: 'METRIC' | 'IMPERIAL' | string | undefined,
+): string | null {
+  if (metres == null || !Number.isFinite(metres) || metres <= 0) return null;
+  const imperial = units === 'IMPERIAL';
+  const value = imperial ? metres / METRES_PER_MILE : metres / 1000;
+  return `${value.toFixed(2)} ${imperial ? 'mi' : 'km'}`;
+}
+
 /** Split total minutes into { hours, minutes } for a two-field editor. */
 export function splitDuration(minutes: number | null | undefined): { hours: number; minutes: number } {
   if (minutes == null || !Number.isFinite(minutes) || minutes < 0) return { hours: 0, minutes: 0 };
