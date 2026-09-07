@@ -176,6 +176,10 @@ interface WatchWorkoutBridge {
     endsAt: number | null; exerciseName?: string; setNumber?: number; totalSets?: number;
   }): Promise<void>;
   pause(options: { paused: boolean }): Promise<void>;
+  addListener(
+    event: 'pauseChanged',
+    cb: (data: { paused: boolean }) => void,
+  ): Promise<{ remove: () => Promise<void> }>;
 }
 
 export interface WatchStatus {
@@ -251,6 +255,27 @@ export async function setWatchPaused(paused: boolean): Promise<void> {
     if (!bridge) return;
     await bridge.pause({ paused });
   } catch { /* ignore */ }
+}
+
+/**
+ * Listen for the session being paused or resumed ON THE WATCH.
+ *
+ * The watch reports; the page decides. The phone owns the clock — its elapsed
+ * time is what gets written to the workout's duration — so letting the wrist
+ * set it directly would give the value two owners.
+ *
+ * Returns a function that removes the listener, or null outside the native
+ * shell so callers can `void remove?.()` without branching.
+ */
+export async function onWatchPauseChanged(
+  cb: (paused: boolean) => void,
+): Promise<(() => void) | null> {
+  try {
+    const bridge = plugins()?.WatchWorkout as WatchWorkoutBridge | undefined;
+    if (!bridge?.addListener) return null;
+    const handle = await bridge.addListener('pauseChanged', ({ paused }) => cb(paused));
+    return () => { void handle.remove(); };
+  } catch { return null; }
 }
 
 export interface WatchWorkoutSummary {

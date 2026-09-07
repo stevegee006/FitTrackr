@@ -233,12 +233,17 @@ extension WorkoutManager: HKWorkoutSessionDelegate {
                 // is read rather than tracked here.
                 let elapsed = self.builder?.elapsedTime ?? 0
                 self.timerAnchor = Date().addingTimeInterval(-elapsed)
+                // Reported from the delegate, not the call site, so a pause
+                // from the system's own Smart Stack card reaches the phone
+                // exactly like one from our button.
+                WatchConnector.shared.reportPaused(false)
             case .paused:
                 // NOT `isRunning = false` — that is the idle state, and a
                 // paused workout showing "start a workout" would be a lie.
                 self.isRunning = true
                 self.isPaused = true
                 self.pausedElapsed = self.builder?.elapsedTime ?? 0
+                WatchConnector.shared.reportPaused(true)
             case .ended:
                 // The session can end without us asking — the watch being
                 // removed, or the system reclaiming it. Treat that as a stop

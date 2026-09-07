@@ -5,10 +5,15 @@ import Combine
 /**
  The watch half of the phone link.
 
- Five messages, all from phone to watch: `start` (belt and braces —
+ Five messages from phone to watch: `start` (belt and braces —
  `startWatchApp` already launches us into a session), `stop`, `name`, `rest`,
- and `pause`. Nothing is sent back: the phone keeps its own clock and set counts, so
- the watch has nothing the phone needs.
+ and `pause`.
+
+ **One goes back:** `pauseState`. Pause is the only thing either device can
+ change, so it is the only thing that needs reporting — pausing on the wrist
+ while the phone kept counting would leave two clocks disagreeing, and the
+ phone's is the one written to the workout. Everything else the watch knows,
+ the phone knew first.
 
  Add to the WATCH target only.
  */
@@ -24,6 +29,29 @@ final class WatchConnector: NSObject, ObservableObject {
 
     /// Called from the app's init so the session is live before any message.
     func activate() { _ = WatchConnector.shared }
+
+    /**
+     Tell the phone the session was paused or resumed on the wrist.
+
+     Sent even when the phone asked for it in the first place. The echo is
+     harmless — both sides treat pause as idempotent state — and the
+     alternative, tracking who initiated each change, is exactly the kind of
+     bookkeeping that ends up wrong in the case nobody tested.
+     */
+    func reportPaused(_ paused: Bool) {
+        guard WCSession.isSupported() else { return }
+        let session = WCSession.default
+        guard session.activationState == .activated else { return }
+        let payload: [String: Any] = ["action": "pauseState", "paused": paused]
+
+        if session.isReachable {
+            session.sendMessage(payload, replyHandler: nil) { _ in
+                session.transferUserInfo(payload)
+            }
+        } else {
+            session.transferUserInfo(payload)
+        }
+    }
 }
 
 extension WatchConnector: WCSessionDelegate {

@@ -67,10 +67,22 @@ struct WatchWorkoutView: View {
                 }
                 .font(.caption)
 
-                Button("End") {
-                    Task { await manager.stop() }
+                HStack(spacing: 6) {
+                    // Resuming had to be possible from here. watchOS offers a
+                    // pause button on its own Smart Stack card, but with the
+                    // link one-way that only restarted the wrist session and
+                    // left the phone's clock — the one written to the workout
+                    // — still stopped.
+                    Button(manager.isPaused ? "Resume" : "Pause") {
+                        manager.setPaused(!manager.isPaused)
+                    }
+                    .tint(manager.isPaused ? .green : .orange)
+
+                    Button("End") {
+                        Task { await manager.stop() }
+                    }
+                    .tint(.red)
                 }
-                .tint(.red)
             } else {
                 Image(systemName: "figure.strengthtraining.traditional")
                     .font(.title2)

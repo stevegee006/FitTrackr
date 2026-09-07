@@ -26,6 +26,9 @@ final class PhoneWatchConnector: NSObject {
 
     private let healthStore = HKHealthStore()
 
+    /// Set by `WatchWorkoutPlugin` so a pause on the wrist reaches JavaScript.
+    var onPauseChanged: ((Bool) -> Void)?
+
     private override init() {
         super.init()
         activate()
@@ -223,4 +226,21 @@ extension PhoneWatchConnector: WCSessionDelegate {
     // watch work without relaunching the app.
     func sessionDidBecomeInactive(_ session: WCSession) {}
     func sessionDidDeactivate(_ session: WCSession) { WCSession.default.activate() }
+
+    // The watch reports pause state back. Both delivery paths land here for
+    // the same reason as on the watch side: `sendMessage` needs reachability,
+    // `transferUserInfo` queues.
+    func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        handle(message)
+    }
+
+    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
+        handle(userInfo)
+    }
+
+    private func handle(_ payload: [String: Any]) {
+        guard payload["action"] as? String == "pauseState",
+              let paused = payload["paused"] as? Bool else { return }
+        DispatchQueue.main.async { self.onPauseChanged?(paused) }
+    }
 }

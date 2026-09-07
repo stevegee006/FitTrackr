@@ -30,6 +30,23 @@ public class WatchWorkoutPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "pause", returnType: CAPPluginReturnPromise),
     ]
 
+    /**
+     Forward the watch's pause state to JavaScript as a `pauseChanged` event.
+
+     Wired in `load()` rather than on first call, because the event can arrive
+     before the web app has done anything — someone pauses on the wrist while
+     the phone sits in a pocket — and a listener attached lazily would miss it.
+
+     The web side owns the clock, so the wrist cannot pause it directly; it
+     reports, and the page decides. That keeps one owner of the value that
+     eventually becomes the workout's duration.
+     */
+    override public func load() {
+        PhoneWatchConnector.shared.onPauseChanged = { [weak self] paused in
+            self?.notifyListeners("pauseChanged", data: ["paused": paused])
+        }
+    }
+
     /// Lets the web app hide the feature rather than offer something that
     /// cannot work — no watch paired, or the app not installed on it.
     @objc func status(_ call: CAPPluginCall) {

@@ -10,7 +10,7 @@ import { SetRow, SetRowHeader } from '@/components/workout/SetRow';
 import { RestTimerModal, type RestContext, type RestActivity } from '@/components/workout/RestTimerModal';
 import {
   syncWorkoutActivity, endWorkoutActivity, startWatchWorkout, stopWatchWorkout,
-  syncWatchRest, setWatchPaused,
+  syncWatchRest, setWatchPaused, onWatchPauseChanged,
 } from '@/lib/native';
 import { DurationEditModal, MAX_DURATION_MIN } from '@/components/workout/DurationEditModal';
 import { markCelebrate } from '@/components/workout/CelebrationBurst';
@@ -721,6 +721,39 @@ export default function WorkoutDetailPage() {
     saveTimerState(anchor, true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [elapsed, timerKey]);
+
+  /**
+   * Let the WATCH pause and resume the phone's clock.
+   *
+   * Pausing had been one-way. The wrist would stop its session — from our
+   * button or from watchOS's own Smart Stack card — while the phone carried on
+   * counting, and the phone's elapsed time is what Finish writes as the
+   * workout's duration. So the number that mattered ignored the pause.
+   *
+   * The watch reports and this decides, keeping one owner of the clock. Safe
+   * against a loop: the sync effect pushes pause state back to the watch, but
+   * `setPaused` there is a no-op when the session is already in that state, so
+   * nothing bounces.
+   */
+  useEffect(() => {
+    if (!workoutStarted) return;
+    let remove: (() => void) | null = null;
+    let cancelled = false;
+
+    void onWatchPauseChanged((paused) => {
+      // `clockRunning` is deliberately not read here — this callback outlives
+      // the render it was created in, and a captured value would be stale.
+      // pauseClock and resumeClock are both safe to call redundantly.
+      if (paused) pauseClock();
+      else resumeClock();
+    }).then((fn) => {
+      if (cancelled) fn?.();
+      else remove = fn;
+    });
+
+    return () => { cancelled = true; remove?.(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workoutStarted, pauseClock, resumeClock]);
 
   // Cardio mode comes from the saved preference first, then the exercise's own
   // category, and only then from whether existing sets happen to carry
