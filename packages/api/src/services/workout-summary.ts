@@ -33,13 +33,29 @@ export interface SetLike {
  * if nothing was, fall back to counting everything. Legacy sessions keep the
  * numbers they have always shown, and no back-fill is needed.
  *
+ * `isFinished` narrows that fallback. A workout the AI planned for Thursday
+ * has rows with weights and reps and nothing ticked — indistinguishable, to
+ * the rule above, from a legacy session — so it was being counted as work
+ * already done. Passing `isFinished: false` says "this one has not been
+ * finished, so untouched rows are a PLAN, not history" and the fallback is
+ * withheld.
+ *
+ * Omitting the option keeps the old behaviour, deliberately: callers that
+ * reach back beyond migration 0009 (when `completed_at` arrived) have no
+ * honest way to tell a legacy session from an unfinished one, and for those
+ * the generous reading is still the right one.
+ *
  * Pass one workout's non-warmup sets. Passing a single exercise's sets would
  * reintroduce the reported bug, because an exercise nobody ticked inside an
  * otherwise-ticked session would fall back to counting all of its sets.
  */
-export function performedSets<T extends SetLike>(workoutSets: T[]): T[] {
+export function performedSets<T extends SetLike>(
+  workoutSets: T[],
+  opts?: { isFinished?: boolean },
+): T[] {
   const completed = workoutSets.filter((s) => s.isCompleted);
-  return completed.length > 0 ? completed : workoutSets;
+  if (completed.length > 0) return completed;
+  return opts?.isFinished === false ? [] : workoutSets;
 }
 
 export interface ExerciseTally {

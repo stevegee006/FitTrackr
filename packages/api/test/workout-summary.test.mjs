@@ -143,6 +143,36 @@ eq(
 );
 eq('empty stays empty', performedSets([]), []);
 
+// An AI-planned week arrives as workouts full of pre-filled rows with nothing
+// ticked, which the fallback above reads as work already done — so a plan for
+// Thursday was adding its sets and tonnage to the current week's rings.
+// `isFinished: false` withholds the fallback.
+eq(
+  'unfinished workout, nothing ticked: counts as nothing, because it is a plan',
+  ids(performedSets([mk('a', false), mk('b', false)], { isFinished: false })),
+  [],
+);
+eq(
+  'unfinished workout, some ticked: the ticked sets still count',
+  ids(performedSets([mk('a', true), mk('b', false)], { isFinished: false })),
+  ['a'],
+);
+eq(
+  'finished workout, nothing ticked: still falls back, for legacy sessions',
+  ids(performedSets([mk('a', false), mk('b', false)], { isFinished: true })),
+  ['a', 'b'],
+);
+eq(
+  'omitting the option keeps the old generous behaviour',
+  ids(performedSets([mk('a', false), mk('b', false)])),
+  ['a', 'b'],
+);
+eq(
+  'a planned workout contributes no volume either',
+  tally(performedSets([mk('a', false), mk('b', false)], { isFinished: false })).volumeKg,
+  0,
+);
+
 // THE REPORTED BUG. The rule is per WORKOUT: an exercise nobody ticked, inside
 // a session where other exercises were, contributes nothing. Applying the rule
 // per exercise instead would fall back and count all three sets again.

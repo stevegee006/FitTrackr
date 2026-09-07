@@ -122,7 +122,9 @@ export default function DashboardPage() {
   const { data: rangeData } = useQuery({
     queryKey: ['workouts-range', streakWindowStart, today],
     queryFn: () =>
-      apiFetch<{ data: { logDate: string }[] }>(`/workouts/range?from=${streakWindowStart}&to=${today}`),
+      apiFetch<{ data: { logDate: string; completedAt?: string | null }[] }>(
+        `/workouts/range?from=${streakWindowStart}&to=${today}`,
+      ),
   });
 
   const { data: profileData } = useQuery({
@@ -145,11 +147,31 @@ export default function DashboardPage() {
     | undefined;
   const workouts = workoutsData?.data ?? [];
 
+  /**
+   * Only FINISHED workouts count as workouts.
+   *
+   * The AI planner writes next week's sessions as real workouts, so the list
+   * routinely holds days that have not happened yet. Counting those made the
+   * ring read "5 workouts" on a Monday with one session actually done, and
+   * every planned day pushed the streak along with it.
+   *
+   * The ring and the streak MUST use the same rule: the streak is defined as
+   * weeks that met the frequency goal, so counting a planned day for one and
+   * not the other would have the ring say a week was missed while the streak
+   * said it was met.
+   *
+   * Imported HealthKit workouts carry `completedAt` from their end date, so
+   * they keep counting — they are, by definition, sessions that happened.
+   */
+  const finishedWorkouts = workouts.filter((w) => w.completedAt);
+
   // Streak: consecutive WEEKS that met the weekly training goal. Counting
   // consecutive days reset on every rest day, which is meaningless for anyone
   // training a fixed number of days per week.
   const workoutDates = new Set(
-    (rangeData?.data ?? []).map((d) => d.logDate.split('T')[0]),
+    (rangeData?.data ?? [])
+      .filter((d) => d.completedAt)
+      .map((d) => d.logDate.split('T')[0]),
   );
   // Profile goal first (the one the user sets), then the active training goal,
   // then a sane default.
@@ -210,7 +232,7 @@ export default function DashboardPage() {
           This week&apos;s volume
         </p>
         <VolumeRings
-          workoutCount={workouts.length}
+          workoutCount={finishedWorkouts.length}
           weeklyFrequency={goalData?.data?.weeklyFrequency}
           volumeByMuscle={volumeByMuscle}
           weeklySetTargets={weeklySetTargets}

@@ -584,6 +584,8 @@ export async function getWeeklyVolume(
     },
     select: {
       reps: true, weightKg: true, isCompleted: true, workoutId: true,
+      // Needed to tell a planned workout from a finished one — see below.
+      workout: { select: { completedAt: true } },
       exercise: { select: { primaryMuscle: true } },
     },
   });
@@ -598,7 +600,13 @@ export async function getWeeklyVolume(
     if (bucket) bucket.push(s);
     else byWorkout.set(s.workoutId, [s]);
   }
-  const performed = [...byWorkout.values()].flatMap((ws) => performedSets(ws));
+  // `isFinished` matters here more than anywhere. The rings are the headline
+  // numbers on the dashboard, and an AI-planned week arrives as workouts full
+  // of untouched rows — which the bare rule reads as work already done. A plan
+  // for Thursday was adding its sets and its tonnage to Monday's totals.
+  const performed = [...byWorkout.values()].flatMap((ws) =>
+    performedSets(ws, { isFinished: ws[0]?.workout?.completedAt != null }),
+  );
 
   const volumeByMuscle: Record<string, number> = {};
   let totalWeightKg = 0;

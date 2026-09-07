@@ -368,12 +368,25 @@ export default function WorkoutsPage() {
               const isSelected = dateStr === selectedDate;
               const isTodayCell = dateStr === today;
 
+              // A hollow ring for a workout that has not been finished, so a
+              // planned Thursday does not look like a Thursday that happened.
+              // Outline rather than a paler fill: at 6px a dimmed dot just
+              // reads as a different workout type, since the fill already
+              // carries meaning.
               const dots = dayWorkouts.length > 0 && (
                 <div className="flex gap-0.5 mt-1 flex-wrap justify-center px-0.5">
-                  {dayWorkouts.slice(0, 3).map((w) => (
-                    <div key={w.id} className="w-1.5 h-1.5 rounded-full"
-                      style={{ backgroundColor: isSelected ? 'white' : (WORKOUT_TYPE_COLORS[w.workoutType] ?? '#6b7280') }} />
-                  ))}
+                  {dayWorkouts.slice(0, 3).map((w) => {
+                    const dotColor = isSelected
+                      ? 'white'
+                      : (WORKOUT_TYPE_COLORS[w.workoutType] ?? '#6b7280');
+                    return w.completedAt ? (
+                      <div key={w.id} className="w-1.5 h-1.5 rounded-full"
+                        style={{ backgroundColor: dotColor }} />
+                    ) : (
+                      <div key={w.id} className="w-1.5 h-1.5 rounded-full border"
+                        style={{ borderColor: dotColor, opacity: 0.75 }} />
+                    );
+                  })}
                 </div>
               );
 
