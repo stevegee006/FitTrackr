@@ -330,7 +330,9 @@ export default function DashboardPage() {
             </Link>
           </Card>
         ) : (
-          <div className="space-y-3">
+          // space-y-2 matches the workouts tab, and finally applies now that
+          // WorkoutCard's Link is a block — see the note there.
+          <div className="space-y-2">
             {workouts.map((w) => (
               <WorkoutCard key={w.id} workout={w} />
             ))}

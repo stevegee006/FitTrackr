@@ -23,8 +23,13 @@ export function WorkoutCard({ workout }: WorkoutCardProps) {
 
   const setCount = (workout.sets ?? []).filter((s: any) => !s.isWarmup).length;
 
+  // `block` on the Link is load-bearing. A bare `<Link>` renders an inline
+  // `<a>`, and Tailwind's `space-y-*` spaces siblings with `margin-top`, which
+  // has no effect on an inline element. The dashboard's session list therefore
+  // had no gaps at all, and raising space-y-2 to space-y-3 changed nothing —
+  // neither value was ever applied.
   return (
-    <Link href={`/workouts/${workout.id}`}>
+    <Link href={`/workouts/${workout.id}`} className="block">
       <Card className="flex gap-0 p-0 overflow-hidden hover:shadow-md transition-shadow active:scale-[0.99]">
         <div className="w-1.5 shrink-0 rounded-l-2xl" style={{ backgroundColor: color }} />
         <div className="flex-1 px-3 py-2.5 min-w-0">
