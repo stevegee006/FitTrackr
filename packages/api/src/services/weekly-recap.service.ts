@@ -44,9 +44,16 @@ type WorkoutWithSets = {
   }>;
 };
 
-/** Performed sets across a list of workouts, applying the rule per workout. */
+/**
+ * Performed sets across a list of workouts, applying the rule per workout.
+ *
+ * `isFinished` is what keeps a PLANNED session out of the recap. The AI
+ * planner writes next week's workouts as real rows with weights and reps and
+ * nothing ticked, which performedSets' fallback would otherwise read as work
+ * already done — so a plan for Thursday inflated the week it was planned in.
+ */
 function performedAcross(workouts: WorkoutWithSets[]) {
-  return workouts.flatMap((w) => performedSets(w.sets));
+  return workouts.flatMap((w) => performedSets(w.sets, { isFinished: w.completedAt != null }));
 }
 
 function totalsFor(workouts: WorkoutWithSets[]): RecapTotals {
@@ -123,7 +130,7 @@ export async function getWeeklyRecap(
 
   for (const w of thisWeek) {
     const sessionTop = new Map<string, number>();
-    for (const s of performedSets(w.sets)) {
+    for (const s of performedSets(w.sets, { isFinished: w.completedAt != null })) {
       const muscle = s.exercise?.primaryMuscle;
       if (muscle) setsByMuscle[muscle] = (setsByMuscle[muscle] ?? 0) + 1;
 
@@ -188,7 +195,7 @@ export async function getWeeklyRecap(
       logDate: ymd(w.logDate),
       durationMin: w.durationMin,
       isFinished: w.completedAt != null,
-      sets: performedSets(w.sets).length,
+      sets: performedSets(w.sets, { isFinished: w.completedAt != null }).length,
     })),
     totals,
     previous: {

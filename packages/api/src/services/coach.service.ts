@@ -135,8 +135,11 @@ export async function getCoachWindow(
   for (const w of workouts) {
     const sessionTop = new Map<string, number>();
     // Replayed prefill nobody ticked is not training the coach should reason
-    // about — it would read as extra volume that was never done.
-    for (const s of performedSets(w.sets)) {
+    // about — it would read as extra volume that was never done. `isFinished`
+    // extends that to the planner's own output: the coach was being shown next
+    // week's plan as though it were last week's training, and then asked to
+    // advise on it.
+    for (const s of performedSets(w.sets, { isFinished: w.completedAt != null })) {
       totalSets += 1;
       if (s.weightKg != null && s.reps != null) totalVolumeKg += s.weightKg * s.reps;
       const muscle = s.exercise?.primaryMuscle;

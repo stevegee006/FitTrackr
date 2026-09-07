@@ -224,7 +224,12 @@ export async function getProgramSummary(
     if (w.programWeek != null) weeksTouched.add(w.programWeek);
     // Performed sets only, per workout — see performedSets. Adherence counted
     // against replayed prefill would overstate how much of the plan was done.
-    for (const s of performedSets(w.sets)) {
+    //
+    // `isFinished` matters most here of anywhere: a program's sessions are
+    // written ahead as real workouts, so without it adherence counted the plan
+    // itself as evidence the plan had been followed — reporting 100% for a
+    // week nobody had trained.
+    for (const s of performedSets(w.sets, { isFinished: w.completedAt != null })) {
       totalSets += 1;
       totalReps += s.reps ?? 0;
       if (s.weightKg != null && s.reps != null) totalVolumeKg += s.weightKg * s.reps;
