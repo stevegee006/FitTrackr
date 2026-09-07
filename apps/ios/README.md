@@ -426,12 +426,22 @@ re-renders at that instant with `context.isStale`, and the views fall back to
 `ContentState.withoutRest()`. No push, no background execution, nothing of ours
 running.
 
-**One alert, not two.** An iPhone notification mirrors to a paired watch
-whenever the phone is locked, and the watch buzzes from its own timer during a
-session — so the phone schedules NOTHING while a wrist session is active
-(`PhoneWatchConnector.watchSessionActive`). Without a watch, `RestAlerts`
-schedules a local notification for the finish line. The web app's own
-`Notification` call is skipped in the native shell for the same reason.
+**The phone always alerts, and so does the watch.** An earlier version
+suppressed the phone's notification while a wrist session was recording, to
+avoid a double buzz. That was reversed: the phone only ever knew that
+`startWatchApp` had succeeded, not that the watch was still on an arm — so
+leaving the watch on a bench meant no alert from either device. A duplicate
+buzz is a mild annoyance; a missed rest is the feature not working.
+
+`RestAlerts` schedules a local notification for the finish line, and a
+`UNUserNotificationCenterDelegate` makes it present even with the app on
+screen — iOS suppresses a local notification for its own foregrounded app
+otherwise, and mid-set the phone is often awake but not being looked at. Sound
+routes to whatever is playing, AirPods included, and a
+`UINotificationFeedbackGenerator` covers a phone on silent.
+
+The web app's own `Notification` call is skipped in the native shell, since it
+would be a third alert for the same rest.
 
 Notification permission is requested lazily, on the first rest timer rather
 than at launch: a prompt before the user has done anything gets denied

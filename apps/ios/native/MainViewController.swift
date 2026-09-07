@@ -62,6 +62,10 @@ class MainViewController: CAPBridgeViewController {
         super.viewDidLoad()
         webView?.navigationDelegate = self
         showSplash()
+        // So the end-of-rest alert sounds even with the app on screen — iOS
+        // suppresses a local notification for its own foregrounded app unless
+        // a delegate says otherwise.
+        RestAlerts.installPresenter()
     }
 
     // MARK: - Splash

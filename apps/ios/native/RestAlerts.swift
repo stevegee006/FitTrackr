@@ -1,5 +1,6 @@
 import Foundation
 import UserNotifications
+import UIKit
 
 /**
  The "rest is over" alert on the phone.
@@ -20,6 +21,39 @@ enum RestAlerts {
     /// One identifier, so scheduling again replaces rather than stacks. Adding
     /// ten seconds twice must not produce three notifications.
     private static let identifier = "fittrackr.rest.finished"
+
+    /**
+     Make the alert fire even while the app is on screen.
+
+     By default iOS suppresses a local notification when its own app is
+     foregrounded, on the reasonable assumption that the app can speak for
+     itself. That assumption is wrong here: mid-set the phone is on a bench
+     with the screen dark-but-awake, or the athlete is looking at the set list
+     rather than the timer. The sound is the point, and it routes to whatever
+     is playing — AirPods included.
+
+     Retained by the static `shared`; `UNUserNotificationCenter.delegate` is a
+     weak reference and a local object would be gone before delivery.
+     */
+    private final class Presenter: NSObject, UNUserNotificationCenterDelegate {
+        static let shared = Presenter()
+
+        func userNotificationCenter(
+            _ center: UNUserNotificationCenter,
+            willPresent notification: UNNotification,
+            withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+        ) {
+            // A haptic as well as the sound. AirPods cover the audible half,
+            // but a phone in a pocket with the ringer off has nothing else.
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            completionHandler([.banner, .sound, .list])
+        }
+    }
+
+    /// Call once, before any rest can finish. `MainViewController` does it.
+    static func installPresenter() {
+        UNUserNotificationCenter.current().delegate = Presenter.shared
+    }
 
     private static var askedForPermission = false
 

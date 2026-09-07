@@ -31,15 +31,6 @@ final class PhoneWatchConnector: NSObject {
     /// Set by `WatchWorkoutPlugin` so the wrist can skip or adjust the rest.
     var onRestCommand: ((String, Int) -> Void)?
 
-    /**
-     True while a session this app started is recording on the wrist.
-
-     Used to decide who alerts when rest ends. The watch buzzes from its own
-     timer, and an iPhone notification mirrors to the watch whenever the phone
-     is locked — so scheduling both means two alerts for one rest, on the same
-     wrist, moments apart.
-     */
-    private(set) var watchSessionActive = false
 
     private override init() {
         super.init()
@@ -287,7 +278,6 @@ final class PhoneWatchConnector: NSObject {
         config.locationType = .indoor
 
         try await healthStore.startWatchApp(toHandle: config)
-        watchSessionActive = true
 
         // The configuration carries no arbitrary metadata, so the name follows
         // separately — cosmetic only, and safe to lose.
@@ -295,7 +285,6 @@ final class PhoneWatchConnector: NSObject {
     }
 
     func stopWorkout() {
-        watchSessionActive = false
         send(["action": "stop"])
     }
 

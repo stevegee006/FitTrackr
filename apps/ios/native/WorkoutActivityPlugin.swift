@@ -134,11 +134,17 @@ public class WorkoutActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /**
-     Alert when rest ends — unless the wrist is going to.
+     Alert when rest ends.
 
-     An iPhone notification mirrors to a paired watch whenever the phone is
-     locked, and the watch app buzzes from its own timer during a session. Both
-     means two alerts for one rest, on the same wrist, moments apart.
+     Scheduled on the phone ALWAYS, including while a session is recording on
+     the wrist. This deliberately reversed an earlier decision to suppress it:
+     the phone only ever knew that `startWatchApp` had succeeded, not that the
+     watch was still on an arm — so leaving the watch on a bench, or in another
+     room, meant no alert at all from either device. A duplicate buzz is a mild
+     annoyance; a missed rest is the feature not working.
+
+     The watch's own haptic still fires, so with both devices present there are
+     two alerts moments apart. Accepted knowingly.
      */
     @available(iOS 16.1, *)
     private static func scheduleAlert(
@@ -146,7 +152,6 @@ public class WorkoutActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         call: CAPPluginCall
     ) {
         guard let endsAt = state.restEndsAt else { return RestAlerts.cancel() }
-        guard !PhoneWatchConnector.shared.watchSessionActive else { return RestAlerts.cancel() }
         RestAlerts.schedule(
             endsAt: endsAt,
             exerciseName: state.restExerciseName,
