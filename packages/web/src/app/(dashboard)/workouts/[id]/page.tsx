@@ -10,6 +10,7 @@ import { SetRow, SetRowHeader } from '@/components/workout/SetRow';
 import { RestTimerModal, type RestContext, type RestActivity } from '@/components/workout/RestTimerModal';
 import {
   syncWorkoutActivity, endWorkoutActivity, startWatchWorkout, stopWatchWorkout,
+  syncWatchRest,
 } from '@/lib/native';
 import { DurationEditModal, MAX_DURATION_MIN } from '@/components/workout/DurationEditModal';
 import { markCelebrate } from '@/components/workout/CelebrationBurst';
@@ -495,6 +496,11 @@ export default function WorkoutDetailPage() {
       // The session is over — the Live Activity goes with it. Left running it
       // would sit on the Lock Screen counting up from a finished workout.
       void endWorkoutActivity();
+      // Clear the wrist countdown explicitly. `stopWatchWorkout` clears it as
+      // a side effect of ending the session, but Finish is reachable on a
+      // workout whose clock never ran — no session to end, and a countdown
+      // from earlier still on screen.
+      void syncWatchRest(null);
       // And the watch stops and SAVES: an HKWorkoutSession left running drains
       // the battery and is eventually killed by the system, recording nothing.
       void stopWatchWorkout();
@@ -635,6 +641,11 @@ export default function WorkoutDetailPage() {
       setsTotal: working.length,
       rest: restActivity,
     });
+
+    // The wrist gets the same countdown, from the same state, in the same
+    // effect. Two owners could disagree about whether rest is running, and the
+    // watch is the surface you would not notice was wrong.
+    void syncWatchRest(restActivity);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     workoutStarted, clockRunning, restActivity, workout?.id, workout?.name,

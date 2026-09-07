@@ -5,10 +5,10 @@ import Combine
 /**
  The watch half of the phone link.
 
- Only three messages exist, all from phone to watch: `start` (belt and braces —
- `startWatchApp` already launches us into a session), `stop`, and `name`.
- Nothing is sent back: the phone keeps its own clock and set counts, so the
- watch has nothing the phone needs.
+ Four messages, all from phone to watch: `start` (belt and braces —
+ `startWatchApp` already launches us into a session), `stop`, `name`, and
+ `rest`. Nothing is sent back: the phone keeps its own clock and set counts, so
+ the watch has nothing the phone needs.
 
  Add to the WATCH target only.
  */
@@ -53,6 +53,19 @@ extension WatchConnector: WCSessionDelegate {
                 await WorkoutManager.shared.stop()
             case "name":
                 if let name { WorkoutManager.shared.workoutName = name }
+            case "rest":
+                // No `endsAt` means rest is over — skipped, or the next set
+                // ticked. Sending a clear as the same message keeps the watch
+                // from having to infer it.
+                let endsAtMs = payload["restEndsAt"] as? Double
+                WorkoutManager.shared.setRest(endsAtMs.map { ms in
+                    RestState(
+                        endsAt: Date(timeIntervalSince1970: ms / 1000),
+                        exerciseName: payload["restExerciseName"] as? String,
+                        setNumber: payload["restSetNumber"] as? Int,
+                        totalSets: payload["restTotalSets"] as? Int
+                    )
+                })
             default:
                 break
             }

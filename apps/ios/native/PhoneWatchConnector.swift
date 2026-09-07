@@ -165,6 +165,28 @@ final class PhoneWatchConnector: NSObject {
         send(["action": "stop"])
     }
 
+    /**
+     Push the rest countdown to the wrist.
+
+     `endsAt` nil means rest is over — skipped, or the next set ticked. Sent as
+     the same message rather than a separate "clear" so the watch never has to
+     infer the end, and a lost clear cannot leave a countdown running.
+
+     Sent as an absolute instant. A remaining-seconds value would be wrong by
+     however long the message spent queued, which for a `transferUserInfo` to a
+     sleeping watch can be a while.
+     */
+    func sendRest(endsAt: Date?, exerciseName: String?, setNumber: Int?, totalSets: Int?) {
+        var payload: [String: Any] = ["action": "rest"]
+        if let endsAt {
+            payload["restEndsAt"] = endsAt.timeIntervalSince1970 * 1000
+            if let exerciseName { payload["restExerciseName"] = exerciseName }
+            if let setNumber { payload["restSetNumber"] = setNumber }
+            if let totalSets { payload["restTotalSets"] = totalSets }
+        }
+        send(payload)
+    }
+
     private func send(_ payload: [String: Any]) {
         guard WCSession.isSupported() else { return }
         let session = WCSession.default

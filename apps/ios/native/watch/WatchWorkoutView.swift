@@ -1,8 +1,14 @@
 import SwiftUI
 
 /**
- What you see on the wrist mid-set: heart rate, elapsed, active calories, and a
- way to stop.
+ What you see on the wrist mid-set: the rest countdown when one is running,
+ otherwise heart rate, elapsed, active calories, and a way to stop.
+
+ Rest takes over the whole screen rather than sitting alongside the stats. It
+ is the only thing that matters while it is running, it is read at arm's length
+ between sets, and a glanceable countdown beats a complete dashboard. The stats
+ are still one tap away — and still on the phone, which is where the session is
+ actually being logged.
 
  Stopping from the watch is deliberate. The phone normally ends the session
  when you press Finish, but if the phone is across the gym, in a locker, or
@@ -16,7 +22,9 @@ struct WatchWorkoutView: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            if manager.isRunning {
+            if let rest = manager.rest, rest.isActive {
+                restView(rest)
+            } else if manager.isRunning {
                 Text(manager.workoutName)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -66,5 +74,44 @@ struct WatchWorkoutView: View {
         }
         .padding(.horizontal, 4)
         .task { await manager.requestAuthorization() }
+    }
+
+    /**
+     The countdown.
+
+     `Text(timerInterval:countsDown:)` counts on its own, so nothing here ticks
+     and the number is correct the instant the screen wakes — the same reason
+     the Live Activity uses it. A `Timer` publisher would stop while the app is
+     suspended and resume showing a stale value.
+     */
+    @ViewBuilder
+    private func restView(_ rest: RestState) -> some View {
+        VStack(spacing: 4) {
+            Text("REST")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.teal)
+
+            Text(timerInterval: Date()...rest.endsAt, countsDown: true)
+                .font(.system(size: 44, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .minimumScaleFactor(0.5)
+                .lineLimit(1)
+
+            if let name = rest.exerciseName {
+                Text(name)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            // "Set 2 of 4" is what tells you whether to reach for the water or
+            // get back under the bar, so it earns its line.
+            if let set = rest.setNumber, let total = rest.totalSets {
+                Text("Set \(set) of \(total)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
+        }
     }
 }

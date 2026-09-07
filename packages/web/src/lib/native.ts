@@ -172,6 +172,9 @@ interface WatchWorkoutBridge {
   summary(options: { startedAt: number }): Promise<{
     found: boolean; avgHeartRateBpm?: number; activeEnergyKcal?: number;
   }>;
+  rest(options: {
+    endsAt: number | null; exerciseName?: string; setNumber?: number; totalSets?: number;
+  }): Promise<void>;
 }
 
 export interface WatchStatus {
@@ -200,6 +203,33 @@ export async function startWatchWorkout(workoutName: string): Promise<void> {
 export async function stopWatchWorkout(): Promise<void> {
   try { await (plugins()?.WatchWorkout as WatchWorkoutBridge | undefined)?.stop(); }
   catch { /* ignore */ }
+}
+
+/**
+ * Mirror the rest countdown onto the watch.
+ *
+ * Driven by the same state as the Live Activity, from the same effect, for the
+ * same reason: state rather than events means the wrist cannot get out of step
+ * with the page, and a missed "rest ended" cannot leave a countdown running.
+ *
+ * Pass null to clear. Resolves regardless — no watch, asleep, or app not
+ * installed must never disturb the workout being logged on the phone.
+ */
+export async function syncWatchRest(rest: WorkoutActivityState['rest']): Promise<void> {
+  try {
+    const bridge = plugins()?.WatchWorkout as WatchWorkoutBridge | undefined;
+    if (!bridge) return;
+    await bridge.rest(
+      rest
+        ? {
+            endsAt: rest.endsAt,
+            exerciseName: rest.exerciseName,
+            setNumber: rest.setNumber,
+            totalSets: rest.totalSets,
+          }
+        : { endsAt: null },
+    );
+  } catch { /* ignore */ }
 }
 
 export interface WatchWorkoutSummary {

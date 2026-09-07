@@ -26,6 +26,15 @@ final class WorkoutManager: NSObject, ObservableObject {
     @Published var activeEnergyKcal: Double = 0
     /// Sent from the phone so the watch face shows which session this is.
     @Published var workoutName: String = "Workout"
+    /**
+     The rest countdown, pushed from the phone.
+
+     Held as an absolute end instant rather than a remaining duration so the
+     view can count down on its own — no ticking here, and still correct after
+     the screen sleeps. Mirrored into the App Group so the complication reads
+     exactly what the app is showing.
+     */
+    @Published var rest: RestState?
 
     private override init() { super.init() }
 
@@ -121,6 +130,25 @@ final class WorkoutManager: NSObject, ObservableObject {
         reset()
     }
 
+    // MARK: - Rest
+
+    /**
+     Show, replace, or clear the rest countdown.
+
+     Idempotent by design, like the Live Activity's `sync`: the phone sends
+     whatever the current state is, and passing nil ends the countdown. The
+     watch never decides on its own that rest is over — skipping a rest, adding
+     ten seconds, or ticking the next set all arrive as another call, so the two
+     cannot drift.
+     */
+    func setRest(_ rest: RestState?) {
+        // Already-elapsed rest is not rest. A message delayed by a queued
+        // transfer would otherwise start a countdown that finished minutes ago.
+        let live = (rest?.isActive ?? false) ? rest : nil
+        self.rest = live
+        SharedRest.write(live)
+    }
+
     private func reset() {
         session = nil
         builder = nil
@@ -128,6 +156,11 @@ final class WorkoutManager: NSObject, ObservableObject {
         startedAt = nil
         heartRate = 0
         activeEnergyKcal = 0
+        // The session is over, so any countdown belongs to it and goes too.
+        // Left behind, a complication would show a rest from a finished
+        // workout until it happened to expire.
+        rest = nil
+        SharedRest.clear()
     }
 }
 

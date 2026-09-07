@@ -26,6 +26,7 @@ public class WatchWorkoutPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "start", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "summary", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "rest", returnType: CAPPluginReturnPromise),
     ]
 
     /// Lets the web app hide the feature rather than offer something that
@@ -58,6 +59,25 @@ public class WatchWorkoutPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func stop(_ call: CAPPluginCall) {
         PhoneWatchConnector.shared.stopWorkout()
         call.resolve(["stopped": true])
+    }
+
+    /**
+     Mirror the rest countdown onto the wrist.
+
+     Called with `endsAt` null when rest ends, so the web side sends state
+     rather than events — the same shape as the Live Activity's `sync`, and for
+     the same reason: a state push cannot get out of step with what the page is
+     showing, whereas a missed "rest ended" event leaves a countdown running.
+     */
+    @objc func rest(_ call: CAPPluginCall) {
+        let endsAtMs = call.getDouble("endsAt")
+        PhoneWatchConnector.shared.sendRest(
+            endsAt: endsAtMs.map { Date(timeIntervalSince1970: $0 / 1000) },
+            exerciseName: call.getString("exerciseName"),
+            setNumber: call.getInt("setNumber"),
+            totalSets: call.getInt("totalSets")
+        )
+        call.resolve()
     }
 
     /**
