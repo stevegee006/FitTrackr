@@ -391,6 +391,44 @@ disagree. Add the App Groups capability with that container to every target
 that reads it — it does provision on a free personal team, contrary to
 expectation.
 
+### The rest-timer complication
+
+A watch face complication showing the same countdown. Optional — the watch app
+already shows it, and this is for glancing at the face rather than opening the
+app.
+
+**Adding the target:**
+
+1. File → New → Target → **Widget Extension** under watchOS. Name it
+   `FitTrackrWatchComplication`. **Untick "Include Live Activity"** and
+   **untick "Include Configuration App Intent"** — this is a static
+   complication with nothing to configure.
+2. When asked to embed, embed it in **FitTrackrWatch Watch App**, not the
+   iPhone app.
+3. Delete the generated `FitTrackrWatchComplication.swift` — like the watch
+   app template, it declares its own `@main`, and two in one target is a hard
+   error.
+4. Add `native/complication/RestComplication.swift` **and**
+   `native/watch/SharedRest.swift` to the complication target.
+   `SharedRest.swift` belongs to both targets: it is the shared contract, and
+   the whole point is that one store is read by both.
+5. **Signing & Capabilities → + Capability → App Groups**, tick
+   `group.com.geehive.fittrackr`. Without it the extension reads an empty
+   store and the complication is permanently idle — with no error anywhere.
+
+**Why the timeline holds one entry.** WidgetKit will not wake an extension
+every second, and a timeline of ninety one-second entries would spend the whole
+refresh budget on a single rest. `ProgressView(timerInterval:)` and
+`Text(timerInterval:)` animate themselves once rendered, so the entry is
+static and the reload policy is simply `.after(endsAt)` — the complication
+clears itself and asks for nothing in between.
+
+Nothing polls. The watch app calls `WidgetCenter.reloadAllTimelines()` when
+rest starts and ends, which it can do freely because it is already awake
+holding the workout session. That is also why
+`transferCurrentComplicationUserInfo` and its ~50/day budget are not involved:
+a 20-set session would exhaust it, and there is no need.
+
 ### Testing it
 
 **Device only.** HealthKit workout sessions do not work usefully in the

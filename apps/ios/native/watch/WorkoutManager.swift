@@ -1,6 +1,7 @@
 import Foundation
 import HealthKit
 import Combine
+import WidgetKit
 
 /**
  The actual workout recording, on the watch.
@@ -147,6 +148,10 @@ final class WorkoutManager: NSObject, ObservableObject {
         let live = (rest?.isActive ?? false) ? rest : nil
         self.rest = live
         SharedRest.write(live)
+        // The complication is a separate process and does not see the write.
+        // Cheap because it happens on rest START and END only, not per second
+        // — the countdown itself animates without us.
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     private func reset() {
@@ -161,6 +166,7 @@ final class WorkoutManager: NSObject, ObservableObject {
         // workout until it happened to expire.
         rest = nil
         SharedRest.clear()
+        WidgetCenter.shared.reloadAllTimelines()
     }
 }
 
