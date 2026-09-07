@@ -71,12 +71,22 @@ enum RestAlerts {
             case .authorized, .provisional, .ephemeral:
                 then(true)
             case .notDetermined:
-                guard !askedForPermission else { return then(false) }
+                guard !askedForPermission else {
+                    // Asked once this launch and the answer has not landed yet.
+                    NSLog("[RestAlerts] permission request already in flight")
+                    return then(false)
+                }
                 askedForPermission = true
-                center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+                NSLog("[RestAlerts] requesting notification permission")
+                center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+                    NSLog("[RestAlerts] permission granted=\(granted) error=\(String(describing: error))")
                     then(granted)
                 }
             default:
+                // Denied, and iOS will not let us ask again — only Settings can
+                // undo it. Logged rather than swallowed, because a silent
+                // no-op here looks exactly like a broken timer.
+                NSLog("[RestAlerts] notifications not permitted (status \(settings.authorizationStatus.rawValue))")
                 then(false)
             }
         }
@@ -92,7 +102,11 @@ enum RestAlerts {
         // Already gone. Scheduling a date in the past delivers immediately,
         // which would fire an alert for a rest that finished while a message
         // was queued.
-        guard endsAt.timeIntervalSinceNow > 0.5 else { return cancel() }
+        guard endsAt.timeIntervalSinceNow > 0.5 else {
+            NSLog("[RestAlerts] endsAt is in the past, cancelling")
+            return cancel()
+        }
+        NSLog("[RestAlerts] scheduling for \(endsAt) (in \(Int(endsAt.timeIntervalSinceNow))s)")
 
         ensureAuthorized { granted in
             guard granted else { return }
@@ -119,7 +133,13 @@ enum RestAlerts {
             )
             let center = UNUserNotificationCenter.current()
             center.removePendingNotificationRequests(withIdentifiers: [identifier])
-            center.add(request)
+            center.add(request) { error in
+                if let error {
+                    NSLog("[RestAlerts] add failed: \(error)")
+                } else {
+                    NSLog("[RestAlerts] scheduled ok")
+                }
+            }
         }
     }
 
