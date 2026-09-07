@@ -330,7 +330,7 @@ export default function DashboardPage() {
             </Link>
           </Card>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-3">
             {workouts.map((w) => (
               <WorkoutCard key={w.id} workout={w} />
             ))}
