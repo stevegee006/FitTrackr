@@ -309,7 +309,8 @@ running on the wrist until the system kills it — losing the whole workout.
    it reads like a phantom duplicate rather than a collision.
 3. Add the four files from `native/watch/` to the **watch** target only:
    `WorkoutManager.swift`, `WatchConnector.swift`, `FitTrackrWatchApp.swift`,
-   `WatchWorkoutView.swift`. Say **no** to the Objective-C bridging header
+   `WatchWorkoutView.swift`, `SharedRest.swift`. Say **no** to the Objective-C
+   bridging header
    Xcode offers — the target is pure Swift, and a stale
    `SWIFT_OBJC_BRIDGING_HEADER` has already cost this project an hour once.
 4. Add `PhoneWatchConnector.swift` and `WatchWorkoutPlugin.swift` to the
@@ -366,6 +367,29 @@ catalogues go with it.
 The source is full-bleed and has no alpha on purpose — iOS applies its own
 squircle mask, so an icon carrying its own rounded corners shows black
 wedges past the mask, and alpha is rejected outright at validation.
+
+### The rest countdown
+
+While a rest timer runs on the phone, the watch shows it full-screen instead of
+the stats. Pushed by `syncWatchRest`, driven by the same state and the same
+effect as the Live Activity — two owners could disagree about whether rest is
+running, and the wrist is the surface you would not notice was wrong.
+
+Sent as an **absolute end instant**, never a remaining duration. That is what
+lets `Text(timerInterval:)` count down on its own, and it stays correct across
+a screen sleep or a message that spent time queued to a sleeping watch. A
+remaining-seconds value would be wrong by however long it was in flight.
+
+`endsAt: null` means rest is over — skipped, or the next set ticked. Sent as
+the same message rather than a separate clear, so a lost clear cannot leave a
+countdown running.
+
+`SharedRest` mirrors the state into the **App Group**
+(`group.com.geehive.fittrackr`), because a complication is a separate process
+and cannot see `WorkoutManager`. Both surfaces read one store, so they cannot
+disagree. Add the App Groups capability with that container to every target
+that reads it — it does provision on a free personal team, contrary to
+expectation.
 
 ### Testing it
 
