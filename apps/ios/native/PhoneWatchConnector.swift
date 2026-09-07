@@ -166,6 +166,17 @@ final class PhoneWatchConnector: NSObject {
     }
 
     /**
+     Pause or resume the session on the wrist.
+
+     State, not an event: the phone sends whether it is paused, so a missed
+     message is corrected by the next one rather than leaving the two clocks
+     permanently disagreeing.
+     */
+    func sendPaused(_ paused: Bool) {
+        send(["action": "pause", "paused": paused])
+    }
+
+    /**
      Push the rest countdown to the wrist.
 
      `endsAt` nil means rest is over — skipped, or the next set ticked. Sent as

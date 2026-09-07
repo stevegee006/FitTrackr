@@ -175,6 +175,7 @@ interface WatchWorkoutBridge {
   rest(options: {
     endsAt: number | null; exerciseName?: string; setNumber?: number; totalSets?: number;
   }): Promise<void>;
+  pause(options: { paused: boolean }): Promise<void>;
 }
 
 export interface WatchStatus {
@@ -229,6 +230,26 @@ export async function syncWatchRest(rest: WorkoutActivityState['rest']): Promise
           }
         : { endsAt: null },
     );
+  } catch { /* ignore */ }
+}
+
+/**
+ * Pause or resume the watch session alongside the phone's clock.
+ *
+ * Not only cosmetic: a session left running keeps sampling heart rate and
+ * accruing active energy through the break, so a paused workout that carries on
+ * recording inflates the workout HealthKit saves — and the calories the
+ * dashboard then reports.
+ *
+ * State rather than an event, driven from the same effect as everything else,
+ * so a dropped message is corrected by the next one instead of leaving the two
+ * clocks permanently out of step.
+ */
+export async function setWatchPaused(paused: boolean): Promise<void> {
+  try {
+    const bridge = plugins()?.WatchWorkout as WatchWorkoutBridge | undefined;
+    if (!bridge) return;
+    await bridge.pause({ paused });
   } catch { /* ignore */ }
 }
 

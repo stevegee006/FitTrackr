@@ -10,7 +10,7 @@ import { SetRow, SetRowHeader } from '@/components/workout/SetRow';
 import { RestTimerModal, type RestContext, type RestActivity } from '@/components/workout/RestTimerModal';
 import {
   syncWorkoutActivity, endWorkoutActivity, startWatchWorkout, stopWatchWorkout,
-  syncWatchRest,
+  syncWatchRest, setWatchPaused,
 } from '@/lib/native';
 import { DurationEditModal, MAX_DURATION_MIN } from '@/components/workout/DurationEditModal';
 import { markCelebrate } from '@/components/workout/CelebrationBurst';
@@ -646,6 +646,12 @@ export default function WorkoutDetailPage() {
     // effect. Two owners could disagree about whether rest is running, and the
     // watch is the surface you would not notice was wrong.
     void syncWatchRest(restActivity);
+
+    // And the same pause. Without this the watch session ran on through a
+    // pause — still counting, still sampling heart rate, still accruing
+    // energy — so the workout HealthKit saved was longer and hotter than the
+    // one that happened.
+    void setWatchPaused(!clockRunning);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     workoutStarted, clockRunning, restActivity, workout?.id, workout?.name,

@@ -21,8 +21,23 @@ final class WorkoutManager: NSObject, ObservableObject {
     private var session: HKWorkoutSession?
     private var builder: HKLiveWorkoutBuilder?
 
+    /// In a session — running OR paused. Deliberately not "not paused": the
+    /// view uses this to decide between the workout UI and the idle prompt,
+    /// and a paused workout must not look like no workout.
     @Published var isRunning = false
+    @Published var isPaused = false
     @Published var startedAt: Date?
+    /**
+     What `Text(timerInterval:)` counts up from.
+
+     Not `startedAt`, because pausing has to be subtracted. On resume this is
+     moved forward to `now - elapsed`, so the self-counting text shows total
+     working time without anything here ticking. `startedAt` stays as the real
+     beginning of the session, which is what HealthKit records.
+     */
+    @Published var timerAnchor: Date?
+    /// Frozen elapsed time to display while paused, since nothing is counting.
+    @Published var pausedElapsed: TimeInterval = 0
     @Published var heartRate: Double = 0
     @Published var activeEnergyKcal: Double = 0
     /// Sent from the phone so the watch face shows which session this is.
@@ -100,7 +115,9 @@ final class WorkoutManager: NSObject, ObservableObject {
             try await builder.beginCollection(at: begin)
 
             startedAt = begin
+            timerAnchor = begin
             isRunning = true
+            isPaused = false
         } catch {
             // Nothing to surface on the watch beyond staying stopped; the phone
             // keeps its own clock either way.
@@ -131,6 +148,30 @@ final class WorkoutManager: NSObject, ObservableObject {
         reset()
     }
 
+    // MARK: - Pause
+
+    /**
+     Pause or resume the session on the wrist.
+
+     Commands only — the published state is updated by the session delegate,
+     not here. That is what makes pausing from the watch's own system card
+     (the Smart Stack shows one, with a pause button) behave identically to
+     pausing from the phone. Setting the flags here as well would give two
+     writers and a UI that disagrees with the session it is describing.
+
+     Pausing matters for more than the clock: a session left running keeps
+     sampling heart rate and accruing active energy through the rest, which
+     inflates the workout HealthKit ends up saving.
+     */
+    func setPaused(_ paused: Bool) {
+        guard let session, isRunning else { return }
+        if paused, session.state == .running {
+            session.pause()
+        } else if !paused, session.state == .paused {
+            session.resume()
+        }
+    }
+
     // MARK: - Rest
 
     /**
@@ -158,7 +199,10 @@ final class WorkoutManager: NSObject, ObservableObject {
         session = nil
         builder = nil
         isRunning = false
+        isPaused = false
         startedAt = nil
+        timerAnchor = nil
+        pausedElapsed = 0
         heartRate = 0
         activeEnergyKcal = 0
         // The session is over, so any countdown belongs to it and goes too.
@@ -180,11 +224,30 @@ extension WorkoutManager: HKWorkoutSessionDelegate {
         date: Date
     ) {
         Task { @MainActor in
-            self.isRunning = (toState == .running)
-            // The session can end without us asking — the watch being removed,
-            // or the system reclaiming it. Treat that as a stop so the UI does
-            // not sit claiming to record something that is not.
-            if toState == .ended { self.reset() }
+            switch toState {
+            case .running:
+                self.isRunning = true
+                self.isPaused = false
+                // Re-anchor so the counting text excludes the paused stretch.
+                // `builder.elapsedTime` already discounts it, which is why it
+                // is read rather than tracked here.
+                let elapsed = self.builder?.elapsedTime ?? 0
+                self.timerAnchor = Date().addingTimeInterval(-elapsed)
+            case .paused:
+                // NOT `isRunning = false` — that is the idle state, and a
+                // paused workout showing "start a workout" would be a lie.
+                self.isRunning = true
+                self.isPaused = true
+                self.pausedElapsed = self.builder?.elapsedTime ?? 0
+            case .ended:
+                // The session can end without us asking — the watch being
+                // removed, or the system reclaiming it. Treat that as a stop
+                // so the UI does not sit claiming to record something it is
+                // not.
+                self.reset()
+            default:
+                break
+            }
         }
     }
 

@@ -374,6 +374,29 @@ The source is full-bleed and has no alpha on purpose — iOS applies its own
 squircle mask, so an icon carrying its own rounded corners shows black
 wedges past the mask, and alpha is rejected outright at validation.
 
+### Pause
+
+Pausing on the phone pauses the wrist session too. That is not cosmetic: a
+session left running keeps sampling heart rate and accruing active energy
+through the break, so the workout HealthKit saves comes out longer and hotter
+than the one that happened — and the dashboard's calorie ring inherits it.
+
+`setPaused` on the watch issues **commands only**; the published state is
+updated by `HKWorkoutSessionDelegate`. That is what makes pausing from the
+watch's own system card — watchOS shows one in the Smart Stack, with a pause
+button — behave identically to pausing from the phone. Two writers would give
+a UI that disagrees with the session it describes.
+
+`isRunning` stays **true while paused**. It means "in a session", not "not
+paused" — the view uses it to choose between the workout UI and the idle
+prompt, and a paused workout must not render as no workout.
+
+The counting text is anchored to `timerAnchor`, not `startedAt`: on resume the
+anchor moves to `now - builder.elapsedTime`, which already discounts the
+paused stretch. `startedAt` stays the real beginning, which is what HealthKit
+records. While paused the view shows a frozen string instead —
+`Text(timerInterval:)` would keep ticking, which is the bug this exists to fix.
+
 ### The rest countdown
 
 While a rest timer runs on the phone, the watch shows it full-screen instead of

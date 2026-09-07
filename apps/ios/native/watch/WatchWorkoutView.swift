@@ -30,10 +30,25 @@ struct WatchWorkoutView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
 
-                if let startedAt = manager.startedAt {
+                if manager.isPaused {
+                    // A frozen value, because nothing is counting. Using
+                    // `Text(timerInterval:)` here would keep ticking and show
+                    // a paused workout advancing — which is the bug this
+                    // whole change exists to fix.
+                    Text(clock(manager.pausedElapsed))
+                        .font(.system(.title2, design: .rounded))
+                        .fontWeight(.bold)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                    Text("PAUSED")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.orange)
+                } else if let anchor = manager.timerAnchor {
                     // Counts on its own, like the Live Activity — no ticking
                     // from our code, and correct after the screen wakes.
-                    Text(timerInterval: startedAt...startedAt.addingTimeInterval(60 * 60 * 24),
+                    // Anchored to exclude paused time, not to the session
+                    // start.
+                    Text(timerInterval: anchor...anchor.addingTimeInterval(60 * 60 * 24),
                          countsDown: false)
                         .font(.system(.title2, design: .rounded))
                         .fontWeight(.bold)
@@ -74,6 +89,14 @@ struct WatchWorkoutView: View {
         }
         .padding(.horizontal, 4)
         .task { await manager.requestAuthorization() }
+    }
+
+    private func clock(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(seconds))
+        let h = total / 3600, m = (total % 3600) / 60, sec = total % 60
+        return h > 0
+            ? String(format: "%d:%02d:%02d", h, m, sec)
+            : String(format: "%d:%02d", m, sec)
     }
 
     /**

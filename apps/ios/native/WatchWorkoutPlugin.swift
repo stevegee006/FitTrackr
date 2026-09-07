@@ -27,6 +27,7 @@ public class WatchWorkoutPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "summary", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "rest", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "pause", returnType: CAPPluginReturnPromise),
     ]
 
     /// Lets the web app hide the feature rather than offer something that
@@ -59,6 +60,12 @@ public class WatchWorkoutPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func stop(_ call: CAPPluginCall) {
         PhoneWatchConnector.shared.stopWorkout()
         call.resolve(["stopped": true])
+    }
+
+    /// Pause or resume the wrist session alongside the phone's clock.
+    @objc func pause(_ call: CAPPluginCall) {
+        PhoneWatchConnector.shared.sendPaused(call.getBool("paused") ?? false)
+        call.resolve()
     }
 
     /**
