@@ -9,16 +9,11 @@ import type { WorkoutType } from '@fittrackr/shared';
  * them, and they look different on every device — the iPhone's 🦵 is not the
  * one Chrome on Windows draws.
  *
- * Most are built from the SAME barbell mark as `logo.svg` — one continuous bar
- * with two plates and two collars — and differentiated by direction rather than
- * by drawing a different object: push presses up, pull pulls down. Everything is
- * `currentColor` on `stroke`, so each icon takes the colour of its type.
- *
- * Three deliberately break that rule, because a barbell cannot say what they
- * mean. CARDIO is the one type that is not a lift. LEGS and FULL_BODY are about
- * the BODY rather than the movement — a bar with lines hanging off it read as
- * an insect rather than as legs, and FULL_BODY was the bare barbell, which is
- * also the fallback for anything unrecognised, so it said nothing at all.
+ * All of these are built from the SAME barbell mark as `logo.svg` — one
+ * continuous bar with two plates and two collars — and differentiated by
+ * direction rather than by drawing a different object. Push presses up, pull
+ * pulls down, legs hangs beneath the bar. Everything is `currentColor` on
+ * `stroke`, so each icon takes the colour of the type it belongs to.
  *
  * The geometry is duplicated from `generate-icons.mjs` only in spirit, not in
  * fact: these are their own small paths, so changing the app icon does not
@@ -72,24 +67,13 @@ export function WorkoutTypeIcon({
     case 'PULL':
       return svg(<><Barbell y={7} /><path d="M12 13v7" /><path d="M9 17l3 3 3-3" /></>);
 
-    /**
-     * A pair of legs, hips to feet.
-     *
-     * The FEET are what make this work. It was previously a barbell with two
-     * lines hanging beneath it, and without anything terminating them they read
-     * as tentacles — the mark needs something at the bottom to say "these are
-     * limbs standing on the ground". The bar is gone for the same reason the
-     * cardio icon has none: at this size there is not room for both a barbell
-     * and a body, and the body is the part that means "legs".
-     */
+    // Bar across the shoulders, legs beneath it.
     case 'LEGS':
       return svg(
         <>
-          <path d="M9 4h6" />
-          <path d="M9.5 4v8l-1.5 5" />
-          <path d="M14.5 4v8l1.5 5" />
-          <path d="M5.5 17.5h4" />
-          <path d="M14.5 17.5h4" />
+          <Barbell y={6} />
+          <path d="M9.5 10v4l-2 6" />
+          <path d="M14.5 10v4l2 6" />
         </>,
       );
 
@@ -111,25 +95,7 @@ export function WorkoutTypeIcon({
         </>,
       );
 
-    /**
-     * A whole figure: head, arms, torso, legs.
-     *
-     * Was the bare barbell — which is also the fallback below for anything
-     * unrecognised, so "Full Body" and "no idea what this is" drew the same
-     * mark. A body says the thing the name says.
-     */
-    case 'FULL_BODY':
-      return svg(
-        <>
-          <circle cx="12" cy="4.5" r="2" />
-          <path d="M12 6.5v6" />
-          <path d="M7 9.5h10" />
-          <path d="M12 12.5l-3 7" />
-          <path d="M12 12.5l3 7" />
-        </>,
-      );
-
-    // Anything unrecognised: the plain mark.
+    // FULL_BODY and anything unrecognised: the plain mark.
     default:
       return svg(<Barbell y={12} />);
   }
