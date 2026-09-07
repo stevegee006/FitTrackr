@@ -186,7 +186,10 @@ export async function getCoachWindow(
 
   return {
     days,
-    sessions: workouts.length,
+    // Finished sessions only. Counting planned ones told the coach the athlete
+    // had trained more than they had, which then shaped its advice — the
+    // planner's own output was being fed back to it as history.
+    sessions: workouts.filter((w) => w.completedAt != null).length,
     setsByMuscle,
     totalSets,
     totalVolumeKg: Math.round(totalVolumeKg),

@@ -218,7 +218,9 @@ export default function TrendsPage() {
   const { data: workoutsThisWeek, isLoading: workoutsLoading } = useQuery({
     queryKey: ['workouts', weekStart, weekEnd],
     queryFn: () =>
-      apiFetch<{ data: any[] }>(`/workouts?from=${weekStart}&to=${weekEnd}&limit=20`),
+      apiFetch<{ data: Array<{ completedAt?: string | null }> }>(
+        `/workouts?from=${weekStart}&to=${weekEnd}&limit=20`,
+      ),
   });
 
   // Measurement data (last 30 days)
@@ -242,7 +244,12 @@ export default function TrendsPage() {
   const thisVol = (volumeThis?.data?.volumeByMuscle ?? {}) as Record<string, number>;
   const prevVol = (volumePrev?.data?.volumeByMuscle ?? {}) as Record<string, number>;
   const weeklySetTargets = (goalData?.data?.volumeTargets as any)?.weeklySetTargets as Record<string, number> | undefined;
-  const workoutsCount = workoutsThisWeek?.data?.length ?? 0;
+  // Finished sessions only, matching the dashboard ring and the recap. The AI
+  // planner writes next week as real workouts, so a raw count reported five
+  // workouts for a week with nothing done — beside a "0 sets" tile drawn from
+  // the same week, which is how it was spotted.
+  const workoutsCount =
+    (workoutsThisWeek?.data ?? []).filter((w) => w.completedAt).length;
 
   const totalSetsThis = Object.values(thisVol).reduce((a, b) => a + b, 0);
   const totalSetsPrev = Object.values(prevVol).reduce((a, b) => a + b, 0);

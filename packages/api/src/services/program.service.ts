@@ -278,6 +278,16 @@ export async function getProgramSummary(
     };
   }).sort((a, b) => b.volumeKg - a.volumeKg);
 
+  /**
+   * Sessions that were actually completed.
+   *
+   * A program's days are written ahead as real workouts, so `workouts.length`
+   * counted the plan itself — and `completedSessions` said what it should have
+   * been doing all along. Adherence could read 100% for a program nobody had
+   * started, which inverts the only question the number answers.
+   */
+  const completed = workouts.filter((w) => w.completedAt != null);
+
   // PRs achieved during the program's date window.
   const first = workouts[0]?.logDate;
   const last = workouts[workouts.length - 1]?.logDate;
@@ -299,10 +309,10 @@ export async function getProgramSummary(
     },
     adherence: {
       plannedSessions,
-      completedSessions: workouts.length,
+      completedSessions: completed.length,
       // Null rather than a misleading 0% when the plan has no days at all.
       percent: plannedSessions > 0
-        ? Math.round((workouts.length / plannedSessions) * 100)
+        ? Math.round((completed.length / plannedSessions) * 100)
         : null,
       weeksTrained: weeksTouched.size,
       firstWorkout: first ? first.toISOString().split('T')[0] : null,
