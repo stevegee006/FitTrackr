@@ -8,12 +8,17 @@ import { SidebarNav } from '@/components/layout/SidebarNav';
 import { Spinner } from '@/components/ui/Spinner';
 import { TutorialOverlay } from '@/components/tutorial/TutorialOverlay';
 import { useTutorial } from '@/hooks/useTutorial';
+import { useHealthImport } from '@/hooks/useHealthImport';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const tutorial = useTutorial();
+  // Workouts recorded elsewhere, pulled in once per app launch. Lives here
+  // rather than on a page so it runs whichever screen the app opens on — and
+  // only inside the native shell, where HealthKit exists.
+  useHealthImport();
 
   useEffect(() => {
     if (!isLoading && !user) {

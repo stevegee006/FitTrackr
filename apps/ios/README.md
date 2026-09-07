@@ -382,6 +382,38 @@ app grid, in Fitness and on the iPhone. The likeliest explanation is that a
 development-signed app never reaches that surface, and there is nothing in the
 project to change. Do not spend another afternoon on it.
 
+### Importing workouts recorded elsewhere
+
+Anything in HealthKit that FitTrackr did not write — the watch's own Workout
+app, Fitbod, Strava — is imported automatically, once per app launch, by
+`useHealthImport` in the dashboard layout.
+
+**The source filter is load-bearing, not tidiness.** FitTrackr's own sessions
+are in HealthKit too, so without skipping anything whose source bundle id
+starts with ours, every logged workout would come back as a duplicate of
+itself.
+
+**A rolling 90-day window, not an `HKAnchoredObjectQuery`.** An anchor is more
+efficient and much less safe: it advances when read, so an upload that failed
+would lose those workouts permanently and silently. Re-sending costs a few
+kilobytes, and the server upserts on the HKWorkout UUID, so it is idempotent by
+construction.
+
+Two consequences worth knowing:
+
+- **Deletions do not propagate.** A workout deleted in Health stays in
+  FitTrackr. Deliberate — silently deleting a logged workout because a sync
+  said so is worse than a stale row someone can remove themselves.
+- **An existing import is not overwritten wholesale.** Renaming an imported
+  walk, or changing its type, survives the next launch; only the measurements
+  refresh, since HealthKit is authoritative for those.
+
+Imported workouts **count as workout days** for the weekly frequency ring and
+the streak. They cannot be separated: the streak is defined as weeks that met
+the frequency goal, so counting them for one and not the other would have the
+ring say a week was missed while the streak said it was met. Per-muscle volume
+targets are unaffected either way — those count sets, and an import has none.
+
 ### Controls on the watch
 
 **Pause is the only one.** Start and End were both there and both lied:

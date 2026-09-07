@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { CreateWorkoutInput, UpdateWorkoutInput, AddSetInput, UpdateSetInput, FinishWorkoutInput, WorkoutHealthInput } from '@fittrackr/shared';
+import type { CreateWorkoutInput, UpdateWorkoutInput, AddSetInput, UpdateSetInput, FinishWorkoutInput, WorkoutHealthInput, ImportHealthWorkoutsInput } from '@fittrackr/shared';
 import { NotFoundError, ForbiddenError } from '../utils/errors.js';
 import { checkAndUpdatePersonalRecords, getPRsForWorkout, recomputePersonalRecords } from './personal-record.service.js';
 import { tally, diffTally, performedSets } from './workout-summary.js';
@@ -292,6 +292,74 @@ export async function recordWorkoutHealth(
       ...(data.activeEnergyKcal != null && { activeEnergyKcal: data.activeEnergyKcal }),
     },
   });
+}
+
+/**
+ * Take in workouts recorded elsewhere — the watch's own Workout app, or any
+ * other fitness app — as read from HealthKit.
+ *
+ * Upserted on `externalId`, the HKWorkout UUID, because the phone re-sends a
+ * rolling window on every app open rather than tracking an anchor. That is a
+ * deliberate trade: an anchor is more efficient and much less safe, since
+ * advancing it before the POST succeeded would lose workouts permanently with
+ * nothing to notice.
+ *
+ * Existing rows are NOT overwritten wholesale. A user who renamed an imported
+ * walk, or set its type, must not have that undone on the next app open — only
+ * the measurements are refreshed, since HealthKit is authoritative for those.
+ *
+ * The phone already filters out anything FitTrackr itself wrote; without that
+ * every logged session would come back as a duplicate.
+ *
+ * Imported workouts count as workout days for the frequency ring and the
+ * streak. Per-muscle volume targets are unaffected, since those count sets and
+ * these carry none.
+ */
+export async function importHealthWorkouts(
+  fastify: FastifyInstance,
+  userId: string,
+  data: ImportHealthWorkoutsInput,
+) {
+  let created = 0;
+  let updated = 0;
+
+  for (const w of data.workouts) {
+    const existing = await fastify.prisma.workout.findFirst({
+      where: { userId, externalId: w.externalId },
+      select: { id: true },
+    });
+
+    const measurements = {
+      durationMin: w.durationMin ?? null,
+      distanceM: w.distanceM ?? null,
+      avgHeartRateBpm: w.avgHeartRateBpm ?? null,
+      activeEnergyKcal: w.activeEnergyKcal ?? null,
+      completedAt: w.completedAt ? new Date(w.completedAt) : null,
+    };
+
+    if (existing) {
+      await fastify.prisma.workout.update({
+        where: { id: existing.id },
+        data: measurements,
+      });
+      updated++;
+    } else {
+      await fastify.prisma.workout.create({
+        data: {
+          userId,
+          externalId: w.externalId,
+          source: 'HEALTHKIT',
+          name: w.name,
+          workoutType: w.workoutType,
+          logDate: new Date(w.logDate + 'T00:00:00Z'),
+          ...measurements,
+        },
+      });
+      created++;
+    }
+  }
+
+  return { created, updated, received: data.workouts.length };
 }
 
 /**

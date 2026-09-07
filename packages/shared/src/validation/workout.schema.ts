@@ -41,6 +41,32 @@ export const workoutHealthSchema = z.object({
   activeEnergyKcal: z.number().int().min(0).max(10000).nullish(),
 });
 
+/**
+ * A workout recorded elsewhere, handed over from HealthKit.
+ *
+ * The phone re-sends a rolling window on every app open rather than tracking
+ * an anchor, so this must be safe to receive repeatedly — `externalId` is the
+ * HKWorkout UUID and the write is an upsert. An anchor would be more
+ * efficient and much less safe: advancing it before the POST succeeded would
+ * lose workouts permanently, with nothing to notice it had happened.
+ */
+export const importHealthWorkoutSchema = z.object({
+  externalId: z.string().min(1).max(64),
+  /** Local date, YYYY-MM-DD, computed on the device so the day matches the watch. */
+  logDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  name: z.string().min(1).max(255),
+  workoutType: z.enum(['PUSH', 'PULL', 'LEGS', 'FULL_BODY', 'UPPER', 'LOWER', 'CARDIO', 'CUSTOM']),
+  durationMin: z.number().int().min(0).max(1440).nullish(),
+  distanceM: z.number().min(0).max(1_000_000).nullish(),
+  avgHeartRateBpm: z.number().int().min(30).max(240).nullish(),
+  activeEnergyKcal: z.number().int().min(0).max(10000).nullish(),
+  completedAt: z.string().datetime().nullish(),
+});
+
+export const importHealthWorkoutsSchema = z.object({
+  workouts: z.array(importHealthWorkoutSchema).max(300),
+});
+
 export const addSetSchema = z.object({
   exerciseId: z.string().uuid(),
   setNumber: z.number().int().min(1),
@@ -77,6 +103,8 @@ export type CreateWorkoutInput = z.infer<typeof createWorkoutSchema>;
 export type UpdateWorkoutInput = z.infer<typeof updateWorkoutSchema>;
 export type FinishWorkoutInput = z.infer<typeof finishWorkoutSchema>;
 export type WorkoutHealthInput = z.infer<typeof workoutHealthSchema>;
+export type ImportHealthWorkoutInput = z.infer<typeof importHealthWorkoutSchema>;
+export type ImportHealthWorkoutsInput = z.infer<typeof importHealthWorkoutsSchema>;
 export type AddSetInput = z.infer<typeof addSetSchema>;
 export type UpdateSetInput = z.infer<typeof updateSetSchema>;
 export type CreateWorkoutTemplateInput = z.infer<typeof createWorkoutTemplateSchema>;

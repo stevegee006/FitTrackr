@@ -61,6 +61,17 @@ export interface Workout {
   /** Stamped by Finish Workout; null means the session is still open. */
   completedAt?: string | null;
   workoutType: WorkoutType;
+  /**
+   * MANUAL was logged in FitTrackr; HEALTHKIT was recorded elsewhere — the
+   * watch's own Workout app, or another fitness app — and imported.
+   *
+   * Imported workouts DO count as workout days for the weekly frequency ring
+   * and the streak. The field exists to LABEL them, so an autoimported walk is
+   * not mistaken for a session someone logged.
+   */
+  source?: 'MANUAL' | 'HEALTHKIT';
+  /** Cardio distance for imported sessions, which carry no sets to hang it on. */
+  distanceM?: number | null;
   notes: string | null;
   exerciseOrder: string[];
   programId?: string | null;

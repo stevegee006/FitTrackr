@@ -11,7 +11,7 @@ import { todayString, parseDateLocal, formatDate, formatDuration } from '@/lib/u
 import { inferExerciseDetails } from '@/lib/infer-exercise';
 import { WorkoutTypeIcon } from '@/components/workout/WorkoutTypeIcon';
 import Link from 'next/link';
-import { ChevronLeft, ChevronRight, Dumbbell, Clock, Sparkles, Camera, X, Check, ImageIcon, Plus, Trash2, BarChart3 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Dumbbell, Clock, Sparkles, Camera, X, Check, ImageIcon, Plus, Trash2, BarChart3, HeartPulse, Route } from 'lucide-react';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -429,9 +429,23 @@ export default function WorkoutsPage() {
                           </span>
                         </div>
                         <div className="flex items-center gap-3 mt-1">
+                          {/* Imported sessions carry no sets, so without this
+                              they look like an empty workout someone abandoned
+                              rather than a walk the watch recorded. */}
+                          {w.source === 'HEALTHKIT' && (
+                            <span className="inline-flex items-center gap-1 text-xs text-teal-600 dark:text-teal-400">
+                              <HeartPulse className="h-3 w-3" />Health
+                            </span>
+                          )}
                           {setCount > 0 && (
                             <span className="inline-flex items-center gap-1 text-xs text-gray-500">
                               <Dumbbell className="h-3 w-3" />{setCount} sets
+                            </span>
+                          )}
+                          {w.distanceM != null && w.distanceM > 0 && (
+                            <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                              <Route className="h-3 w-3" />
+                              {(w.distanceM / 1000).toFixed(2)} km
                             </span>
                           )}
                           {formatDuration(w.durationMin) && (

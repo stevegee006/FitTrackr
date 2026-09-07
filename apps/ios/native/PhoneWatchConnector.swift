@@ -86,8 +86,125 @@ final class PhoneWatchConnector: NSObject {
                 // it does not fail loudly — the statistics simply come back
                 // nil, which reads as "the watch measured nothing".
                 HKQuantityType(.activeEnergyBurned),
+                // For importing walks and rides recorded elsewhere.
+                HKQuantityType(.distanceWalkingRunning),
+                HKQuantityType(.distanceCycling),
             ]
         )
+    }
+
+    /**
+     Workouts recorded ELSEWHERE, for importing.
+
+     Anything in HealthKit whose source is not this app: the watch's own
+     Workout app, Fitbod, Strava. The source filter is load-bearing rather than
+     tidy — FitTrackr's own sessions are in HealthKit too, so without it every
+     logged workout would come back as a duplicate of itself.
+
+     A rolling window rather than an `HKAnchoredObjectQuery`. An anchor is more
+     efficient and much less safe: it advances when read, so a failed upload
+     loses those workouts permanently and silently. Re-sending 90 days on each
+     app open costs a few kilobytes, and the server upserts on the workout UUID,
+     so it is idempotent by construction.
+
+     The trade is that deletions do not propagate — a workout deleted in Health
+     stays in FitTrackr. Deliberate: silently deleting a logged workout because
+     a sync said so is far worse than a stale row someone can remove.
+     */
+    func externalWorkouts(days: Int = 90) async -> [[String: Any]] {
+        guard HKHealthStore.isHealthDataAvailable() else { return [] }
+
+        let start = Calendar.current.date(byAdding: .day, value: -days, to: Date()) ?? Date()
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: nil)
+        let newestFirst = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+
+        let samples: [HKWorkout] = await withCheckedContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: .workoutType(),
+                predicate: predicate,
+                limit: 300,
+                sortDescriptors: [newestFirst]
+            ) { _, samples, _ in
+                continuation.resume(returning: (samples as? [HKWorkout]) ?? [])
+            }
+            healthStore.execute(query)
+        }
+
+        let ownPrefix = Bundle.main.bundleIdentifier ?? "com.geehive.fittrackr"
+        let dayFormatter = DateFormatter()
+        dayFormatter.dateFormat = "yyyy-MM-dd"
+        // The device calendar, so the day matches what the watch showed rather
+        // than shifting across UTC midnight.
+        dayFormatter.timeZone = .current
+
+        let bpm = HKUnit.count().unitDivided(by: .minute())
+
+        return samples.compactMap { workout in
+            let source = workout.sourceRevision.source.bundleIdentifier
+            // The phone app and the watch app share the prefix, so one check
+            // covers everything FitTrackr wrote.
+            if source.hasPrefix(ownPrefix) { return nil }
+
+            var payload: [String: Any] = [
+                "externalId": workout.uuid.uuidString,
+                "logDate": dayFormatter.string(from: workout.startDate),
+                "name": Self.activityName(workout.workoutActivityType),
+                "workoutType": "CARDIO",
+                "completedAt": ISO8601DateFormatter().string(from: workout.endDate),
+                "durationMin": Int((workout.duration / 60).rounded()),
+            ]
+
+            if let distance = workout.statistics(for: HKQuantityType(.distanceWalkingRunning))?
+                .sumQuantity()?.doubleValue(for: .meter()) {
+                payload["distanceM"] = distance
+            } else if let cycling = workout.statistics(for: HKQuantityType(.distanceCycling))?
+                .sumQuantity()?.doubleValue(for: .meter()) {
+                payload["distanceM"] = cycling
+            }
+
+            if let hr = workout.statistics(for: HKQuantityType(.heartRate))?
+                .averageQuantity()?.doubleValue(for: bpm) {
+                payload["avgHeartRateBpm"] = Int(hr.rounded())
+            }
+
+            if let kcal = workout.statistics(for: HKQuantityType(.activeEnergyBurned))?
+                .sumQuantity()?.doubleValue(for: .kilocalorie()) {
+                payload["activeEnergyKcal"] = Int(kcal.rounded())
+            }
+
+            return payload
+        }
+    }
+
+    /// Readable names for the activity types worth naming; everything else
+    /// falls back to "Workout" rather than an enum number nobody can read.
+    private static func activityName(_ type: HKWorkoutActivityType) -> String {
+        switch type {
+        case .walking: return "Outdoor Walk"
+        case .running: return "Run"
+        case .cycling: return "Cycling"
+        case .hiking: return "Hike"
+        case .swimming: return "Swim"
+        case .rowing: return "Rowing"
+        case .elliptical: return "Elliptical"
+        case .stairClimbing: return "Stair Climbing"
+        case .highIntensityIntervalTraining: return "HIIT"
+        case .traditionalStrengthTraining: return "Strength Training"
+        case .functionalStrengthTraining: return "Functional Strength"
+        case .coreTraining: return "Core Training"
+        case .yoga: return "Yoga"
+        case .pilates: return "Pilates"
+        case .flexibility: return "Stretching"
+        case .boxing: return "Boxing"
+        case .kickboxing: return "Kickboxing"
+        case .tennis: return "Tennis"
+        case .basketball: return "Basketball"
+        case .soccer: return "Soccer"
+        case .golf: return "Golf"
+        case .cooldown: return "Cooldown"
+        case .mixedCardio: return "Mixed Cardio"
+        default: return "Workout"
+        }
     }
 
     /**

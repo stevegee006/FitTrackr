@@ -180,6 +180,20 @@ interface WatchWorkoutBridge {
     event: 'pauseChanged',
     cb: (data: { paused: boolean }) => void,
   ): Promise<{ remove: () => Promise<void> }>;
+  externalWorkouts(): Promise<{ workouts: ExternalWorkout[] }>;
+}
+
+/** A workout recorded outside FitTrackr, as HealthKit reports it. */
+export interface ExternalWorkout {
+  externalId: string;
+  logDate: string;
+  name: string;
+  workoutType: string;
+  durationMin?: number;
+  distanceM?: number;
+  avgHeartRateBpm?: number;
+  activeEnergyKcal?: number;
+  completedAt?: string;
 }
 
 export interface WatchStatus {
@@ -276,6 +290,28 @@ export async function onWatchPauseChanged(
     const handle = await bridge.addListener('pauseChanged', ({ paused }) => cb(paused));
     return () => { void handle.remove(); };
   } catch { return null; }
+}
+
+/**
+ * Workouts recorded elsewhere — the watch's own Workout app, Fitbod, Strava —
+ * as read from HealthKit.
+ *
+ * Anything FitTrackr itself wrote is filtered out natively. Without that every
+ * session logged here would come back as a duplicate of itself, since our own
+ * watch sessions are in HealthKit too.
+ *
+ * Returns a rolling 90-day window every time rather than tracking an anchor.
+ * An anchor advances when read, so a failed upload would lose those workouts
+ * permanently and silently; re-sending costs a few kilobytes and the server
+ * upserts on the workout's UUID.
+ */
+export async function getExternalWorkouts(): Promise<ExternalWorkout[]> {
+  try {
+    const bridge = plugins()?.WatchWorkout as WatchWorkoutBridge | undefined;
+    if (!bridge?.externalWorkouts) return [];
+    const res = await bridge.externalWorkouts();
+    return res?.workouts ?? [];
+  } catch { return []; }
 }
 
 export interface WatchWorkoutSummary {

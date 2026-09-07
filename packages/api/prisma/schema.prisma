@@ -279,6 +279,24 @@ model Workout {
   // and must not be averaged in as a nought.
   avgHeartRateBpm  Int?     @map("avg_heart_rate_bpm")
   activeEnergyKcal Int?     @map("active_energy_kcal")
+  // Where this workout came from. HEALTHKIT rows were recorded elsewhere — the
+  // watch's own Workout app, or another fitness app — and imported.
+  //
+  // Imported workouts DO count as workout days: the weekly frequency ring and
+  // the streak both include them. They cannot be separated, because the streak
+  // is defined as weeks that met the frequency goal — counting them for one
+  // and not the other would have the ring say a week was missed while the
+  // streak said it was met.
+  //
+  // Per-muscle volume targets are untouched either way, since those count sets
+  // and an imported workout has none.
+  source        WorkoutSource @default(MANUAL)
+  // The HKWorkout UUID, which makes importing idempotent. Unique per user
+  // rather than globally, since two users can legitimately import the same
+  // shared workout.
+  externalId    String?     @map("external_id") @db.VarChar(64)
+  // Cardio distance for imported sessions, which carry no sets to hang it on.
+  distanceM     Float?      @map("distance_m")
   notes         String?     @db.Text
   exerciseOrder String[]    @default([]) @map("exercise_order")
   // Set when the session was started from a program day, so adherence and the
@@ -293,9 +311,15 @@ model Workout {
   program Program?     @relation(fields: [programId], references: [id], onDelete: SetNull)
   sets    WorkoutSet[]
 
+  @@unique([userId, externalId])
   @@index([userId, logDate])
   @@index([programId])
   @@map("workouts")
+}
+
+enum WorkoutSource {
+  MANUAL
+  HEALTHKIT
 }
 
 enum WorkoutType {

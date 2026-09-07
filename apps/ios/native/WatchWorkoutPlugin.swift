@@ -28,6 +28,7 @@ public class WatchWorkoutPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "summary", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "rest", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "pause", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "externalWorkouts", returnType: CAPPluginReturnPromise),
     ]
 
     /**
@@ -79,7 +80,24 @@ public class WatchWorkoutPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve(["stopped": true])
     }
 
-    /// Pause or resume the wrist session alongside the phone's clock.
+    /**
+     Workouts recorded elsewhere, for the web app to import.
+
+     Returns them rather than posting them itself: the API call needs the
+     session auth, which lives in the web layer, and duplicating token handling
+     in Swift would be a second place for it to go wrong.
+     */
+    @objc func externalWorkouts(_ call: CAPPluginCall) {
+        Task {
+            // Authorisation first — the read types now include distance, and a
+            // never-granted type returns nothing rather than failing.
+            try? await PhoneWatchConnector.shared.requestAuthorization()
+            let workouts = await PhoneWatchConnector.shared.externalWorkouts()
+            call.resolve(["workouts": workouts])
+        }
+    }
+
+    /// Pause or resume the wrist session alongside the phone clock.
     @objc func pause(_ call: CAPPluginCall) {
         PhoneWatchConnector.shared.sendPaused(call.getBool("paused") ?? false)
         call.resolve()
