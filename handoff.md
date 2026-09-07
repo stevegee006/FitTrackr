@@ -1,6 +1,6 @@
 # HANDOFF — FitTrackr
 
-_Last updated: 2026-09-06 (through `6aac5df` — a **native iOS app** now exists:
+_Last updated: 2026-09-07 (through `be174c2` — a **native iOS app** now exists:
 a Capacitor shell around the deployed web app, with a session Live Activity, a
 runtime-configurable server, and an **Apple Watch app that records the workout
 as a real `HKWorkoutSession`**, whose heart rate and active energy are read
@@ -8,7 +8,10 @@ back into the session summary. The watch also shows the rest countdown
 full-screen, offers it as a **face complication**, and pauses with the phone
 in **either direction**. Also this batch: the tutorial no longer dies partway,
 screenshot import works on real screenshots, and the exercise library and
-training goals are reachable at all. Previously (2026-09-04, `6242178`): AI
+training goals are reachable at all. On 09-07: HealthKit workouts recorded
+elsewhere are imported automatically, and a whole class of bug was cleared out
+— **planned workouts were being counted as work already done** everywhere from
+the dashboard rings to program adherence to personal records. Previously (2026-09-04, `6242178`): AI
 answers persist in Redis, workout-type icons, exercise notes, coach reviews,
 the next-week plan written into real workouts, five new muscle groups, Finish
 finalising a workout, optimistic set updates, and the service worker that had
@@ -38,7 +41,7 @@ breaking something._
 > times). Then **#95**, if anything reports a network error in the deployed
 > app.
 >
-> **Four test suites, 196 assertions:** `pnpm --filter @fittrackr/api test`.
+> **Four test suites, 201 assertions:** `pnpm --filter @fittrackr/api test`.
 > There is still no frontend test runner, and this batch is a fresh argument
 > for one: the tutorial dead-ending, the orphaned pages, and the cramped rings
 > were all found by a human looking at a screen.
@@ -1653,6 +1656,67 @@ is exactly why it is written down here.
     Accepted cost: only the phone can end a session now, so a dead phone
     mid-workout leaves the wrist running until watchOS reclaims it, never
     reaching `finishWorkout()`, saving nothing.
+130. **A planned workout is indistinguishable from a legacy one, and that
+    made plans count as training.** `performedSets` applies a per-WORKOUT rule:
+    if anything was ticked only ticked sets count, and if nothing was, count
+    everything. That fallback exists because `is_completed` arrived in
+    migration 0004 with `DEFAULT false`, so legacy sessions would otherwise
+    tally to zero.
+
+    The AI planner writes next week as real workouts full of pre-filled rows
+    with nothing ticked — which is exactly what a legacy session looks like. So
+    the dashboard ring read "5 workouts" on a Monday with one session done, the
+    plan's tonnage joined the week's total, the recap reported the weekly goal
+    met, the coach was shown next week's plan as last week's training and asked
+    to advise on it, and **program adherence counted the plan as evidence the
+    plan had been followed**.
+
+    `performedSets(sets, { isFinished })` withholds the fallback for an
+    unfinished workout. Omitting the option keeps the generous reading, on
+    purpose: any caller reaching back past migration 0009 has no honest way to
+    tell a legacy session from an unfinished one.
+
+    **The workout ring and the streak must change together.** The streak is
+    defined as weeks that met the frequency goal, so counting a planned day for
+    one and not the other has the ring say a week was missed while the streak
+    says it was met.
+131. **Personal records were awarded to sets nobody had lifted.** PR detection
+    skipped warmups and nothing else, so every pre-filled row set a record the
+    instant it was written — from the exercise replay and from the planner. A
+    planned "185 x 12" earned a Heaviest and an estimated 1RM, and the recap
+    congratulated the athlete for thirteen PRs in a week they had not trained.
+
+    The fix needed BOTH halves, and either alone is broken:
+
+    - Stop awarding on set CREATE, since sets are created untouched.
+    - Add `isCompleted` to `updateSet`'s recompute trigger. It was absent, so
+      without this a genuine PR would never be awarded again — ticking a set
+      is now the only thing that earns one.
+
+    `recomputePersonalRecords` groups by workout and applies `performedSets`,
+    so a rebuild shares one definition of "performed" and still protects
+    legacy. Bogus records are cleared with the **Recalculate** button on
+    Profile → Bio → PRs (`POST /personal-records/recompute`), which retracts
+    anything no performed set supports. Expect some records to vanish and
+    others to fall back to an older, lower value — that is correct, though it
+    reads like a regression.
+132. **`space-y-*` does nothing to a list of `<Link>`s.** Tailwind spaces
+    siblings with `margin-top`, which has no effect on a non-replaced inline
+    element — and `<Link>` renders a bare `<a>`. The dashboard's session list
+    had no gaps at all, and raising `space-y-2` to `space-y-3` changed nothing
+    because neither value was ever applied. `className="block"` on the Link is
+    the fix. The workouts tab looked right only because its cards sit inside a
+    wrapper `<div>`.
+133. **A CI failure in BOTH matrix jobs, one of them in a setup step, is
+    infrastructure.** The Docker Hub workflow failed with `Error response from
+    daemon: received unexpected HTTP status: 500` at "Set up Docker Buildx" —
+    before anything was compiled — and the api job then showed as failed only
+    because the matrix is fail-fast and got cancelled mid-build. `gh run rerun
+    <id> --failed` passed unchanged. Check WHICH STEP failed before reading a
+    red run as a code problem.
+
+    Standing warning in those logs, not yet urgent: every action targets
+    Node 20, which GitHub has deprecated and now force-runs on Node 24.
 
 ### Awards and benchmarks
 
@@ -2133,6 +2197,30 @@ remains a fully working fallback rather than a second thing to keep in step.
   moved outside the circle, which only became a problem once a goal existed
   and every ring gained a second line at once.
 
+### 2026-09-07 — plans were being counted as training
+
+One root cause, found by looking at a dashboard on a Monday morning: the ring
+said **5 workouts** for a week with nothing done, the recap claimed the weekly
+goal was met, and the trophy list offered **thirteen personal records** for
+sessions that had not happened.
+
+The AI planner writes next week as real workouts with real rows, and almost
+every counting path treated an untouched row as work. Fixed in three layers:
+
+- **`performedSets` gained `isFinished`** (`6509d47`) — its fallback existed to
+  protect legacy sessions and could not tell one from a plan. See #130.
+- **Extended to every caller** (`dfe9c87`) — the recap, the 30-day coach
+  window, and program adherence, which was the worst of them: it counted the
+  plan as evidence the plan had been followed.
+- **Personal records** (`be174c2`) — detection ignored `isCompleted`
+  altogether. See #131, which is the more interesting of the two.
+
+Alongside, from using the app: **workouts recorded elsewhere are imported from
+HealthKit** (`c061afd`, migration `0011`) — start an Outdoor Walk on the watch
+and it appears in FitTrackr; **a shared `formatDistance`** (`6bb0958`), the
+first move on #53's seven-deep duplication; and the dashboard's session list
+finally has gaps (`ae4447f`, #132).
+
 ## Current state
 
 Deployed and in daily real use by the author against real workout data. The
@@ -2140,10 +2228,11 @@ Docker Hub images track `main` automatically; the Portainer stack is updated
 by hand with "Pull and redeploy". Live host is `fittrackr.geehive.com` with
 the API on `fittrackr-api.geehive.com`.
 
-**All migrations `0001`–`0010` are applied and confirmed in production**,
-including `0010_workout_health_metrics` (`avg_heart_rate_bpm` and
-`active_energy_kcal` on `workouts`), verified by a real session's heart rate
-reaching the summary.
+**All migrations `0001`–`0011` are applied and confirmed in production**,
+including `0010_workout_health_metrics` (verified by a real session's heart
+rate reaching the summary) and `0011_workout_source` (verified by an Outdoor
+Walk recorded on the watch appearing in FitTrackr, with no duplicate of any
+FitTrackr session).
 
 The five new muscle groups exist and are in use (the coach's own output shows
 Adductors and Abductors chips, so the two hip machines were re-tagged), and
@@ -2248,7 +2337,10 @@ Known outstanding user-facing items:
    makes the ladder case tractable.
 4. **A bulk set-create endpoint** (#76) so exercise replay and the warmup
    ladder are one request instead of N, and cannot partly succeed.
-5. **A shared unit-display helper** (#53). Three unit bugs have shipped from
+5. **Finish the shared unit-display helper** (#53). `formatDistance` now
+   exists in `lib/utils` alongside `formatDuration`, and the workouts page
+   uses it — six other call sites still divide metres themselves, and weight
+   has no shared helper at all. Three unit bugs have shipped from
    each component deciding conversion for itself, and the duplication is now
    SEVEN deep — every new page (summaries, coach, recap, awards) has
    re-declared `LB_PER_KG` and its own converter. `formatDuration` in
