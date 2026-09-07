@@ -61,28 +61,18 @@ JSON
 }
 
 install_icon "$here/ios/App/App/Assets.xcassets" ios
+install_icon "$here/ios/App/FitTrackrWatch Watch App/Assets.xcassets" watchos
 
-# ── The watch icon, in every size ────────────────────────────────────────────
+# A single 1024 for the watch too, which Xcode derives every size from.
 #
-# NOT the single 1024 the iPhone gets. Xcode 14+ officially derives every
-# watchOS size from one image, and the app grid and Fitness both looked right
-# that way — but small SYSTEM surfaces did not. The ongoing-session indicator
-# at the top of the watch face showed a grey placeholder, which is what a
-# missing representation looks like rather than a missing icon.
+# A full sixteen-size watchOS set was tried and reverted: it was written to fix
+# the grey placeholder in the ongoing-session indicator at the top of the watch
+# face, and it did not. The icon was already correct in the app grid, in
+# Fitness, and on the iPhone — so that indicator is not reading our asset at
+# all. Most likely a development-signed app never reaches that surface, since
+# it skips the App Store processing that populates paired-device metadata.
 #
-# The full set is generated into icon/watch/ with its own Contents.json, so
-# every role and screen size has a real file behind it.
-
-watch_catalog="$here/ios/App/FitTrackrWatch Watch App/Assets.xcassets"
-if [ -d "$watch_catalog" ]; then
-  set="$watch_catalog/AppIcon.appiconset"
-  mkdir -p "$set"
-  rm -f "$set"/*.png "$set/Contents.json"
-  cp "$here"/icon/watch/*.png "$here/icon/watch/Contents.json" "$set/"
-  echo "installed: $set (full watchOS size set)"
-else
-  echo "skip (no catalogue): $watch_catalog"
-fi
+# Left as one file rather than seventeen, since the seventeen bought nothing.
 
 # ── Launch screen ────────────────────────────────────────────────────────────
 #

@@ -374,6 +374,14 @@ The source is full-bleed and has no alpha on purpose — iOS applies its own
 squircle mask, so an icon carrying its own rounded corners shows black
 wedges past the mask, and alpha is rejected outright at validation.
 
+A single 1024 for both platforms; Xcode derives the rest. A full sixteen-size
+watchOS set was tried and reverted — it was meant to fix the grey placeholder
+in the ongoing-session indicator at the top of the watch face and did not.
+That indicator is not reading our asset: the icon is already correct in the
+app grid, in Fitness and on the iPhone. The likeliest explanation is that a
+development-signed app never reaches that surface, and there is nothing in the
+project to change. Do not spend another afternoon on it.
+
 ### Controls on the watch
 
 **Pause is the only one.** Start and End were both there and both lied:
