@@ -2045,10 +2045,10 @@ Docker Hub images track `main` automatically; the Portainer stack is updated
 by hand with "Pull and redeploy". Live host is `fittrackr.geehive.com` with
 the API on `fittrackr-api.geehive.com`.
 
-**Migrations `0001`–`0009` are applied and confirmed in production.
-`0010_workout_health_metrics` is NEW and needs `prisma migrate deploy`** — it
-adds `avg_heart_rate_bpm` and `active_energy_kcal` to `workouts`. Until it
-runs, the summary's PATCH will fail and no heart rate is ever stored.
+**All migrations `0001`–`0010` are applied and confirmed in production**,
+including `0010_workout_health_metrics` (`avg_heart_rate_bpm` and
+`active_energy_kcal` on `workouts`), verified by a real session's heart rate
+reaching the summary.
 
 The five new muscle groups exist and are in use (the coach's own output shows
 Adductors and Abductors chips, so the two hip machines were re-tagged), and
@@ -2068,19 +2068,19 @@ group labels.
 the shell, the first-run server prompt, the Live Activity in the Dynamic
 Island, the splash, the app icon, and — end to end — pressing Start on the
 phone waking the watch into a recording `HKWorkoutSession`, then Finish
-stopping and saving it.
+stopping and saving it, with its **average heart rate and active energy read
+back into the session summary**.
 
 **The iOS app is a personal-team build, so it EXPIRES after seven days.** Both
 the phone and watch app stop launching; rebuilding from Xcode resets it. It
 presents as "integrity could not be verified" or a silent refusal to open, not
 as anything mentioning expiry.
 
-**Not yet verified**: the heart-rate and calories read-back. It needs migration
-`0010` deployed and a real session on the wrist; the numbers appear on the
-recap up to ~30s after finishing. If they do not,
+**Nothing in the iOS or watch feature is now unverified.** If the heart-rate
+row ever stops appearing,
 `await Capacitor.Plugins.WatchWorkout.summary({startedAt: Date.now() - 3600000})`
-in Safari's inspector separates "HealthKit has nothing" from "the web side is
-not storing it".
+in Safari's inspector separates "HealthKit has nothing" — the activity-type
+filter or the time window — from "the web side is not storing it".
 
 **Built, green in CI, but NOT yet seen in the app** — everything from
 `3babadc` onward:
@@ -2125,9 +2125,7 @@ Known outstanding user-facing items:
 
 ## Next steps (not built, roughly by value)
 
-0. **Deploy `0010` and confirm heart rate reaches the recap** — see Current
-   state. This is the one piece of the watch feature never seen working.
-1. **Get the iOS project into version control, or accept it is disposable.**
+0. **Get the iOS project into version control, or accept it is disposable.**
    `apps/ios/ios` is gitignored, so the Xcode project — the watch target, its
    Info keys, the HealthKit capabilities, the deployment target, every target
    membership — exists only on one Mac. Rebuilding it from the README is
