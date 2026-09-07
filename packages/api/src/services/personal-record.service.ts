@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { performedSets } from './workout-summary.js';
 
 interface SetForPR {
   id: string;
@@ -102,8 +103,9 @@ export async function recomputePersonalRecords(
       ...(exerciseId ? { exerciseId } : {}),
     },
     select: {
-      id: true, exerciseId: true, reps: true, weightKg: true,
-      workout: { select: { logDate: true } },
+      id: true, exerciseId: true, reps: true, weightKg: true, isCompleted: true,
+      workoutId: true,
+      workout: { select: { logDate: true, completedAt: true } },
     },
   });
 
@@ -125,7 +127,32 @@ export async function recomputePersonalRecords(
     best.set(exId, byType);
   };
 
+  /**
+   * Only sets that were actually PERFORMED can hold a record.
+   *
+   * Adding an exercise replays the last session, and the AI planner writes a
+   * whole week ahead — so the table is full of rows carrying plausible weights
+   * that nobody lifted. Every one of those was setting records: a planned
+   * "185 x 12" awarded a Heaviest and an estimated 1RM the moment it was
+   * written, and the weekly recap then congratulated the athlete for thirteen
+   * PRs in a week they had not trained.
+   *
+   * Grouped by workout because that is the granularity of the rule — see
+   * `performedSets`. `isFinished` withholds the legacy fallback for workouts
+   * that were never finished, which is what separates a plan from an old
+   * session nobody ticked.
+   */
+  const byWorkout = new Map<string, typeof sets>();
   for (const s of sets) {
+    const bucket = byWorkout.get(s.workoutId);
+    if (bucket) bucket.push(s);
+    else byWorkout.set(s.workoutId, [s]);
+  }
+  const performed = [...byWorkout.values()].flatMap((ws) =>
+    performedSets(ws, { isFinished: ws[0]?.workout?.completedAt != null }),
+  );
+
+  for (const s of performed) {
     const at = s.workout.logDate;
     if (s.weightKg != null && s.weightKg > 0) {
       consider(s.exerciseId, 'MAX_WEIGHT', s.weightKg, s.id, at);

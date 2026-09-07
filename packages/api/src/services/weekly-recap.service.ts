@@ -62,7 +62,9 @@ function totalsFor(workouts: WorkoutWithSets[]): RecapTotals {
   const allSets = workouts.reduce((n, w) => n + w.sets.length, 0);
 
   return {
-    sessions: workouts.length,
+    // Finished sessions only. A week of planned workouts reported "5 sessions"
+    // and a met weekly goal before any of them had happened.
+    sessions: workouts.filter((w) => w.completedAt != null).length,
     sets: t.sets,
     totalReps: t.totalReps,
     volumeKg: Math.round(t.volumeKg),
@@ -182,7 +184,9 @@ export async function getWeeklyRecap(
 
   // Distinct DAYS trained, not sessions: two workouts in one day is one
   // training day, which is how the weekly streak counts it too.
-  const trainingDays = new Set(thisWeek.map((w) => ymd(w.logDate))).size;
+  const trainingDays = new Set(
+    thisWeek.filter((w) => w.completedAt != null).map((w) => ymd(w.logDate)),
+  ).size;
   const weeklyFrequency = profile?.weeklyFrequency ?? goal?.weeklyFrequency ?? null;
 
   return {

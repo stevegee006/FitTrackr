@@ -1396,12 +1396,18 @@ export default function WorkoutDetailPage() {
             </div>
           </div>
           {/* The summary used to be reachable ONLY by finishing — land on it
-              once and there was no way back. */}
-          <Link href={`/workouts/${id}/summary`}
-            className="p-2 rounded-lg text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-colors"
-            title="Workout summary" aria-label="Workout summary">
-            <BarChart3 className="h-4 w-4" />
-          </Link>
+              once and there was no way back. Hidden until the session IS
+              finished, though: a recap of a workout that has not happened is a
+              page of zeroes, and on a planned session it invites reading the
+              plan as a result. Reopening a finished workout keeps it, since
+              `completedAt` survives reopen by design. */}
+          {workout.completedAt && (
+            <Link href={`/workouts/${id}/summary`}
+              className="p-2 rounded-lg text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-colors"
+              title="Workout summary" aria-label="Workout summary">
+              <BarChart3 className="h-4 w-4" />
+            </Link>
+          )}
           {/* Always available: a workout logged earlier may need its duration
               corrected even though this session never started the clock. */}
           <button type="button" onClick={() => setShowDurationEdit(true)}

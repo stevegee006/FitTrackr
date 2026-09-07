@@ -410,11 +410,16 @@ export default function WeeklyRecapPage() {
                     style={{ backgroundColor: color + '20', color }}>
                     {(WORKOUT_TYPE_LABELS as any)[w.workoutType] ?? w.workoutType}
                   </span>
-                  <Link href={`/workouts/${w.id}/summary`}
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-colors shrink-0"
-                    title="Session summary" aria-label="Session summary">
-                    <BarChart3 className="h-4 w-4" />
-                  </Link>
+                  {/* Only for a finished session. The row already says "open"
+                      for the rest, and a recap of a workout that has not
+                      happened is a page of zeroes. */}
+                  {w.isFinished && (
+                    <Link href={`/workouts/${w.id}/summary`}
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-colors shrink-0"
+                      title="Session summary" aria-label="Session summary">
+                      <BarChart3 className="h-4 w-4" />
+                    </Link>
+                  )}
                 </div>
               );
             })}

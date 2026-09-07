@@ -150,7 +150,12 @@ export async function addSet(
     include: { exercise: { select: { id: true, name: true, primaryMuscle: true, equipment: true } } },
   });
 
-  if (!set.isWarmup) {
+  // A set is created UNTICKED — by the replay when an exercise is added, and
+  // by the AI planner writing a week ahead. Awarding a record here meant a
+  // number nobody had lifted became a personal best the instant it was
+  // written. Ticking it triggers the recompute in updateSet below, which is
+  // where a real PR now comes from.
+  if (!set.isWarmup && set.isCompleted) {
     await checkAndUpdatePersonalRecords(fastify, userId, set, workout.logDate);
   }
 
@@ -209,7 +214,14 @@ export async function updateSet(
 
   // Recompute rather than compare: an edit can LOWER a value, and the upward-
   // only check could never retract a record set from a mistyped number.
-  if (data.weightKg !== undefined || data.reps !== undefined || data.isWarmup !== undefined) {
+  //
+  // `isCompleted` is in this list because ticking a set is now what earns the
+  // record — without it, a genuine PR would never be awarded at all, since
+  // sets are created untouched and only ticked later.
+  if (
+    data.weightKg !== undefined || data.reps !== undefined ||
+    data.isWarmup !== undefined || data.isCompleted !== undefined
+  ) {
     await recomputePersonalRecords(fastify, userId, updated.exerciseId);
   }
 
