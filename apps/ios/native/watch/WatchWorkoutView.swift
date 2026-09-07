@@ -138,6 +138,29 @@ struct WatchWorkoutView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
             }
+
+            /*
+             The same three controls the phone offers, because the phone is in
+             a pocket. Each one ASKS the phone rather than changing anything
+             here: the web app owns the finish line, and a wrist that adjusted
+             its own copy would disagree with the Live Activity and the
+             complication within a second.
+
+             That also means the buttons are honest about latency — the
+             countdown moves when the phone answers, not when the button is
+             pressed.
+             */
+            HStack(spacing: 4) {
+                Button("−10") { WatchConnector.shared.reportRestCommand("adjust", delta: -10) }
+                    .tint(.gray)
+                Button("Skip") { WatchConnector.shared.reportRestCommand("skip") }
+                    .tint(.teal)
+                Button("+10") { WatchConnector.shared.reportRestCommand("adjust", delta: 10) }
+                    .tint(.gray)
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .buttonStyle(.bordered)
+            .padding(.top, 2)
         }
     }
 }

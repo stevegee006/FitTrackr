@@ -28,6 +28,18 @@ final class PhoneWatchConnector: NSObject {
 
     /// Set by `WatchWorkoutPlugin` so a pause on the wrist reaches JavaScript.
     var onPauseChanged: ((Bool) -> Void)?
+    /// Set by `WatchWorkoutPlugin` so the wrist can skip or adjust the rest.
+    var onRestCommand: ((String, Int) -> Void)?
+
+    /**
+     True while a session this app started is recording on the wrist.
+
+     Used to decide who alerts when rest ends. The watch buzzes from its own
+     timer, and an iPhone notification mirrors to the watch whenever the phone
+     is locked — so scheduling both means two alerts for one rest, on the same
+     wrist, moments apart.
+     */
+    private(set) var watchSessionActive = false
 
     private override init() {
         super.init()
@@ -275,6 +287,7 @@ final class PhoneWatchConnector: NSObject {
         config.locationType = .indoor
 
         try await healthStore.startWatchApp(toHandle: config)
+        watchSessionActive = true
 
         // The configuration carries no arbitrary metadata, so the name follows
         // separately — cosmetic only, and safe to lose.
@@ -282,6 +295,7 @@ final class PhoneWatchConnector: NSObject {
     }
 
     func stopWorkout() {
+        watchSessionActive = false
         send(["action": "stop"])
     }
 
@@ -356,8 +370,20 @@ extension PhoneWatchConnector: WCSessionDelegate {
     }
 
     private func handle(_ payload: [String: Any]) {
-        guard payload["action"] as? String == "pauseState",
-              let paused = payload["paused"] as? Bool else { return }
-        DispatchQueue.main.async { self.onPauseChanged?(paused) }
+        switch payload["action"] as? String {
+        case "pauseState":
+            guard let paused = payload["paused"] as? Bool else { return }
+            DispatchQueue.main.async { self.onPauseChanged?(paused) }
+        case "restCommand":
+            // The wrist asks; the phone decides. The rest timer's state lives
+            // in the web app, which owns the finish line the Live Activity and
+            // the watch both render — so the watch reports an intent rather
+            // than adjusting a clock of its own that would then disagree.
+            guard let command = payload["command"] as? String else { return }
+            let delta = payload["delta"] as? Int ?? 0
+            DispatchQueue.main.async { self.onRestCommand?(command, delta) }
+        default:
+            break
+        }
     }
 }

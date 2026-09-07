@@ -46,6 +46,12 @@ public class WatchWorkoutPlugin: CAPPlugin, CAPBridgedPlugin {
         PhoneWatchConnector.shared.onPauseChanged = { [weak self] paused in
             self?.notifyListeners("pauseChanged", data: ["paused": paused])
         }
+        // Skip / +10 / −10 from the wrist. Forwarded rather than acted on: the
+        // rest timer's state lives in the web app, which is the only thing
+        // that can move the finish line every surface reads.
+        PhoneWatchConnector.shared.onRestCommand = { [weak self] command, delta in
+            self?.notifyListeners("restCommand", data: ["command": command, "delta": delta])
+        }
     }
 
     /// Lets the web app hide the feature rather than offer something that

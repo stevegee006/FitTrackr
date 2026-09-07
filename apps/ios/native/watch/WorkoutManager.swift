@@ -2,6 +2,7 @@ import Foundation
 import HealthKit
 import Combine
 import WidgetKit
+import WatchKit
 
 /**
  The actual workout recording, on the watch.
@@ -51,6 +52,10 @@ final class WorkoutManager: NSObject, ObservableObject {
      exactly what the app is showing.
      */
     @Published var rest: RestState?
+
+    /// Fires the end-of-rest haptic. Held so a changed or skipped rest can
+    /// cancel it — otherwise adding ten seconds twice would buzz three times.
+    private var restHaptic: Timer?
 
     private override init() { super.init() }
 
@@ -189,10 +194,40 @@ final class WorkoutManager: NSObject, ObservableObject {
         let live = (rest?.isActive ?? false) ? rest : nil
         self.rest = live
         SharedRest.write(live)
+        scheduleHaptic(for: live)
         // The complication is a separate process and does not see the write.
         // Cheap because it happens on rest START and END only, not per second
         // — the countdown itself animates without us.
         WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /**
+     A haptic at the finish line, on the wrist.
+
+     This is the alert that matters during a workout: the phone is in a pocket
+     and the watch is on the arm. A local notification would also work, but an
+     iPhone notification already mirrors to the watch when the phone is locked
+     — so the phone deliberately schedules NOTHING while a wrist session is
+     running, and this is the single alert.
+
+     A timer rather than a notification because the app is already awake for
+     the whole workout, holding an HKWorkoutSession with `workout-processing`.
+     Nothing has to wake it.
+     */
+    private func scheduleHaptic(for rest: RestState?) {
+        restHaptic?.invalidate()
+        restHaptic = nil
+
+        guard let rest else { return }
+        let delay = rest.endsAt.timeIntervalSinceNow
+        // Already gone — a queued message arriving after the fact must not
+        // buzz for a rest that finished minutes ago.
+        guard delay > 0.5 else { return }
+
+        restHaptic = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+            WKInterfaceDevice.current().play(.notification)
+            Task { @MainActor in self?.setRest(nil) }
+        }
     }
 
     private func reset() {
@@ -209,6 +244,8 @@ final class WorkoutManager: NSObject, ObservableObject {
         // Left behind, a complication would show a rest from a finished
         // workout until it happened to expire.
         rest = nil
+        restHaptic?.invalidate()
+        restHaptic = nil
         SharedRest.clear()
         WidgetCenter.shared.reloadAllTimelines()
     }

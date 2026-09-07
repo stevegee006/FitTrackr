@@ -27,6 +27,20 @@ import ActivityKit
 private let accent = Color(red: 0.39, green: 0.40, blue: 0.95)   // indigo #6366f1
 private let restTint = Color(red: 0.96, green: 0.62, blue: 0.04) // amber #f59e0b
 
+/**
+ What to draw, given that a rest may have quietly expired.
+
+ `isStale` is the system telling us the activity has passed the `staleDate` the
+ plugin set to the end of the rest. The elapsed-time check is belt and braces
+ for a render that happens between the finish line and the system noticing.
+ */
+private func rendered(
+    _ context: ActivityViewContext<WorkoutActivityAttributes>
+) -> WorkoutActivityAttributes.ContentState {
+    let over = context.state.restEndsAt.map { $0 <= Date() } ?? false
+    return (context.isStale || over) ? context.state.withoutRest() : context.state
+}
+
 struct WorkoutLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: WorkoutActivityAttributes.self) { context in
@@ -36,27 +50,28 @@ struct WorkoutLiveActivity: Widget {
                 .activitySystemActionForegroundColor(.white)
 
         } dynamicIsland: { context in
-            let resting = context.state.isResting
+            let state = rendered(context)
+            let resting = state.isResting
 
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(resting ? (context.state.restExerciseName ?? "Rest")
+                        Text(resting ? (state.restExerciseName ?? "Rest")
                                      : context.attributes.workoutName)
                             .font(.caption).fontWeight(.semibold)
                             .lineLimit(1)
-                        Text(subtitle(for: context.state))
+                        Text(subtitle(for: state))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    PrimaryTimer(state: context.state, size: 22)
+                    PrimaryTimer(state: state, size: 22)
                         // Without a fixed width the digits jitter as they change.
                         .frame(width: 76, alignment: .trailing)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    if let interval = context.state.restInterval {
+                    if let interval = state.restInterval {
                         ProgressView(timerInterval: interval, countsDown: true) {
                             EmptyView()
                         } currentValueLabel: {
@@ -64,14 +79,14 @@ struct WorkoutLiveActivity: Widget {
                         }
                         .tint(restTint)
                     } else {
-                        SetsBar(state: context.state)
+                        SetsBar(state: state)
                     }
                 }
             } compactLeading: {
                 Image(systemName: resting ? "timer" : "figure.strengthtraining.traditional")
                     .foregroundStyle(resting ? restTint : accent)
             } compactTrailing: {
-                PrimaryTimer(state: context.state, size: 13)
+                PrimaryTimer(state: state, size: 13)
                     .frame(width: 48, alignment: .trailing)
             } minimal: {
                 Image(systemName: resting ? "timer" : "figure.strengthtraining.traditional")
@@ -146,6 +161,9 @@ private struct LockScreenView: View {
     /// `.small` is the Apple Watch. Same activity, very different budget.
     @Environment(\.activityFamily) private var activityFamily
 
+    /// A rest that has already finished is not a rest — see `rendered`.
+    private var state: WorkoutActivityAttributes.ContentState { rendered(context) }
+
     var body: some View {
         if activityFamily == .small {
             WatchView(context: context)
@@ -157,11 +175,11 @@ private struct LockScreenView: View {
     private var lockScreen: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label(context.state.isResting ? "Rest" : "Training",
-                      systemImage: context.state.isResting
+                Label(state.isResting ? "Rest" : "Training",
+                      systemImage: state.isResting
                         ? "timer" : "figure.strengthtraining.traditional")
                     .font(.caption).fontWeight(.semibold)
-                    .foregroundStyle(context.state.isResting ? restTint : accent)
+                    .foregroundStyle(state.isResting ? restTint : accent)
                 Spacer()
                 Text(context.attributes.workoutName)
                     .font(.caption2)
@@ -171,27 +189,27 @@ private struct LockScreenView: View {
 
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    if context.state.isResting {
-                        Text(context.state.restExerciseName ?? "Rest")
+                    if state.isResting {
+                        Text(state.restExerciseName ?? "Rest")
                             .font(.headline).lineLimit(1)
-                        if let n = context.state.restSetNumber,
-                           let total = context.state.restTotalSets {
+                        if let n = state.restSetNumber,
+                           let total = state.restTotalSets {
                             Text("Set \(n) of \(total) done")
                                 .font(.subheadline).foregroundStyle(.secondary)
                         }
                     } else {
-                        Text("\(context.state.setsDone) of \(context.state.setsTotal) sets")
+                        Text("\(state.setsDone) of \(state.setsTotal) sets")
                             .font(.headline)
-                        Text(context.state.pausedAt == nil ? "In progress" : "Paused")
+                        Text(state.pausedAt == nil ? "In progress" : "Paused")
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
                 }
                 Spacer()
-                PrimaryTimer(state: context.state, size: 34)
+                PrimaryTimer(state: state, size: 34)
                     .frame(width: 118, alignment: .trailing)
             }
 
-            if let interval = context.state.restInterval {
+            if let interval = state.restInterval {
                 ProgressView(timerInterval: interval, countsDown: true) {
                     EmptyView()
                 } currentValueLabel: {
@@ -199,7 +217,7 @@ private struct LockScreenView: View {
                 }
                 .tint(restTint)
             } else {
-                SetsBar(state: context.state)
+                SetsBar(state: state)
             }
         }
         .padding()
@@ -217,18 +235,20 @@ private struct LockScreenView: View {
 private struct WatchView: View {
     let context: ActivityViewContext<WorkoutActivityAttributes>
 
+    private var state: WorkoutActivityAttributes.ContentState { rendered(context) }
+
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: context.state.isResting
+            Image(systemName: state.isResting
                     ? "timer" : "figure.strengthtraining.traditional")
-                .foregroundStyle(context.state.isResting ? restTint : accent)
+                .foregroundStyle(state.isResting ? restTint : accent)
 
             VStack(alignment: .leading, spacing: 0) {
-                PrimaryTimer(state: context.state, size: 20)
+                PrimaryTimer(state: state, size: 20)
 
-                Text(context.state.isResting
-                        ? (context.state.restExerciseName ?? "Rest")
-                        : "\(context.state.setsDone)/\(context.state.setsTotal) sets")
+                Text(state.isResting
+                        ? (state.restExerciseName ?? "Rest")
+                        : "\(state.setsDone)/\(state.setsTotal) sets")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

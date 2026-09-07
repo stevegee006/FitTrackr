@@ -53,9 +53,13 @@ public class WorkoutActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             return call.resolve(["active": false, "reason": "invalid"])
         }
 
+        // Alert scheduling rides along with the rest state, since this is the
+        // one call that always carries it.
+        Self.scheduleAlert(for: state, call: call)
+
         if let activity = Self.current as? Activity<WorkoutActivityAttributes> {
             Task {
-                await activity.update(using: state)
+                await activity.update(Self.content(for: state))
                 call.resolve(["active": true, "created": false])
             }
             return
@@ -69,7 +73,7 @@ public class WorkoutActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         do {
             let activity = try Activity.request(
                 attributes: attributes,
-                contentState: state,
+                content: Self.content(for: state),
                 pushType: nil          // Self-counting: no APNs, no entitlement.
             )
             Self.current = activity
@@ -92,6 +96,7 @@ public class WorkoutActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func end(_ call: CAPPluginCall) {
         guard #available(iOS 16.1, *) else { return call.resolve() }
         Self.current = nil
+        RestAlerts.cancel()
 
         Task {
             // `.immediate` — an activity outliving its workout is worse than none.
@@ -100,6 +105,54 @@ public class WorkoutActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             call.resolve()
         }
+    }
+
+    // MARK: - Content
+
+    /**
+     Wrap the state, with a stale date at the end of the rest.
+
+     This is what makes the activity revert to the session clock on its own.
+     The countdown runs in JavaScript, and iOS suspends the webview when the
+     phone locks — which is precisely the moment rest is running and the phone
+     is in a pocket. Nothing ever told the activity rest had finished, so it
+     sat at 0:00 until the phone was unlocked.
+
+     `staleDate` is the system's own answer to this: it re-renders the activity
+     at that instant and sets `context.isStale`, and the views treat a stale
+     rest as no rest. No push, no background execution, nothing of ours has to
+     be running.
+
+     Only set while resting. A stale date on the working phase would mark a
+     perfectly current activity as out of date.
+     */
+    @available(iOS 16.1, *)
+    private static func content(
+        for state: WorkoutActivityAttributes.ContentState
+    ) -> ActivityContent<WorkoutActivityAttributes.ContentState> {
+        ActivityContent(state: state, staleDate: state.restEndsAt)
+    }
+
+    /**
+     Alert when rest ends — unless the wrist is going to.
+
+     An iPhone notification mirrors to a paired watch whenever the phone is
+     locked, and the watch app buzzes from its own timer during a session. Both
+     means two alerts for one rest, on the same wrist, moments apart.
+     */
+    @available(iOS 16.1, *)
+    private static func scheduleAlert(
+        for state: WorkoutActivityAttributes.ContentState,
+        call: CAPPluginCall
+    ) {
+        guard let endsAt = state.restEndsAt else { return RestAlerts.cancel() }
+        guard !PhoneWatchConnector.shared.watchSessionActive else { return RestAlerts.cancel() }
+        RestAlerts.schedule(
+            endsAt: endsAt,
+            exerciseName: state.restExerciseName,
+            setNumber: state.restSetNumber,
+            totalSets: state.restTotalSets
+        )
     }
 
     // MARK: - Parsing

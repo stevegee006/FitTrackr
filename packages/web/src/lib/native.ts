@@ -180,6 +180,10 @@ interface WatchWorkoutBridge {
     event: 'pauseChanged',
     cb: (data: { paused: boolean }) => void,
   ): Promise<{ remove: () => Promise<void> }>;
+  addListener(
+    event: 'restCommand',
+    cb: (data: { command: string; delta: number }) => void,
+  ): Promise<{ remove: () => Promise<void> }>;
   externalWorkouts(): Promise<{ workouts: ExternalWorkout[] }>;
 }
 
@@ -312,6 +316,29 @@ export async function getExternalWorkouts(): Promise<ExternalWorkout[]> {
     const res = await bridge.externalWorkouts();
     return res?.workouts ?? [];
   } catch { return []; }
+}
+
+/**
+ * Skip or adjust the rest timer FROM THE WATCH.
+ *
+ * The wrist asks; the page decides. The rest timer's finish line lives in the
+ * web app and is read by the Live Activity, the complication and the watch —
+ * so a watch that moved its own copy would disagree with all three within a
+ * second.
+ *
+ * Returns a remover, or null outside the native shell.
+ */
+export async function onWatchRestCommand(
+  cb: (command: 'skip' | 'adjust', delta: number) => void,
+): Promise<(() => void) | null> {
+  try {
+    const bridge = plugins()?.WatchWorkout as WatchWorkoutBridge | undefined;
+    if (!bridge?.addListener) return null;
+    const handle = await bridge.addListener('restCommand', ({ command, delta }) =>
+      cb(command as 'skip' | 'adjust', delta ?? 0),
+    );
+    return () => { void handle.remove(); };
+  } catch { return null; }
 }
 
 export interface WatchWorkoutSummary {

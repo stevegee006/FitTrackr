@@ -46,6 +46,30 @@ struct WorkoutActivityAttributes: ActivityAttributes {
 
         var isResting: Bool { restEndsAt != nil && restStartedAt != nil }
 
+        /**
+         The same state with the rest phase dropped.
+
+         Used to render an activity whose rest has already finished. The
+         countdown runs in JavaScript, and iOS suspends the webview when the
+         phone locks — exactly when rest is running and the phone is in a
+         pocket. Nothing ever arrived to say rest was over, so the activity sat
+         showing 0:00 until the phone was unlocked, hiding the session clock
+         behind a timer that had stopped mattering.
+
+         The plugin sets `staleDate` to the finish line, so the system
+         re-renders at that instant with `context.isStale` true, and the views
+         fall back to this. Nothing of ours has to be running.
+         */
+        func withoutRest() -> ContentState {
+            var copy = self
+            copy.restExerciseName = nil
+            copy.restSetNumber = nil
+            copy.restTotalSets = nil
+            copy.restEndsAt = nil
+            copy.restStartedAt = nil
+            return copy
+        }
+
         /// The span the rest bar fills over.
         ///
         /// A zero-or-negative range crashes `ProgressView`, and the web side

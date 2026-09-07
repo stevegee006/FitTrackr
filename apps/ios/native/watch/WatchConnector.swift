@@ -9,7 +9,7 @@ import Combine
  `startWatchApp` already launches us into a session), `stop`, `name`, `rest`,
  and `pause`.
 
- **One goes back:** `pauseState`. Pause is the only thing either device can
+ **Two go back:** `pauseState` and `restCommand`. Pause is the only thing either device can
  change, so it is the only thing that needs reporting — pausing on the wrist
  while the phone kept counting would leave two clocks disagreeing, and the
  phone's is the one written to the workout. Everything else the watch knows,
@@ -31,6 +31,18 @@ final class WatchConnector: NSObject, ObservableObject {
     func activate() { _ = WatchConnector.shared }
 
     /**
+     Ask the phone to skip the rest, or shift its finish line.
+
+     An ASK, not a change. The rest timer's state lives in the web app, which
+     owns the finish line that the phone, the Live Activity, the complication
+     and this app all render. A watch that adjusted a clock of its own would
+     immediately disagree with every other surface.
+     */
+    func reportRestCommand(_ command: String, delta: Int = 0) {
+        send(["action": "restCommand", "command": command, "delta": delta])
+    }
+
+    /**
      Tell the phone the session was paused or resumed on the wrist.
 
      Sent even when the phone asked for it in the first place. The echo is
@@ -39,10 +51,13 @@ final class WatchConnector: NSObject, ObservableObject {
      bookkeeping that ends up wrong in the case nobody tested.
      */
     func reportPaused(_ paused: Bool) {
+        send(["action": "pauseState", "paused": paused])
+    }
+
+    private func send(_ payload: [String: Any]) {
         guard WCSession.isSupported() else { return }
         let session = WCSession.default
         guard session.activationState == .activated else { return }
-        let payload: [String: Any] = ["action": "pauseState", "paused": paused]
 
         if session.isReachable {
             session.sendMessage(payload, replyHandler: nil) { _ in

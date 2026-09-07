@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { onWatchRestCommand, isNativeShell } from '@/lib/native';
 import { Card } from '@/components/ui/Card';
 import { SkipForward } from 'lucide-react';
 
@@ -67,6 +68,11 @@ export function RestTimerModal({ onClose, context, onRestActivityChange }: RestT
   // so the cleanup runs on unmount rather than on every prop identity change.
   const onRestActivityChangeRef = useRef(onRestActivityChange);
   onRestActivityChangeRef.current = onRestActivityChange;
+  // The watch listener is registered once and outlives every render, so it
+  // must not capture a particular render's `adjust` or `onClose`.
+  const adjustRef = useRef<(delta: number) => void>(() => {});
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => () => {
     if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
@@ -98,8 +104,12 @@ export function RestTimerModal({ onClose, context, onRestActivityChange }: RestT
         firedRef.current = true;
         // Permission is never requested anywhere, so this is a no-op unless the
         // user granted it out of band. Guarded so it can't throw either way.
+        //
+        // Skipped entirely in the native shell: iOS schedules a local
+        // notification for the finish line, which fires even with the phone
+        // locked. Both would alert twice for one rest.
         try {
-          if ('Notification' in window && Notification.permission === 'granted') {
+          if (!isNativeShell() && 'Notification' in window && Notification.permission === 'granted') {
             new Notification('FitTrackr', {
               body: 'Rest complete — time for your next set!',
               icon: '/icons/icon-192.png',
@@ -121,6 +131,33 @@ export function RestTimerModal({ onClose, context, onRestActivityChange }: RestT
     if (firedRef.current) return; // already finished; don't resurrect it
     setEndAt((prev) => Math.max(Date.now() + MIN_SECONDS * 1000, prev + delta * 1000));
     setTotal((t) => Math.max(MIN_SECONDS, t + delta));
+  }, []);
+  adjustRef.current = adjust;
+
+  /**
+   * Skip and +/-10s from the Apple Watch.
+   *
+   * Subscribed HERE rather than on the page because this component owns the
+   * finish line — routing it through a parent would mean lifting `endAt` into
+   * the page purely to let the watch reach it.
+   *
+   * `adjust` and `onClose` are the very same functions the on-screen buttons
+   * call, so the wrist cannot drift into a second code path with its own
+   * clamping rules.
+   */
+  useEffect(() => {
+    let remove: (() => void) | null = null;
+    let cancelled = false;
+
+    void onWatchRestCommand((command, delta) => {
+      if (command === 'skip') onCloseRef.current();
+      else adjustRef.current(delta);
+    }).then((fn) => {
+      if (cancelled) fn?.();
+      else remove = fn;
+    });
+
+    return () => { cancelled = true; remove?.(); };
   }, []);
 
   const choosePreset = useCallback((s: number) => {

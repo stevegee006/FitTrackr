@@ -414,9 +414,39 @@ the frequency goal, so counting them for one and not the other would have the
 ring say a week was missed while the streak said it was met. Per-muscle volume
 targets are unaffected either way — those count sets, and an import has none.
 
+### When rest ends
+
+**The Live Activity reverts on its own.** The countdown runs in JavaScript, and
+iOS suspends the webview when the phone locks — which is exactly when rest is
+running and the phone is in a pocket. Nothing arrived to say rest was over, so
+the activity sat at 0:00, hiding the session clock behind a stopped timer.
+
+The fix is `staleDate`: the plugin sets it to the finish line, the system
+re-renders at that instant with `context.isStale`, and the views fall back to
+`ContentState.withoutRest()`. No push, no background execution, nothing of ours
+running.
+
+**One alert, not two.** An iPhone notification mirrors to a paired watch
+whenever the phone is locked, and the watch buzzes from its own timer during a
+session — so the phone schedules NOTHING while a wrist session is active
+(`PhoneWatchConnector.watchSessionActive`). Without a watch, `RestAlerts`
+schedules a local notification for the finish line. The web app's own
+`Notification` call is skipped in the native shell for the same reason.
+
+Notification permission is requested lazily, on the first rest timer rather
+than at launch: a prompt before the user has done anything gets denied
+reflexively, and a denied prompt cannot be shown again.
+
 ### Controls on the watch
 
-**Pause is the only one.** Start and End were both there and both lied:
+**Pause, and the three rest controls** — Skip, +10s, −10s, which appear only
+while resting. Each one ASKS the phone rather than changing anything locally:
+the web app owns the finish line that the Live Activity, the complication and
+the watch all render, so a wrist that moved its own copy would disagree with
+all three within a second. The buttons are therefore honest about latency — the
+countdown moves when the phone answers.
+
+Start and End were both there and both lied:
 "Start here" began a wrist session with no FitTrackr workout behind it, and
 "End" stopped the wrist while the phone carried on counting. Pause survived
 because the watch can report it back, so the two devices stay in step.
