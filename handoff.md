@@ -1,12 +1,14 @@
 # HANDOFF — FitTrackr
 
-_Last updated: 2026-09-06 (through `44e5180` — a **native iOS app** now exists:
+_Last updated: 2026-09-06 (through `6aac5df` — a **native iOS app** now exists:
 a Capacitor shell around the deployed web app, with a session Live Activity, a
 runtime-configurable server, and an **Apple Watch app that records the workout
 as a real `HKWorkoutSession`**, whose heart rate and active energy are read
-back into the session summary. Also this batch: the tutorial no longer dies
-partway, screenshot import works on real screenshots, and the exercise library
-and training goals are reachable at all. Previously (2026-09-04, `6242178`): AI
+back into the session summary. The watch also shows the rest countdown
+full-screen, offers it as a **face complication**, and pauses with the phone
+in **either direction**. Also this batch: the tutorial no longer dies partway,
+screenshot import works on real screenshots, and the exercise library and
+training goals are reachable at all. Previously (2026-09-04, `6242178`): AI
 answers persist in Redis, workout-type icons, exercise notes, coach reviews,
 the next-week plan written into real workouts, five new muscle groups, Finish
 finalising a workout, optimistic set updates, and the service worker that had
@@ -21,7 +23,8 @@ breaking something._
 > something that failed *silently*: plugins that never registered, files Xcode
 > compiled from a copy, five separate install gates that all report as the same
 > sentence, and a splash screen that was working correctly and looked broken.
-> #113–#121 are that story. Read them before touching `apps/ios`.
+> #113–#121 and #126–#129 are that story. Read them before touching
+> `apps/ios`.
 >
 > **Read sharp edges #56–#113 before touching iOS layout, asset generation, AI
 > prompts, summaries/PRs/awards, the auth/refresh path, persisted timer state,
@@ -1590,6 +1593,66 @@ is exactly why it is written down here.
     both by route, so it was showing new users two screens they could never
     reach again. Worth an occasional audit — grep the `(dashboard)` routes
     against `nav-items.ts` and any `<Link href>`.
+126. **A LaunchScreen-style trap for Live Activities: watchOS needs an
+    OPT-IN.** An iPhone Live Activity appears at the top of the watch face —
+    but only if the `ActivityConfiguration` declares
+    `.supplementalActivityFamilies([.small])`. Without it the system
+    substitutes a generic grey placeholder that still opens the app when
+    tapped, which reads as a missing app ICON rather than a missing opt-in.
+
+    Two afternoons went into asset catalogues before that landed. The watch
+    app icon, the iPhone app icon and a full sixteen-size watchOS set were all
+    verified correct, and none of them was ever involved. Needs the widget
+    extension at iOS 18.0+; the API does not exist below it.
+
+    An activity's presentation is fixed when it is REQUESTED, so a running
+    activity keeps the old configuration — start a fresh workout before
+    concluding a change did nothing.
+127. **The watch's ongoing-session indicator is not ours, and neither is the
+    Smart Stack card.** watchOS draws both for a running `HKWorkoutSession`:
+    the card shows session elapsed with a pause button, the indicator sits at
+    the top of the face. Our Live Activity does not surface there while the
+    watch has its own session, because the system's card takes the slot.
+
+    The grey disc in that indicator was never fixed. Everything we control
+    renders correctly, so it is not reading our asset; the likeliest cause is
+    that a development-signed app skips the App Store processing that
+    populates paired-device metadata. **Do not spend another afternoon on it**
+    — a sixteen-size icon set was written, tested, and reverted for nothing.
+128. **Pause has to be TWO-WAY, and only pause does.** The link was
+    deliberately phone→watch only, on the grounds that the phone knows
+    everything first. Pause breaks that: watchOS puts a pause button on its own
+    Smart Stack card, so the wrist can change state the phone did not ask for
+    — and the phone's elapsed time is what Finish writes as the duration. One
+    way meant the number that mattered ignored the pause.
+
+    Three things make it hold together:
+
+    - The published state is written by `HKWorkoutSessionDelegate`, not the
+      call site, so a pause from the system card behaves exactly like one from
+      our button. Two writers would give a UI disagreeing with its session.
+    - `isRunning` stays TRUE while paused — it means "in a session", not "not
+      paused". The obvious `isRunning = (toState == .running)` renders a
+      paused workout as "start a workout on your iPhone".
+    - The counting text is anchored to a separate `timerAnchor`, moved to
+      `now - builder.elapsedTime` on resume. `elapsedTime` already discounts
+      the pause; `startedAt` stays the true beginning, which is what HealthKit
+      records.
+
+    Pausing is not cosmetic either: a running session keeps sampling heart
+    rate and accruing active energy, so a workout paused for five minutes was
+    saved longer and hotter than the one that happened — and the dashboard's
+    calorie ring inherited it.
+129. **A control that cannot report back is a control that lies.** The watch
+    had Start and End. "Start here" began an `HKWorkoutSession` with no
+    FitTrackr workout behind it — heart rate recorded against nothing. "End"
+    stopped the wrist while the phone kept counting, so the workout still
+    finished with a duration covering everything after the press. Both
+    removed; pause survived precisely because it reports back.
+
+    Accepted cost: only the phone can end a session now, so a dead phone
+    mid-workout leaves the wrist running until watchOS reclaims it, never
+    reaching `finishWorkout()`, saving nothing.
 
 ### Awards and benchmarks
 
@@ -2027,6 +2090,31 @@ remains a fully working fallback rather than a second thing to keep in step.
   PWA's own assets by `scripts/install-icons.sh`, which exists because
   `apps/ios/ios` is gitignored and hand-placed assets vanish on regeneration.
 
+**The watch, second pass** — everything after the first device build:
+
+- **The rest countdown on the wrist** (`a47eeec`) — full-screen while resting,
+  because it is the one number wanted between sets and it is read at arm's
+  length. Sent as an **absolute end instant**, never remaining seconds: that
+  is what lets `Text(timerInterval:)` count down by itself and what keeps it
+  correct after a screen sleep or a queued transfer. `endsAt: null` clears it,
+  as the same message rather than a separate event, so a lost clear cannot
+  leave a countdown running.
+- **A face complication** (`70c5d9b`) — reads the same App Group store, so the
+  face and the app cannot disagree. Nothing ticks and nothing polls: the
+  timeline is ONE entry with `.after(endsAt)`, and the watch app calls
+  `reloadAllTimelines()` on rest start and end, which it can do freely because
+  it is already awake holding the session. That is what keeps
+  `transferCurrentComplicationUserInfo` and its ~50/day budget out of it — a
+  20-set session would exhaust that.
+
+  **App Groups DO provision on a free personal team**, contrary to what I
+  expected. That is the only reason the complication was possible without
+  paying $99.
+- **Two-way pause** (`59274bd`, `7c907f0`) and **Start/End removed**
+  (`4658792`) — see #128 and #129.
+- **The Live Activity opted into the watch** (`096edd9`) — see #126, which is
+  the most expensive wrong assumption in this batch.
+
 **Web fixes found by using the app on a phone**, all in the same batch:
 
 - **The tutorial died after the AI Coach step** (`8cbafb8`, `b37fc1d`,
@@ -2076,7 +2164,11 @@ the shell, the first-run server prompt, the Live Activity in the Dynamic
 Island, the splash, the app icon, and — end to end — pressing Start on the
 phone waking the watch into a recording `HKWorkoutSession`, then Finish
 stopping and saving it, with its **average heart rate and active energy read
-back into the session summary**.
+back into the session summary**. Also the wrist rest countdown, the face
+complication, and pause from either device.
+
+**The one thing not working, and not worth more effort:** the grey disc in the
+watch's ongoing-session indicator at the top of the face. See #127.
 
 **The iOS app is a personal-team build, so it EXPIRES after seven days.** Both
 the phone and watch app stop launching; rebuilding from Xcode resets it. It
