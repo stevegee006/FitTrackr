@@ -79,6 +79,20 @@ struct WorkoutLiveActivity: Widget {
             }
             .keylineTint(resting ? restTint : accent)
         }
+        /**
+         Opt the activity into the Apple Watch.
+
+         Without this the watch face shows a GENERIC GREY PLACEHOLDER instead of
+         our views — it is not that the layout renders badly, it is that the
+         system substitutes a fallback because the activity never declared it
+         supports the watch. Tapping it still worked, which is what made it look
+         like a missing icon rather than a missing opt-in.
+
+         `.small` is the watch family. `LockScreenView` branches on
+         `activityFamily` and draws a tighter layout for it: the Lock Screen
+         design is far too wide for a watch face slot.
+         */
+        .supplementalActivityFamilies([.small])
     }
 
     private func subtitle(for state: WorkoutActivityAttributes.ContentState) -> String {
@@ -129,8 +143,18 @@ private struct SetsBar: View {
 
 private struct LockScreenView: View {
     let context: ActivityViewContext<WorkoutActivityAttributes>
+    /// `.small` is the Apple Watch. Same activity, very different budget.
+    @Environment(\.activityFamily) private var activityFamily
 
     var body: some View {
+        if activityFamily == .small {
+            WatchView(context: context)
+        } else {
+            lockScreen
+        }
+    }
+
+    private var lockScreen: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Label(context.state.isResting ? "Rest" : "Training",
@@ -179,5 +203,39 @@ private struct LockScreenView: View {
             }
         }
         .padding()
+    }
+}
+
+/**
+ The activity on a watch face.
+
+ A fraction of the width of the Lock Screen presentation, and read at a glance
+ rather than studied — so it carries the countdown and nothing that is not the
+ countdown. The exercise name earns its line only because "0:42" alone does not
+ say rest from what.
+ */
+private struct WatchView: View {
+    let context: ActivityViewContext<WorkoutActivityAttributes>
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: context.state.isResting
+                    ? "timer" : "figure.strengthtraining.traditional")
+                .foregroundStyle(context.state.isResting ? restTint : accent)
+
+            VStack(alignment: .leading, spacing: 0) {
+                PrimaryTimer(state: context.state, size: 20)
+
+                Text(context.state.isResting
+                        ? (context.state.restExerciseName ?? "Rest")
+                        : "\(context.state.setsDone)/\(context.state.setsTotal) sets")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 6)
     }
 }

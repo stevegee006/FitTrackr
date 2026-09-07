@@ -397,6 +397,22 @@ disagree. Add the App Groups capability with that container to every target
 that reads it — it does provision on a free personal team, contrary to
 expectation.
 
+### The Live Activity on the watch face
+
+watchOS surfaces iPhone Live Activities at the top of the watch face — but
+**only if the activity opts in**. Without `.supplementalActivityFamilies([.small])`
+on the `ActivityConfiguration`, the system substitutes a generic grey
+placeholder instead of your views. It still opens the app when tapped, which is
+what makes it look like a missing app icon rather than a missing opt-in; the
+watch app icon and the iPhone app icon are both fine and neither is involved.
+
+`LockScreenView` branches on `@Environment(\.activityFamily)` and draws a much
+tighter layout for `.small` — the Lock Screen design is several times too wide
+for a watch face slot.
+
+Requires the widget extension's **Minimum Deployment to be iOS 18.0 or later**;
+`supplementalActivityFamilies` does not exist below it.
+
 ### The rest-timer complication
 
 A watch face complication showing the same countdown. Optional — the watch app
