@@ -1453,13 +1453,20 @@ is exactly why it is written down here.
     **Why it stayed hidden for weeks:** simulator builds never mount a DDI.
     Everything — the Live Activity included — was verified in the simulator,
     so the broken Xcode install only surfaced the first time a physical device
-116. **The watch target's files are COPIES too, in a second location.** #114
+116. **The watch and complication targets' files are COPIES too, in their own
+    locations.** #114
     said `cp native/*.swift ios/App/App/`; the watch target adds
     `cp native/watch/*.swift "ios/App/FitTrackrWatch Watch App/"`. Adding
     files by dragging copies them whatever the intent — the giveaway is a
     compiler error whose path starts `ios/App/` citing a line already fixed
     in `native/`, so a `git pull` appears to do nothing. Note the space in
     the directory name; it must be quoted.
+
+    Four destinations now, and `SharedRest.swift` goes to two of them: a
+    synchronized folder group maps one file to one target, so a file shared by
+    the watch app and its complication has to exist twice. Both copies come
+    from `native/watch/SharedRest.swift`, which is what keeps them identical.
+    The full command is in `apps/ios/README.md`.
 
     Dragging into a group whose folder IS the source folder is worse than
     useless: Xcode copies the files onto themselves as `Foo 2.swift`, and

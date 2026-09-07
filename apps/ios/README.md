@@ -342,10 +342,16 @@ what compiles**. Both paths need copying before a build, or an edit lands
 nowhere and the compiler quietly builds yesterday:
 
 ```
-cd apps/ios   && cp native/*.swift ios/App/   && cp native/*.swift ios/App/App/   && cp native/watch/*.swift "ios/App/FitTrackrWatch Watch App/"   && npx cap sync ios
+cd apps/ios   && cp native/*.swift ios/App/   && cp native/*.swift ios/App/App/   && cp native/watch/*.swift "ios/App/FitTrackrWatch Watch App/"   && cp native/complication/*.swift native/watch/SharedRest.swift        ios/App/FitTrackrWatchComplication/   && npx cap sync ios
 ```
 
-Yes, three destinations. `ios/App/` and `ios/App/App/` both accumulated
+`SharedRest.swift` lands in two target folders on purpose. Xcode's
+synchronized folder groups map one file to one target, so sharing it means
+either a fragile cross-group reference or a second copy — and both copies come
+from the same `native/watch/SharedRest.swift`, so this keeps them identical by
+construction.
+
+Yes, four destinations. `ios/App/` and `ios/App/App/` both accumulated
 copies, and the project references the OUTER ones — which is how a plugin
 registered in `native/MainViewController.swift` stayed missing from
 `Capacitor.Plugins` after a rebuild that reported success.
