@@ -2,18 +2,23 @@ import SwiftUI
 
 /**
  What you see on the wrist mid-set: the rest countdown when one is running,
- otherwise heart rate, elapsed, active calories, and a way to stop.
+ otherwise heart rate, elapsed and active calories.
 
  Rest takes over the whole screen rather than sitting alongside the stats. It
  is the only thing that matters while it is running, it is read at arm's length
- between sets, and a glanceable countdown beats a complete dashboard. The stats
- are still one tap away — and still on the phone, which is where the session is
- actually being logged.
+ between sets, and a glanceable countdown beats a complete dashboard.
 
- Stopping from the watch is deliberate. The phone normally ends the session
- when you press Finish, but if the phone is across the gym, in a locker, or
- dead, the session must still be endable — an HKWorkoutSession left running
- burns battery and eventually gets killed by the system, saving nothing.
+ **Pause is the only control here.** Starting and ending both used to be, and
+ both were removed as misleading: "Start here" began a wrist session with no
+ FitTrackr workout behind it, and "End" stopped the wrist while the phone kept
+ counting. Pause survived because it is the one thing the watch can change and
+ report back, so both devices stay in step.
+
+ The cost is that a wrist session can now only be ended by the phone. If the
+ phone dies mid-workout the session runs until watchOS reclaims it, and never
+ reaches `finishWorkout()` — so nothing is saved. Accepted deliberately: two
+ controls that lied about what they did were worse than one missing escape
+ hatch.
 
  Add to the WATCH target only.
  */
@@ -67,22 +72,14 @@ struct WatchWorkoutView: View {
                 }
                 .font(.caption)
 
-                HStack(spacing: 6) {
-                    // Resuming had to be possible from here. watchOS offers a
-                    // pause button on its own Smart Stack card, but with the
-                    // link one-way that only restarted the wrist session and
-                    // left the phone's clock — the one written to the workout
-                    // — still stopped.
-                    Button(manager.isPaused ? "Resume" : "Pause") {
-                        manager.setPaused(!manager.isPaused)
-                    }
-                    .tint(manager.isPaused ? .green : .orange)
-
-                    Button("End") {
-                        Task { await manager.stop() }
-                    }
-                    .tint(.red)
+                // Resuming had to be possible from here. watchOS offers a
+                // pause button on its own Smart Stack card, but with the link
+                // one-way that only restarted the wrist session and left the
+                // phone's clock — the one written to the workout — stopped.
+                Button(manager.isPaused ? "Resume" : "Pause") {
+                    manager.setPaused(!manager.isPaused)
                 }
+                .tint(manager.isPaused ? .green : .orange)
             } else {
                 Image(systemName: "figure.strengthtraining.traditional")
                     .font(.title2)
@@ -91,12 +88,6 @@ struct WatchWorkoutView: View {
                     .font(.caption2)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
-
-                // A manual start, for when the phone is not to hand.
-                Button("Start here") {
-                    Task { await manager.start(name: nil) }
-                }
-                .tint(.indigo)
             }
         }
         .padding(.horizontal, 4)

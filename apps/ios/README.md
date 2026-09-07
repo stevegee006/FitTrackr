@@ -374,6 +374,18 @@ The source is full-bleed and has no alpha on purpose — iOS applies its own
 squircle mask, so an icon carrying its own rounded corners shows black
 wedges past the mask, and alpha is rejected outright at validation.
 
+### Controls on the watch
+
+**Pause is the only one.** Start and End were both there and both lied:
+"Start here" began a wrist session with no FitTrackr workout behind it, and
+"End" stopped the wrist while the phone carried on counting. Pause survived
+because the watch can report it back, so the two devices stay in step.
+
+The cost is that only the phone can end a session. If it dies mid-workout the
+wrist runs until watchOS reclaims it, never reaching `finishWorkout()`, and
+saves nothing. Accepted deliberately: two controls that misrepresented what
+they did were worse than one missing escape hatch.
+
 ### Pause
 
 Pausing on the phone pauses the wrist session too. That is not cosmetic: a
