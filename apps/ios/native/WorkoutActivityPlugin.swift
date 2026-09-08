@@ -57,6 +57,17 @@ public class WorkoutActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         // one call that always carries it.
         Self.scheduleAlert(for: state, call: call)
 
+        // The audio session is held for the whole workout, not just for rest.
+        // It is what keeps the app alive on a locked phone, and it has to be
+        // running BEFORE the chime is due rather than started at the moment it
+        // is needed — by then the app would already be suspended.
+        RestAudio.beginSession()
+        if let endsAt = state.restEndsAt {
+            RestAudio.scheduleChime(at: endsAt)
+        } else {
+            RestAudio.cancelChime()
+        }
+
         if let activity = Self.current as? Activity<WorkoutActivityAttributes> {
             Task {
                 await activity.update(Self.content(for: state))
@@ -97,6 +108,9 @@ public class WorkoutActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         guard #available(iOS 16.1, *) else { return call.resolve() }
         Self.current = nil
         RestAlerts.cancel()
+        // Releases the audio session too. Held past the workout it belongs to,
+        // it is a battery drain with nothing to show for it.
+        RestAudio.endSession()
 
         Task {
             // `.immediate` — an activity outliving its workout is worse than none.

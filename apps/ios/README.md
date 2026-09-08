@@ -438,10 +438,34 @@ buzz is a mild annoyance; a missed rest is the feature not working.
 screen — iOS suppresses a local notification for its own foregrounded app
 otherwise, and mid-set the phone is often awake but not being looked at. Sound
 routes to whatever is playing, AirPods included, and a
-`UINotificationFeedbackGenerator` covers a phone on silent.
+`UINotificationFeedbackGenerator` covers a phone on silent — but only the
+haptic half. See the chime below for the audible one.
 
 The web app's own `Notification` call is skipped in the native shell, since it
 would be a third alert for the same rest.
+
+**The chime is played by the app, not by the notification.** The ring/silent
+switch suppresses every notification sound unconditionally — there is no flag
+that overrides it short of Apple's Critical Alerts entitlement, which needs
+their approval — so a phone that lives on silent got a banner and nothing else.
+`RestAudio` uses an `AVAudioSession` set to `.playback`, which ignores the
+switch by design, with `.mixWithOthers` and `.duckOthers` so a podcast dips
+under the chime rather than stopping.
+
+Playing audio needs the app to be RUNNING, and iOS suspends it seconds after
+the phone locks. So a one-second file of silence is looped for the length of
+the workout, which is what Background Audio keeps an app alive for. It is a
+well-worn trick, and the only way to make a sound happen at a chosen instant on
+a locked phone without a server pushing it.
+
+The cost is real: a workout holds an audio session open, so there is a battery
+penalty for as long as the clock runs. The session is released the moment the
+workout is finished.
+
+**Setup:** add `RestAudio.swift`, `rest-chime.wav` and `silence.wav` to the
+**App** target, and tick **Signing & Capabilities → + Capability → Background
+Modes → Audio**. Without that capability the app is suspended on lock and the
+chime never fires — silently, since everything else still works.
 
 Notification permission is requested lazily, on the first rest timer rather
 than at launch: a prompt before the user has done anything gets denied
