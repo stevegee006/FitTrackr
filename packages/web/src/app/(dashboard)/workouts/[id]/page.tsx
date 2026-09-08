@@ -722,6 +722,14 @@ export default function WorkoutDetailPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [elapsed, timerKey]);
 
+  // Kept current so the watch listener below can subscribe ONCE. Both change
+  // identity often — `resumeClock` every second, since it closes over
+  // `elapsed`.
+  const pauseClockRef = useRef(pauseClock);
+  pauseClockRef.current = pauseClock;
+  const resumeClockRef = useRef(resumeClock);
+  resumeClockRef.current = resumeClock;
+
   /**
    * Let the WATCH pause and resume the phone's clock.
    *
@@ -741,11 +749,12 @@ export default function WorkoutDetailPage() {
     let cancelled = false;
 
     void onWatchPauseChanged((paused) => {
-      // `clockRunning` is deliberately not read here — this callback outlives
-      // the render it was created in, and a captured value would be stale.
-      // pauseClock and resumeClock are both safe to call redundantly.
-      if (paused) pauseClock();
-      else resumeClock();
+      // Through refs, not the captured functions. `resumeClock` depends on
+      // `elapsed`, which changes every second, so depending on it here
+      // re-subscribed the native listener once a second — visible in the
+      // Xcode log as an endless addListener/removeListener churn.
+      if (paused) pauseClockRef.current();
+      else resumeClockRef.current();
     }).then((fn) => {
       if (cancelled) fn?.();
       else remove = fn;
@@ -753,7 +762,7 @@ export default function WorkoutDetailPage() {
 
     return () => { cancelled = true; remove?.(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workoutStarted, pauseClock, resumeClock]);
+  }, [workoutStarted]);
 
   // Cardio mode comes from the saved preference first, then the exercise's own
   // category, and only then from whether existing sets happen to carry

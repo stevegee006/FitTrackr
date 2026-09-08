@@ -91,24 +91,45 @@ enum RestAudio {
      twice must move one chime, not queue three.
      */
     static func scheduleChime(at endsAt: Date) {
-        cancelChime()
-
         let delay = endsAt.timeIntervalSinceNow
-        // Already gone. A message that spent time queued must not fire a chime
-        // for a rest that finished while it was in flight.
-        guard delay > 0.5 else { return }
 
-        timer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { _ in
-            playChime()
+        /*
+         On the MAIN queue, and that is the whole point of this hop.
+
+         Capacitor dispatches plugin calls on a background queue, and
+         `Timer.scheduledTimer` attaches to the CURRENT thread's run loop —
+         which on a dispatch queue thread is not running. The timer was created
+         successfully, held a reference, reported no error, and simply never
+         fired. Nothing in the logs said so; the chime was just silent.
+
+         `.common` mode on top, because the default mode stops being serviced
+         during some UI interactions.
+         */
+        DispatchQueue.main.async {
+            cancelChime()
+
+            // Already gone. A message that spent time queued must not fire a
+            // chime for a rest that finished while it was in flight.
+            guard delay > 0.5 else { return }
+
+            let t = Timer(timeInterval: delay, repeats: false) { _ in
+                playChime()
+            }
+            RunLoop.main.add(t, forMode: .common)
+            timer = t
+            NSLog("[RestAudio] chime scheduled in \(Int(delay))s")
         }
-        // Fires while the app is backgrounded, which the default run-loop mode
-        // does not guarantee.
-        RunLoop.main.add(timer!, forMode: .common)
     }
 
     static func cancelChime() {
         timer?.invalidate()
         timer = nil
+    }
+
+    /// Play it now. Used to prove the chain end-to-end without waiting out a
+    /// rest, and by the watch-command path when rest is skipped.
+    static func testChime() {
+        DispatchQueue.main.async { playChime() }
     }
 
     private static func playChime() {
