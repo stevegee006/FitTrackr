@@ -1,6 +1,6 @@
 # HANDOFF — FitTrackr
 
-_Last updated: 2026-09-07 (through `6691778` — a **native iOS app** now exists:
+_Last updated: 2026-09-07 (through `e2025d5` — a **native iOS app** now exists:
 a Capacitor shell around the deployed web app, with a session Live Activity, a
 runtime-configurable server, and an **Apple Watch app that records the workout
 as a real `HKWorkoutSession`**, whose heart rate and active energy are read
@@ -1772,6 +1772,17 @@ is exactly why it is written down here.
     Native bridge churn is visible in the Xcode console in a way that pure
     React churn is not, which is the only reason this was caught. Worth
     scanning that log for repetition whenever a native listener is added.
+138. **`.duckOthers` lasts as long as the SESSION, not as long as the sound.**
+    Set once on the long-lived audio session from #135, it dimmed the user's
+    music the moment the workout clock started and kept it dimmed for the
+    whole hour. The keep-alive must run `.mixWithOthers` only; ducking is
+    raised for the chime's duration and lowered again.
+
+    The revert is on a delay rather than an `AVAudioPlayer` delegate callback,
+    deliberately: one code path whether or not the file plays, because a failed
+    chime that left ducking on would dim the music silently for the rest of the
+    session — a worse bug than the one being fixed. It also checks a workout is
+    still running before lowering, so it cannot undo `endSession`.
 
 ### Awards and benchmarks
 
@@ -2333,11 +2344,14 @@ complication, and pause from either device.
 watch's ongoing-session indicator at the top of the face. See #127.
 
 **Rest alerts confirmed** on a real device: the wrist haptic, the phone
-notification, the wrist Skip/+10/−10 controls, and the chime playing with the
-phone on silent. **Not yet confirmed:** the chime with the phone LOCKED (what
-the silent loop and Background Audio exist for), the chime ducking a podcast
-over AirPods, and the Live Activity reverting to the session clock after a rest
-elapses on a locked phone.
+notification, the wrist Skip/+10/−10 controls, the chime playing with the phone
+on silent, and music staying at full volume for the workout while dipping only
+for the chime.
+
+**Not yet confirmed:** the chime with the phone LOCKED — which is the entire
+reason for the silent loop and Background Audio, and the case most likely to
+disappoint — and the Live Activity reverting to the session clock after a rest
+elapses while locked. Both need a real session with the phone pocketed.
 
 **The iOS app is a personal-team build, so it EXPIRES after seven days.** Both
 the phone and watch app stop launching; rebuilding from Xcode resets it. It
