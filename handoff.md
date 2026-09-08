@@ -1,6 +1,6 @@
 # HANDOFF — FitTrackr
 
-_Last updated: 2026-09-07 (through `be174c2` — a **native iOS app** now exists:
+_Last updated: 2026-09-07 (through `6691778` — a **native iOS app** now exists:
 a Capacitor shell around the deployed web app, with a session Live Activity, a
 runtime-configurable server, and an **Apple Watch app that records the workout
 as a real `HKWorkoutSession`**, whose heart rate and active energy are read
@@ -11,7 +11,9 @@ screenshot import works on real screenshots, and the exercise library and
 training goals are reachable at all. On 09-07: HealthKit workouts recorded
 elsewhere are imported automatically, and a whole class of bug was cleared out
 — **planned workouts were being counted as work already done** everywhere from
-the dashboard rings to program adherence to personal records. Previously (2026-09-04, `6242178`): AI
+the dashboard rings to program adherence to personal records. Late on 09-07:
+the rest timer grew alerts on both devices, wrist controls, and a Live Activity
+that reverts itself when rest ends. Previously (2026-09-04, `6242178`): AI
 answers persist in Redis, workout-type icons, exercise notes, coach reviews,
 the next-week plan written into real workouts, five new muscle groups, Finish
 finalising a workout, optimistic set updates, and the service worker that had
@@ -1717,6 +1719,59 @@ is exactly why it is written down here.
 
     Standing warning in those logs, not yet urgent: every action targets
     Node 20, which GitHub has deprecated and now force-runs on Node 24.
+134. **The Live Activity could not be fixed from the app, because the app is
+    asleep.** The rest countdown lives in JavaScript, and iOS suspends the
+    webview seconds after the phone locks — exactly when rest is running and
+    the phone is in a pocket. Nothing ever arrived to say rest had ended, so
+    the activity sat at 0:00 with the session clock hidden behind a stopped
+    timer until the phone was unlocked.
+
+    `ActivityContent(state:staleDate:)` is the system's own answer: set the
+    stale date to the finish line and iOS re-renders there with
+    `context.isStale`. The views then fall back to
+    `ContentState.withoutRest()`. No push, no background execution, nothing of
+    ours running. Set the stale date ONLY while resting — on the working phase
+    it would mark a perfectly current activity as out of date.
+135. **The ring/silent switch suppresses every notification sound, and nothing
+    in the notification API overrides it.** Not `.default`, not a custom
+    sound, not `interruptionLevel = .timeSensitive`. Only Apple's Critical
+    Alerts entitlement, which needs their approval. A phone that lives on
+    silent — most phones in a gym — gets a banner and nothing else.
+
+    `RestAudio` plays the chime itself through an `AVAudioSession` set to
+    `.playback`, which ignores the switch by design, with `.mixWithOthers` and
+    `.duckOthers` so a podcast dips rather than stopping.
+
+    The silent loop is the load-bearing oddity: playing audio needs the app
+    RUNNING, and Background Audio keeps an app alive only while it is actually
+    playing something — so a one-second file of silence loops for the length of
+    the workout. It costs battery for as long as the clock runs, which is why
+    it was worth asking about rather than assuming. Needs **Background Modes →
+    Audio**; without it everything still builds and the chime simply never
+    fires.
+
+    Also note iOS suppresses a local notification while its own app is
+    foregrounded. A `UNUserNotificationCenterDelegate` returning
+    `[.banner, .sound, .list]` is what makes it alert anyway, which matters
+    mid-set when the phone is awake but not being looked at.
+136. **A Capacitor plugin call runs on a BACKGROUND queue, so
+    `Timer.scheduledTimer` never fires.** It attaches to the current thread's
+    run loop, and a dispatch queue thread has none running. The timer is
+    created, retained, reports no error, and does nothing — the only symptom
+    was an absent log line.
+
+    Hop to `DispatchQueue.main` and add the timer in `.common` mode. Anything
+    time-based started from a plugin method needs the same treatment.
+137. **An effect that depends on a per-second callback re-subscribes every
+    second.** The Xcode log showed `addListener`/`removeListener` for
+    `pauseChanged` cycling endlessly: the effect depended on `resumeClock`,
+    which closes over `elapsed`. Route such callbacks through refs and give
+    the effect an empty dependency list — the same pattern the rest modal uses
+    for its own watch listener.
+
+    Native bridge churn is visible in the Xcode console in a way that pure
+    React churn is not, which is the only reason this was caught. Worth
+    scanning that log for repetition whenever a native listener is added.
 
 ### Awards and benchmarks
 
@@ -2221,6 +2276,24 @@ and it appears in FitTrackr; **a shared `formatDistance`** (`6bb0958`), the
 first move on #53's seven-deep duplication; and the dashboard's session list
 finally has gaps (`ae4447f`, #132).
 
+### 2026-09-07, later — the rest timer, on both wrists and through AirPods
+
+- **Alerts on both devices** (`ecb6c00`, `6ca72bf`) — the watch buzzes from its
+  own timer, the phone schedules a local notification. An earlier version
+  suppressed the phone's while a wrist session ran, to avoid a double buzz;
+  reversed, because the phone only knew that `startWatchApp` had SUCCEEDED, not
+  that the watch was still on an arm. A duplicate buzz beats a missed rest.
+- **A chime that survives the silent switch** (`16b9d6a`, `6691778`) — see
+  #135, which is the one to read. The mechanism is not a notification at all.
+- **Skip / +10 / −10 on the wrist** (`ecb6c00`) — each ASKS the phone rather
+  than adjusting locally, since the web app owns the finish line that four
+  surfaces render.
+- **The Live Activity reverts itself** (`ecb6c00`) — see #134.
+
+Two bugs of mine surfaced by the Xcode log rather than by testing: the chime
+timer scheduled on a queue with no run loop (#136), and a native listener
+re-subscribing once a second (#137).
+
 ## Current state
 
 Deployed and in daily real use by the author against real workout data. The
@@ -2258,6 +2331,13 @@ complication, and pause from either device.
 
 **The one thing not working, and not worth more effort:** the grey disc in the
 watch's ongoing-session indicator at the top of the face. See #127.
+
+**Rest alerts confirmed** on a real device: the wrist haptic, the phone
+notification, the wrist Skip/+10/−10 controls, and the chime playing with the
+phone on silent. **Not yet confirmed:** the chime with the phone LOCKED (what
+the silent loop and Background Audio exist for), the chime ducking a podcast
+over AirPods, and the Live Activity reverting to the session clock after a rest
+elapses on a locked phone.
 
 **The iOS app is a personal-team build, so it EXPIRES after seven days.** Both
 the phone and watch app stop launching; rebuilding from Xcode resets it. It
