@@ -449,8 +449,13 @@ switch suppresses every notification sound unconditionally — there is no flag
 that overrides it short of Apple's Critical Alerts entitlement, which needs
 their approval — so a phone that lives on silent got a banner and nothing else.
 `RestAudio` uses an `AVAudioSession` set to `.playback`, which ignores the
-switch by design, with `.mixWithOthers` and `.duckOthers` so a podcast dips
-under the chime rather than stopping.
+switch by design.
+
+Ducking is raised around the chime and lowered again, NOT set once for the
+session. `.duckOthers` applies for as long as the session is active, and this
+session is active for the whole workout — so setting it at the start dimmed
+music the moment the clock started and kept it dimmed for an hour. The
+keep-alive runs `.mixWithOthers` only.
 
 Playing audio needs the app to be RUNNING, and iOS suspends it seconds after
 the phone locks. So a one-second file of silence is looped for the length of

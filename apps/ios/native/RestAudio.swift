@@ -23,8 +23,12 @@ import AVFoundation
  there is a battery penalty for as long as the clock runs, and the session ends
  the moment the workout is finished rather than lingering.
 
- `.mixWithOthers` and `.duckOthers` together mean a podcast keeps playing and
- simply dips under the chime, instead of being stopped.
+ **Ducking is switched on around the chime and off again**, not left on for the
+ session. `.duckOthers` applies for as long as the session is active, and this
+ session is active for the whole workout — so setting it once meant music
+ dipped the moment the clock started and stayed dipped for an hour. The
+ keep-alive runs mix-only; the chime raises ducking for its own duration and
+ lowers it again.
 
  Add to the APP target, along with `rest-chime.wav` and `silence.wav`, and tick
  **Background Modes → Audio** on that target — without it the app is suspended
@@ -48,11 +52,8 @@ enum RestAudio {
 
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(
-                .playback,
-                mode: .default,
-                options: [.mixWithOthers, .duckOthers]
-            )
+            // Mix ONLY. Ducking here would dim the music for the whole workout.
+            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
             try session.setActive(true)
 
             guard let url = Bundle.main.url(forResource: "silence", withExtension: "wav") else {
@@ -132,6 +133,32 @@ enum RestAudio {
         DispatchQueue.main.async { playChime() }
     }
 
+    /**
+     Duck other audio for the length of the chime, then stop ducking.
+
+     A category change rather than a volume change, because we do not control
+     the other app's player. The revert is on a delay rather than a delegate
+     callback so there is one code path whether or not the file plays — a
+     failed chime that left ducking on would dim the music silently for the
+     rest of the workout.
+     */
+    private static func duck(for duration: TimeInterval) {
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(
+            .playback, mode: .default, options: [.mixWithOthers, .duckOthers]
+        )
+        try? session.setActive(true)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.3) {
+            // Only lower it if a workout is still running; endSession has its
+            // own teardown and should not be undone from here.
+            guard keepAlive != nil else { return }
+            try? session.setCategory(
+                .playback, mode: .default, options: [.mixWithOthers]
+            )
+        }
+    }
+
     private static func playChime() {
         // The session is normally already held, but a rest can outlive a
         // workout that was never properly started — so make sure.
@@ -145,6 +172,7 @@ enum RestAudio {
             let player = try AVAudioPlayer(contentsOf: url)
             player.volume = 1
             player.prepareToPlay()
+            duck(for: player.duration)
             player.play()
             // Held: an AVAudioPlayer that goes out of scope stops immediately,
             // which is a silent bug that looks like a missing file.
