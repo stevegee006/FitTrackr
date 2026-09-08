@@ -1,6 +1,6 @@
 # HANDOFF — FitTrackr
 
-_Last updated: 2026-09-07 (through `e2025d5` — a **native iOS app** now exists:
+_Last updated: 2026-09-07 (through `8c14774` — a **native iOS app** now exists:
 a Capacitor shell around the deployed web app, with a session Live Activity, a
 runtime-configurable server, and an **Apple Watch app that records the workout
 as a real `HKWorkoutSession`**, whose heart rate and active energy are read
@@ -12,7 +12,8 @@ training goals are reachable at all. On 09-07: HealthKit workouts recorded
 elsewhere are imported automatically, and a whole class of bug was cleared out
 — **planned workouts were being counted as work already done** everywhere from
 the dashboard rings to program adherence to personal records. Late on 09-07:
-the rest timer grew alerts on both devices, wrist controls, and a Live Activity
+the rest timer grew alerts on both devices — including a chime that survives
+the ring/silent switch — wrist controls for skip and ±10s, and a Live Activity
 that reverts itself when rest ends. Previously (2026-09-04, `6242178`): AI
 answers persist in Redis, workout-type icons, exercise notes, coach reviews,
 the next-week plan written into real workouts, five new muscle groups, Finish
@@ -2408,13 +2409,33 @@ Known outstanding user-facing items:
 ## Next steps (not built, roughly by value)
 
 0. **Get the iOS project into version control, or accept it is disposable.**
-   `apps/ios/ios` is gitignored, so the Xcode project — the watch target, its
-   Info keys, the HealthKit capabilities, the deployment target, every target
-   membership — exists only on one Mac. Rebuilding it from the README is
-   perhaps an hour, and the README is now accurate enough to do that. But a
-   disk failure loses a day, and #116's three copy destinations are a symptom
-   of the same rootlessness. Either commit the `.xcodeproj` or write the
-   target setup as an `xcodegen`/`tuist` spec.
+   This has grown from a nuisance into the largest single risk in the project.
+   `apps/ios/ios` is gitignored, so the whole Xcode project exists on exactly
+   one Mac. What is now only there:
+
+   - four targets — App, the widget extension, the watch app, the complication
+     — with their bundle identifiers and companion relationships;
+   - HealthKit on App and the watch, **App Groups** on three targets,
+     **Background Modes → Audio** on App, **Background Modes →
+     workout-processing** on the watch;
+   - the deployment targets (App 17.6, widget 18.6 — the widget's is required
+     by `supplementalActivityFamilies`, #126);
+   - `WKBackgroundModes`, the HealthKit usage strings, and the watch's
+     recreated `Info.plist` (#119);
+   - target membership for a dozen hand-added Swift files plus two `.wav`
+     resources in Copy Bundle Resources.
+
+   The README documents all of it and is accurate — it was written from the
+   build that actually worked — so this is recoverable rather than lost. But
+   it is now several hours of GUI work, every step of which fails silently if
+   missed. #116's FOUR copy destinations are a symptom of the same
+   rootlessness. Either commit the `.xcodeproj` or express the whole thing as
+   an `xcodegen`/`tuist` spec.
+1. **Verify the two unverified rest-alert paths** — see Current state. The
+   locked-phone chime is the entire justification for holding an audio session
+   through the workout (#135); if iOS suspends the app anyway, that battery
+   cost is being paid for nothing and the honest move is to drop back to the
+   app-running-only version.
 2. **A frontend test runner.** Still the gap that has actually hurt, and this
    batch made the case again: the tutorial dead-ending (#123), the orphaned
    pages (#125) and the cramped rings were all found by a human looking at a
@@ -2427,8 +2448,8 @@ Known outstanding user-facing items:
    the whole-exercise delete; what is left is the page's own mutations — add
    set, add warmup, the warmup ladder, reorder. Add-set is the fiddliest: it
    needs a temp-id placeholder row, and `SetRow` must not be able to PATCH a
-   temp id if the user types into it before the POST returns. Doing #3 first
-   makes the ladder case tractable.
+   temp id if the user types into it before the POST returns. Doing the bulk
+   set-create endpoint below first makes the ladder case tractable.
 4. **A bulk set-create endpoint** (#76) so exercise replay and the warmup
    ladder are one request instead of N, and cannot partly succeed.
 5. **Finish the shared unit-display helper** (#53). `formatDistance` now
@@ -2443,54 +2464,58 @@ Known outstanding user-facing items:
 6. **Make `docker-entrypoint.sh` fail hard** instead of falling through to
    `db push` and then starting anyway (#1). Highest damage-per-effort item on
    the backend.
-6. **Fix the CORS boundary check** (#6) — a one-line change to require a
+7. **Bump the GitHub Actions versions** (#133). Every action targets Node 20,
+   which GitHub has deprecated and now force-runs on Node 24. It works today
+   and will stop without warning; `actions/checkout@v5` and the current docker
+   action majors clear it.
+8. **Fix the CORS boundary check** (#6) — a one-line change to require a
    leading dot or an exact match — and **add an rpID allowlist** (#5).
-7. **Reach the exercise editor from the logger.** It exists only in the admin
+9. **Reach the exercise editor from the logger.** It exists only in the admin
    panel, so noticing a mistagged exercise mid-workout means remembering to fix
    it later. `ExerciseEditForm` is standalone but the route is admin-only, so
    this needs either a non-admin `PATCH /exercises/:id` scoped to custom
    exercises or an admin-gated shortcut — decide which before building it.
-8. **Store cardio as a property, not an inference** (#39) — read
+10. **Store cardio as a property, not an inference** (#39) — read
    `Exercise.category === 'CARDIO'` (or add a flag) so the time/distance
    inputs appear without a reload.
-9. **Kill the dark-mode FOUC** (#37) with a blocking inline script, and pick
+11. **Kill the dark-mode FOUC** (#37) with a blocking inline script, and pick
    one source of truth for the preference (#38).
-10. **Prune `exerciseOrder` in `deleteSet`** (#13) so the array stops drifting,
+12. **Prune `exerciseOrder` in `deleteSet`** (#13) so the array stops drifting,
     and drop the frontend's defensive filter once it does.
     `deleteWorkoutExercise` already prunes; `deleteSet` does not.
-11. **Cap Epley reps** (#16) and **make `volumeByMuscle` actual volume** (#17),
+13. **Cap Epley reps** (#16) and **make `volumeByMuscle` actual volume** (#17),
     or rename it `setsByMuscle` and stop calling the dashboard rings "volume".
-12. **Delete the MacroTracker carryover** — `USDA_FDC_API_KEY` and its admin
+14. **Delete the MacroTracker carryover** — `USDA_FDC_API_KEY` and its admin
     settings surface (#24), `exerciseApiKey` (#25), `CATEGORY_MAP` (#26),
     `JWT_REFRESH_SECRET` (#23), the stale `TUTORIAL_KEYS` (#47), the unused
     deps (#46). Cheap, and each is a future "why is this here?".
-13. **Re-check admin from the DB** in the admin hook (#7) rather than trusting
+15. **Re-check admin from the DB** in the admin hook (#7) rather than trusting
     the token claim.
-14. **Add an eslint config** so `next lint` stops being a no-op (#44), and
+16. **Add an eslint config** so `next lint` stops being a no-op (#44), and
     **add `error.tsx`** so a render error doesn't blank the screen (#45).
-15. **Split the two giant page files** — `profile/page.tsx` is past 2,100 lines
+17. **Split the two giant page files** — `profile/page.tsx` is past 2,100 lines
     holding ~14 components, `admin/page.tsx` ~1,270. `AwardsTab` and
     `ExerciseEditForm` were each put in their own file rather than added; do
     that for the rest.
-16. **Remove `GET /health/slow`** once the proxy configuration is settled — it
+18. **Remove `GET /health/slow`** once the proxy configuration is settled — it
     exists to measure the ceiling in front of the API (see Deployment) and is
     not meant to be permanent.
-17. **An `@theme` token layer in `globals.css`** if the design system is ever
+19. **An `@theme` token layer in `globals.css`** if the design system is ever
     formalized, which would also resolve the emerald/indigo accent split and
     the three-way theme-color disagreement (#48).
-18. **Redis-backed rate limiting** (#10) — only matters if a second replica
+20. **Redis-backed rate limiting** (#10) — only matters if a second replica
     ever exists.
-19. **Have the AI emit absolute per-week RPE** instead of a monotonic delta
+21. **Have the AI emit absolute per-week RPE** instead of a monotonic delta
     (#62), so programs ramp and deload rather than plateauing at the cap.
-20. **Draw the splash wordmark as vector paths** (#59) if the Segoe-UI-vs-SF-Pro
+22. **Draw the splash wordmark as vector paths** (#59) if the Segoe-UI-vs-SF-Pro
     difference on iOS ever matters. Would also make the splash independent of
     whatever fonts the generating machine happens to have.
-21. **More award families.** The medal machinery is generic — only the tier
+23. **More award families.** The medal machinery is generic — only the tier
     tables in `awards-rules.ts` decide what exists. Obvious additions: a
     bodyweight pull-up/dip family (reps rather than load), total-volume
     milestones, "logged N workouts". Each is one array entry plus a matcher
     test.
-22. **Retire `emoji` from the award tiers.** It predates `Medal.tsx` and is now
+24. **Retire `emoji` from the award tiers.** It predates `Medal.tsx` and is now
     a fallback nothing renders — check nothing reads it off the API response
     first.
 
