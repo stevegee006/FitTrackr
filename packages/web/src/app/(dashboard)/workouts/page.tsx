@@ -11,12 +11,25 @@ import { todayString, parseDateLocal, formatDate, formatDuration, formatDistance
 import { inferExerciseDetails } from '@/lib/infer-exercise';
 import { WorkoutTypeIcon } from '@/components/workout/WorkoutTypeIcon';
 import Link from 'next/link';
-import { ChevronLeft, ChevronRight, Dumbbell, Clock, Sparkles, Camera, X, Check, ImageIcon, Plus, Trash2, BarChart3, HeartPulse, Route } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Dumbbell, Clock, Sparkles, Camera, X, Check, ImageIcon, Plus, Trash2, BarChart3, HeartPulse, Route, CalendarDays } from 'lucide-react';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 function mondayIndex(date: Date) {
   return (date.getDay() + 6) % 7;
+}
+
+/**
+ * Shift a YYYY-MM-DD string by whole days.
+ *
+ * Via `setDate`, which rolls over months and years and is DST-safe. Adding
+ * `days * 86400000` to a timestamp is not: across a transition it lands an
+ * hour out and, at the edges of a day, on the wrong date entirely.
+ */
+function shiftDate(dateStr: string, days: number) {
+  const d = parseDateLocal(dateStr);
+  d.setDate(d.getDate() + days);
+  return formatDate(d);
 }
 
 interface AiExercise {
@@ -54,6 +67,10 @@ export default function WorkoutsPage() {
   const [aiError, setAiError] = useState('');
   const [importImages, setImportImages] = useState<string[]>([]);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  // The workout being rescheduled, plus the date picked for it. Held as the
+  // whole workout rather than an id so the modal can name it.
+  const [moveWorkout, setMoveWorkout] = useState<Workout | null>(null);
+  const [moveDate, setMoveDate] = useState<string>('');
 
   const viewYear = new Date(todayDate.getFullYear(), todayDate.getMonth() + monthOffset, 1).getFullYear();
   const viewMonth = new Date(todayDate.getFullYear(), todayDate.getMonth() + monthOffset, 1).getMonth();
@@ -106,6 +123,38 @@ export default function WorkoutsPage() {
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['workouts'] });
       window.location.href = `/workouts/${res.data.id}`;
+    },
+  });
+
+  /**
+   * Reschedule a planned session.
+   *
+   * `logDate` is the only field sent — PATCH is a partial update, and including
+   * anything else risks writing back a stale copy of it.
+   *
+   * The volume and range queries are invalidated alongside the calendar even
+   * though a move adds no training: the rings are per-week, so a session that
+   * crosses a Sunday leaves one week and joins another.
+   */
+  const moveWorkoutMutation = useMutation({
+    mutationFn: ({ id, logDate }: { id: string; logDate: string }) =>
+      apiFetch(`/workouts/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ logDate }),
+      }),
+    onSuccess: (_res, { logDate }) => {
+      queryClient.invalidateQueries({ queryKey: ['workouts'] });
+      queryClient.invalidateQueries({ queryKey: ['workouts-range'] });
+      queryClient.invalidateQueries({ queryKey: ['workout-volume'] });
+      setMoveWorkout(null);
+      // Follow it. Staying on a day that is now empty reads as if the move
+      // deleted the workout.
+      setSelectedDate(logDate);
+      const target = parseDateLocal(logDate);
+      setMonthOffset(
+        (target.getFullYear() - todayDate.getFullYear()) * 12 +
+        (target.getMonth() - todayDate.getMonth()),
+      );
     },
   });
 
@@ -335,6 +384,90 @@ export default function WorkoutsPage() {
         </Card>
       </div>
     )}
+    {/* Reschedule modal */}
+    {moveWorkout && (() => {
+      const current = String(moveWorkout.logDate).split('T')[0];
+      const quick: Array<{ label: string; date: string }> = [
+        { label: 'Today', date: today },
+        { label: 'Tomorrow', date: shiftDate(today, 1) },
+        { label: '−1 day', date: shiftDate(current, -1) },
+        { label: '+1 day', date: shiftDate(current, 1) },
+        { label: '+1 week', date: shiftDate(current, 7) },
+      ];
+      return (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 px-4">
+          <Card className="w-full max-w-sm space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-full bg-indigo-100 dark:bg-indigo-900/30 shrink-0">
+                <CalendarDays className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-semibold text-gray-900 dark:text-white">Move workout</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 truncate">
+                  {moveWorkout.name ?? WORKOUT_TYPE_LABELS[moveWorkout.workoutType]}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {quick.map((q) => (
+                <button
+                  key={q.label}
+                  type="button"
+                  onClick={() => setMoveDate(q.date)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                    moveDate === q.date
+                      ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300'
+                      : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  {q.label}
+                </button>
+              ))}
+            </div>
+
+            <div>
+              <label htmlFor="move-date" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                Date
+              </label>
+              <input
+                id="move-date"
+                type="date"
+                value={moveDate}
+                onChange={(e) => setMoveDate(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white"
+              />
+            </div>
+
+            {moveWorkoutMutation.isError && (
+              <p className="text-xs text-red-500">
+                {(moveWorkoutMutation.error as Error)?.message || 'Could not move the workout.'}
+              </p>
+            )}
+
+            <div className="flex gap-2.5">
+              <button
+                type="button"
+                onClick={() => setMoveWorkout(null)}
+                className="flex-1 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => moveWorkoutMutation.mutate({ id: moveWorkout.id, logDate: moveDate })}
+                // A move to the day it is already on is a no-op, and an empty
+                // date is what a cleared picker gives you.
+                disabled={moveWorkoutMutation.isPending || !moveDate || moveDate === current}
+                className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors disabled:opacity-40"
+              >
+                {moveWorkoutMutation.isPending ? 'Moving…' : 'Move'}
+              </button>
+            </div>
+          </Card>
+        </div>
+      );
+    })()}
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Workouts</h1>
@@ -435,14 +568,20 @@ export default function WorkoutsPage() {
             {selectedWorkouts.map((w) => {
               const color = WORKOUT_TYPE_COLORS[w.workoutType] ?? '#6b7280';
               const setCount = (w.sets ?? []).filter((s: any) => !s.isWarmup).length;
+              // Only a session still to be done can be rescheduled. A finished
+              // one is history, and a HealthKit import is a recording with a
+              // real timestamp — moving either would be rewriting what
+              // happened rather than changing a plan.
+              const canMove = !w.completedAt && w.source !== 'HEALTHKIT';
               return (
                 <div key={w.id} className="relative group">
                   <Link href={`/workouts/${w.id}`}>
                     <Card className="flex gap-0 p-0 overflow-hidden hover:shadow-md transition-shadow active:scale-[0.99]">
                       <div className="w-1.5 shrink-0 rounded-l-2xl" style={{ backgroundColor: color }} />
-                      {/* pr-16 leaves room for the two absolutely-positioned
-                          buttons below, not one. */}
-                      <div className={`flex-1 px-3 py-2.5 min-w-0 ${w.completedAt ? 'pr-16' : 'pr-10'}`}>
+                      {/* Room for the absolutely-positioned buttons below:
+                          delete always, plus either the summary link (finished)
+                          or the move button (still planned). */}
+                      <div className={`flex-1 px-3 py-2.5 min-w-0 ${w.completedAt || canMove ? 'pr-16' : 'pr-10'}`}>
                         <div className="flex items-center justify-between gap-2">
                           <p className="text-sm font-semibold truncate">{w.name ?? WORKOUT_TYPE_LABELS[w.workoutType]}</p>
                           <span className="text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0"
@@ -496,6 +635,19 @@ export default function WorkoutsPage() {
                     >
                       <BarChart3 className="h-4 w-4" />
                     </Link>
+                  )}
+                  {/* Reschedule. Occupies the same slot as the summary link,
+                      which is safe because the two conditions are exclusive. */}
+                  {canMove && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); setMoveWorkout(w); setMoveDate(String(w.logDate).split('T')[0]); }}
+                      className="absolute right-10 top-1/2 -translate-y-1/2 p-2 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-colors"
+                      title="Move to another day"
+                      aria-label="Move to another day"
+                    >
+                      <CalendarDays className="h-4 w-4" />
+                    </button>
                   )}
                   {/* Delete button — always visible on mobile, hover on desktop */}
                   <button
