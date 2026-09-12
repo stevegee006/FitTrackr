@@ -198,6 +198,26 @@ export default function DashboardPage() {
 
   const greeting = getSmartGreeting(profileData?.data, streak, daysSinceWorkout, undertrainedMuscles);
 
+  /**
+   * Today's sessions that are planned or part-done.
+   *
+   * Pinned above everything else because it is the one thing on this screen
+   * that is asking to be acted on right now. Everything below — the rings, the
+   * streak, the week's list — is a report on what has already happened, and a
+   * session waiting to be started was previously buried at the bottom among
+   * finished ones.
+   *
+   * HealthKit imports are excluded: they arrive already finished, so an
+   * unfinished one would be a recording that never completed rather than a
+   * plan. Sorted so a session already underway comes before an untouched one.
+   */
+  const todaysOpen = workouts
+    .filter((w) => !w.completedAt && String(w.logDate).split('T')[0] === today && w.source !== 'HEALTHKIT')
+    .sort((a, b) => {
+      const done = (w: typeof a) => (w.sets ?? []).filter((s: any) => !s.isWarmup && s.isCompleted).length;
+      return done(b) - done(a);
+    });
+
   return (
     <div className="space-y-6">
       <div className="flex items-start gap-3">
@@ -221,6 +241,53 @@ export default function DashboardPage() {
           AI Coach
         </Link>
       </div>
+
+      {/* Today's planned / part-done sessions — above the rings on purpose */}
+      {todaysOpen.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75 animate-ping" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-indigo-500" />
+            </span>
+            <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+              {todaysOpen.length === 1 ? 'Today’s session' : 'Today’s sessions'}
+            </h2>
+          </div>
+          {todaysOpen.map((w) => {
+            const done = (w.sets ?? []).filter((s: any) => !s.isWarmup && s.isCompleted).length;
+            const total = (w.sets ?? []).filter((s: any) => !s.isWarmup).length;
+            const started = done > 0;
+            return (
+              <Link key={w.id} href={`/workouts/${w.id}`} className="block">
+                <Card className="flex items-center gap-3 border-indigo-200 dark:border-indigo-800/50 bg-indigo-50/50 dark:bg-indigo-950/20 hover:shadow-md transition-shadow active:scale-[0.99]">
+                  <WorkoutTypeIcon
+                    type={w.workoutType}
+                    className="h-6 w-6 shrink-0"
+                    style={{ color: WORKOUT_TYPE_COLORS[w.workoutType] }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold truncate">
+                      {w.name ?? WORKOUT_TYPE_LABELS[w.workoutType]}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      {total === 0
+                        ? 'No exercises yet'
+                        : started
+                          ? `${done} of ${total} sets done`
+                          : `${total} sets planned`}
+                    </p>
+                  </div>
+                  <span className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white">
+                    {started ? 'Continue' : 'Start'}
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </span>
+                </Card>
+              </Link>
+            );
+          })}
+        </div>
+      )}
 
       {/* Volume rings */}
       <Card

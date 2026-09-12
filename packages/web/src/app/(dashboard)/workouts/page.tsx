@@ -341,7 +341,18 @@ export default function WorkoutsPage() {
   }
 
   const monthLabel = firstOfMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  const selectedWorkouts = byDate.get(selectedDate) ?? [];
+  /**
+   * Unfinished first.
+   *
+   * The day's list is a mix of what has been done and what is still to do, and
+   * only the second kind is actionable — on a day with three finished sessions
+   * the one still waiting could land at the bottom. Order within each half is
+   * left as the server returned it.
+   */
+  const selectedWorkouts = [...(byDate.get(selectedDate) ?? [])].sort((a, b) => {
+    const open = (w: Workout) => (w.completedAt ? 1 : 0);
+    return open(a) - open(b);
+  });
   const selectedDateObj = parseDateLocal(selectedDate);
   const selectedLabel = selectedDateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   const isToday = selectedDate === today;
