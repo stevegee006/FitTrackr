@@ -1,6 +1,6 @@
 # HANDOFF — FitTrackr
 
-_Last updated: 2026-09-07 (through `8c14774` — a **native iOS app** now exists:
+_Last updated: 2026-09-09 (through `5c182b1` — a **native iOS app** now exists:
 a Capacitor shell around the deployed web app, with a session Live Activity, a
 runtime-configurable server, and an **Apple Watch app that records the workout
 as a real `HKWorkoutSession`**, whose heart rate and active energy are read
@@ -14,7 +14,8 @@ elsewhere are imported automatically, and a whole class of bug was cleared out
 the dashboard rings to program adherence to personal records. Late on 09-07:
 the rest timer grew alerts on both devices — including a chime that survives
 the ring/silent switch — wrist controls for skip and ±10s, and a Live Activity
-that reverts itself when rest ends. Previously (2026-09-04, `6242178`): AI
+that reverts itself when rest ends. On 09-09: a planned session can be moved
+to another day from the calendar. Previously (2026-09-04, `6242178`): AI
 answers persist in Redis, workout-type icons, exercise notes, coach reviews,
 the next-week plan written into real workouts, five new muscle groups, Finish
 finalising a workout, optimistic set updates, and the service worker that had
@@ -1839,7 +1840,7 @@ is exactly why it is written down here.
     `translateZ(0)` are inline for this reason, as is the settings toggle knob
     offset.
 
-## Recent work log (2026-08-26 → 2026-09-06)
+## Recent work log (2026-08-26 → 2026-09-09)
 
 Batches in the order they shipped, newest sections at the end. Recorded because
 the *reasons* are not in the diffs — the what is in `git log`.
@@ -2305,6 +2306,32 @@ finally has gaps (`ae4447f`, #132).
 Two bugs of mine surfaced by the Xcode log rather than by testing: the chime
 timer scheduled on a queue with no run loop (#136), and a native listener
 re-subscribing once a second (#137).
+
+### 2026-09-09 — moving a planned session
+
+`5c182b1`, web only. A calendar button on each card in the selected-day panel
+opens a small modal — quick chips (Today, Tomorrow, ±1 day, +1 week) over a
+native date input — and PATCHes `logDate`.
+
+Three things worth knowing before touching it:
+
+- **The API needed nothing.** A "scheduled" workout is not a separate kind of
+  record; it is a `Workout` with a future `logDate` and a null `completedAt`,
+  and `updateWorkoutSchema` is `createWorkoutSchema.partial()`, so
+  `PATCH /workouts/:id` already accepted a date. Reach for the existing partial
+  update before adding a `/reschedule` route.
+- **Only unfinished, non-HealthKit sessions offer the button.** A finished
+  workout is history and an import is a recording with a real timestamp —
+  moving either rewrites what happened rather than changing a plan. That
+  condition is also what keeps the card's right-hand slot unambiguous: the move
+  button and the summary link share `right-10`, and they are mutually
+  exclusive.
+- **It invalidates `workout-volume` too**, even though a move adds no training.
+  The rings are per-week, so a session dragged across a Sunday leaves one week
+  and joins another.
+
+After a move the page follows the workout — selected date AND month offset —
+because staying on a day that just went empty reads as if the move deleted it.
 
 ## Current state
 
