@@ -3,7 +3,7 @@
 import { Card } from '@/components/ui/Card';
 import { SkipForward, ChevronDown } from 'lucide-react';
 import { REST_PRESETS } from '@/lib/rest';
-import { useRestTimer } from '@/providers/RestTimerProvider';
+import { useRestTimer, useRestTick } from '@/providers/RestTimerProvider';
 
 /**
  * The full-screen rest countdown.
@@ -15,7 +15,8 @@ import { useRestTimer } from '@/providers/RestTimerProvider';
  * happen when the timer owned its own `endAt`.
  */
 export function RestTimerModal() {
-  const { rest, total, remaining, done, adjust, choosePreset, stop, minimize } = useRestTimer();
+  const { rest, total, adjust, choosePreset, stop, minimize } = useRestTimer();
+  const { remaining, done } = useRestTick();
 
   if (!rest) return null;
 

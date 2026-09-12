@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { SkipForward, Timer, Dumbbell } from 'lucide-react';
 import { RestTimerModal } from '@/components/workout/RestTimerModal';
-import { useRestTimer } from '@/providers/RestTimerProvider';
+import { useRestTimer, useRestTick } from '@/providers/RestTimerProvider';
 
 function clock(totalSeconds: number) {
   const h = Math.floor(totalSeconds / 3600);
@@ -32,7 +32,8 @@ function clock(totalSeconds: number) {
  * there has to leave something to tap.
  */
 export function SessionDock() {
-  const { rest, remaining, done, expanded, session, expand, stop } = useRestTimer();
+  const { rest, expanded, session, expand, stop } = useRestTimer();
+  const { remaining, done } = useRestTick();
   const pathname = usePathname();
   const [now, setNow] = useState(() => Date.now());
 

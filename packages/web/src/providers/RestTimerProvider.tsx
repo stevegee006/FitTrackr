@@ -33,9 +33,6 @@ interface RestTimerValue {
   rest: RestActivity | null;
   /** The full span of the current rest, for the progress ring. */
   total: number;
-  /** Whole seconds left. 0 once it has run out. */
-  remaining: number;
-  done: boolean;
   /** Full-screen, versus the floating pill. */
   expanded: boolean;
   session: ActiveSession | null;
@@ -49,12 +46,33 @@ interface RestTimerValue {
   setSession: (session: ActiveSession | null) => void;
 }
 
+/** Whole seconds left, and whether it has run out. */
+interface RestTickValue {
+  remaining: number;
+  done: boolean;
+}
+
 const RestTimerContext = createContext<RestTimerValue | null>(null);
+
+/**
+ * The ticking value, in a context of its OWN.
+ *
+ * `remaining` changes four times a second, and everything that reads a context
+ * re-renders when its value changes. Folded into the value above, a running
+ * rest would have re-rendered the whole workout logger four times a second —
+ * for a number the logger does not even display. Only the dock and the modal
+ * subscribe here.
+ */
+const RestTickContext = createContext<RestTickValue>({ remaining: 0, done: false });
 
 export function useRestTimer(): RestTimerValue {
   const ctx = useContext(RestTimerContext);
   if (!ctx) throw new Error('useRestTimer must be used inside RestTimerProvider');
   return ctx;
+}
+
+export function useRestTick(): RestTickValue {
+  return useContext(RestTickContext);
 }
 
 /**
@@ -289,8 +307,6 @@ export function RestTimerProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<RestTimerValue>(() => ({
     rest,
     total,
-    remaining,
-    done: rest != null && remaining === 0,
     expanded,
     session,
     start,
@@ -300,7 +316,16 @@ export function RestTimerProvider({ children }: { children: React.ReactNode }) {
     minimize,
     expand,
     setSession,
-  }), [rest, total, remaining, expanded, session, start, adjust, choosePreset, stop, minimize, expand]);
+  }), [rest, total, expanded, session, start, adjust, choosePreset, stop, minimize, expand]);
 
-  return <RestTimerContext.Provider value={value}>{children}</RestTimerContext.Provider>;
+  const tick = useMemo<RestTickValue>(
+    () => ({ remaining, done: rest != null && remaining === 0 }),
+    [remaining, rest],
+  );
+
+  return (
+    <RestTimerContext.Provider value={value}>
+      <RestTickContext.Provider value={tick}>{children}</RestTickContext.Provider>
+    </RestTimerContext.Provider>
+  );
 }
