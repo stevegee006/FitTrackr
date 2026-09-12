@@ -9,6 +9,8 @@ import { Spinner } from '@/components/ui/Spinner';
 import { TutorialOverlay } from '@/components/tutorial/TutorialOverlay';
 import { useTutorial } from '@/hooks/useTutorial';
 import { useHealthImport } from '@/hooks/useHealthImport';
+import { RestTimerProvider } from '@/providers/RestTimerProvider';
+import { SessionDock } from '@/components/workout/SessionDock';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -42,6 +44,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (!user) return null;
 
   return (
+    /* The rest countdown and the session pill are mounted HERE, above the
+       routed page, so neither is unmounted by navigation. See the provider. */
+    <RestTimerProvider>
     <div className="min-h-screen lg:flex">
       {/* Status-bar scrim. viewport-fit=cover lets the page paint under the
           clock/signal/battery, so scrolled content collided with them.
@@ -69,7 +74,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <main className="mx-auto max-w-lg lg:max-w-5xl px-4 lg:px-8 pt-safe-6 pb-28 lg:pb-6">{children}</main>
       </div>
       <BottomNav />
+      <SessionDock />
       <TutorialOverlay {...tutorial} />
     </div>
+    </RestTimerProvider>
   );
 }
