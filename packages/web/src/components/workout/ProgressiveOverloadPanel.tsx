@@ -1,12 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api-client';
 import { parseDateLocal } from '@/lib/utils';
 import { Spinner } from '@/components/ui/Spinner';
 import { Card } from '@/components/ui/Card';
-import { Sparkles, X, RefreshCw } from 'lucide-react';
+import { Sparkles, X, RefreshCw, Check } from 'lucide-react';
 
 interface ProgressiveOverloadPanelProps {
   exerciseId: string;
@@ -57,9 +57,65 @@ export function ProgressiveOverloadPanel({
   repRangeMax,
   onClose,
 }: ProgressiveOverloadPanelProps) {
+  const queryClient = useQueryClient();
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState<AiSuggestion | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [applied, setApplied] = useState(false);
+
+  /**
+   * The bottom of the suggested range.
+   *
+   * Double progression, which is what the suggestion prompt enforces: when the
+   * load goes up, reps reset to the BOTTOM of the range and climb again. So
+   * "8-10" means start at 8 — taking 10 would be starting where the last block
+   * ended and would fail the first set.
+   */
+  function suggestedReps(range: string | null): number | null {
+    if (!range) return null;
+    const first = String(range).match(/\d+/);
+    return first ? parseInt(first[0], 10) : null;
+  }
+
+  /**
+   * Write the suggestion into the sets that have not been done yet.
+   *
+   * Deliberately does NOT touch completed sets — the suggestion is advice
+   * about what to do next, not a correction to what already happened. Adding
+   * or removing sets to match `targetSets` is left alone too: that changes the
+   * shape of the session rather than the numbers in it, so the set count is
+   * saved as the preference and the athlete adds the set themselves.
+   */
+  const applyMutation = useMutation({
+    mutationFn: async (s: AiSuggestion) => {
+      const reps = suggestedReps(s.targetRepsRange);
+      const payload = {
+        ...(s.targetWeightKg != null && { weightKg: Math.round(s.targetWeightKg * 100) / 100 }),
+        ...(reps != null && { reps }),
+      };
+
+      if (Object.keys(payload).length > 0) {
+        await apiFetch(`/workouts/${workoutId}/exercises/${exerciseId}/sets`, {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        });
+      }
+
+      // The target set count outlives this session, so it goes on the
+      // preference rather than into the workout.
+      if (s.targetSets != null) {
+        await apiFetch(`/exercises/${exerciseId}/preference`, {
+          method: 'PATCH',
+          body: JSON.stringify({ targetSets: s.targetSets }),
+        }).catch(() => { /* the sets themselves already landed */ });
+      }
+    },
+    onSuccess: () => {
+      setApplied(true);
+      queryClient.invalidateQueries({ queryKey: ['workout', workoutId] });
+      queryClient.invalidateQueries({ queryKey: ['exercise-prefs'] });
+    },
+  });
 
   const { data: historyData, isLoading: historyLoading } = useQuery({
     queryKey: ['exercise-history', exerciseId, workoutId],
@@ -136,6 +192,7 @@ export function ProgressiveOverloadPanel({
   function handleRefresh() {
     setAiResult(null);
     setAiError(null);
+    setApplied(false);
     fetchAiSuggestion();
   }
 
@@ -267,6 +324,42 @@ export function ProgressiveOverloadPanel({
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     <span className="font-medium text-gray-700 dark:text-gray-300">Target sets:</span>{' '}
                     {aiResult.targetSets}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Apply — only when there is actually a number to write. A
+                "maintain" with no targets has nothing to apply, and a button
+                that would silently do nothing is worse than no button. */}
+            {(aiResult.targetWeightKg != null
+              || suggestedReps(aiResult.targetRepsRange) != null
+              || aiResult.targetSets != null) && (
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={() => applyMutation.mutate(aiResult)}
+                  disabled={applyMutation.isPending || applied}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-60 ${
+                    applied
+                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                      : 'bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white'
+                  }`}
+                >
+                  {applyMutation.isPending
+                    ? <Spinner className="h-4 w-4" />
+                    : <Check className="h-4 w-4" />}
+                  {applied ? 'Applied' : applyMutation.isPending ? 'Applying…' : 'Apply to remaining sets'}
+                </button>
+
+                {applyMutation.isError && (
+                  <p className="mt-1.5 text-xs text-red-500">
+                    {(applyMutation.error as Error)?.message || 'Could not apply the suggestion.'}
+                  </p>
+                )}
+                {applied && aiResult.targetSets != null && (
+                  <p className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                    Saved {aiResult.targetSets} sets as this exercise&apos;s target — add or remove sets to match.
                   </p>
                 )}
               </div>

@@ -9,6 +9,13 @@ const STORAGE_KEY = 'fittrackr_rest_seconds';
 const PRESETS = [60, 90, 120, 180];
 const MIN_SECONDS = 5;
 
+/**
+ * The global fallback, kept in localStorage.
+ *
+ * Still here now that rest is remembered per exercise: a brand-new exercise
+ * has no preference, and starting it at the duration the athlete generally
+ * uses beats starting it at a hardcoded 90.
+ */
 export function getStoredRestSeconds(fallback = 90): number {
   if (typeof window === 'undefined') return fallback;
   try {
@@ -47,6 +54,18 @@ interface RestTimerModalProps {
    * would race.
    */
   onRestActivityChange?: (rest: RestActivity | null) => void;
+  /**
+   * The remembered rest for the exercise that just finished, if it has one.
+   * Null falls back to the global localStorage value.
+   */
+  initialSeconds?: number | null;
+  /**
+   * The athlete deliberately changed the duration — a preset, or ±10s. Reports
+   * the new total so the page can remember it against the exercise.
+   *
+   * Not called for the countdown simply running down: that is not a choice.
+   */
+  onDurationChange?: (seconds: number) => void;
 }
 
 /**
@@ -56,10 +75,25 @@ interface RestTimerModalProps {
  * background tabs and locked phones throttle `setInterval`, so a decrementing
  * timer drifts badly. The same reason the workout clock uses an anchor.
  */
-export function RestTimerModal({ onClose, context, onRestActivityChange }: RestTimerModalProps) {
-  const [total, setTotal] = useState(() => getStoredRestSeconds());
-  const [endAt, setEndAt] = useState(() => Date.now() + getStoredRestSeconds() * 1000);
-  const [remaining, setRemaining] = useState(() => getStoredRestSeconds());
+export function RestTimerModal({
+  onClose,
+  context,
+  onRestActivityChange,
+  initialSeconds,
+  onDurationChange,
+}: RestTimerModalProps) {
+  // Read ONCE, in a lazy initialiser. The modal is remounted by key on every
+  // open, so there is no case where a prop change should restart a running
+  // countdown — and reacting to one would reset the clock mid-rest if the
+  // preference query happened to refetch.
+  const [total, setTotal] = useState(() => initialSeconds ?? getStoredRestSeconds());
+  const [endAt, setEndAt] = useState(() => Date.now() + (initialSeconds ?? getStoredRestSeconds()) * 1000);
+  const [remaining, setRemaining] = useState(() => initialSeconds ?? getStoredRestSeconds());
+  const onDurationChangeRef = useRef(onDurationChange);
+  onDurationChangeRef.current = onDurationChange;
+  // Mirrors `total` for the callbacks below, which are stable by design.
+  const totalRef = useRef(total);
+  totalRef.current = total;
   const firedRef = useRef(false);
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedAtRef = useRef(Date.now());
@@ -130,7 +164,15 @@ export function RestTimerModal({ onClose, context, onRestActivityChange }: RestT
   const adjust = useCallback((delta: number) => {
     if (firedRef.current) return; // already finished; don't resurrect it
     setEndAt((prev) => Math.max(Date.now() + MIN_SECONDS * 1000, prev + delta * 1000));
-    setTotal((t) => Math.max(MIN_SECONDS, t + delta));
+    // Through a ref rather than a setState updater: reporting upward is a side
+    // effect, and an updater can be invoked more than once per commit.
+    // Writing the ref immediately also keeps two quick taps additive.
+    const next = Math.max(MIN_SECONDS, totalRef.current + delta);
+    totalRef.current = next;
+    setTotal(next);
+    // ±10s is a judgement about this exercise, not a one-off nudge — the next
+    // set of the same movement wants the same rest.
+    onDurationChangeRef.current?.(next);
   }, []);
   adjustRef.current = adjust;
 
@@ -163,9 +205,13 @@ export function RestTimerModal({ onClose, context, onRestActivityChange }: RestT
   const choosePreset = useCallback((s: number) => {
     firedRef.current = false;
     if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
+    // Both: the global value is the fallback for exercises with no preference
+    // of their own, and the callback remembers it against THIS exercise.
     try { localStorage.setItem(STORAGE_KEY, String(s)); } catch { /* ignore */ }
+    totalRef.current = s;
     setTotal(s);
     setEndAt(Date.now() + s * 1000);
+    onDurationChangeRef.current?.(s);
   }, []);
 
   const done = remaining === 0;

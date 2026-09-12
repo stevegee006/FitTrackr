@@ -142,6 +142,8 @@ interface ExercisePref {
   categoryIsCardio?: boolean;
   /** A cue that follows the exercise session to session. */
   notes?: string | null;
+  /** Remembered rest for this exercise; null uses the global fallback. */
+  restSeconds?: number | null;
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -162,6 +164,20 @@ export default function WorkoutDetailPage() {
   // The live countdown, lifted out of the modal so ONE effect owns the whole
   // Live Activity — see the sync effect below.
   const [restActivity, setRestActivity] = useState<RestActivity | null>(null);
+  /**
+   * Which exercise this rest belongs to, so its duration can be remembered
+   * against it. Kept apart from `restContext` deliberately: that object is
+   * handed to the native Live Activity, and an id would be dead weight there.
+   */
+  const [restExerciseId, setRestExerciseId] = useState<string | null>(null);
+  /**
+   * The duration the athlete settled on, written back when the timer closes.
+   *
+   * A ref, and flushed once on close, because ±10s is often tapped three times
+   * in a row — one PATCH per tap would be three requests into an endpoint the
+   * logger already leans on hard.
+   */
+  const restSecondsRef = useRef<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [clockRunning, setClockRunning] = useState(false);
   const [workoutStarted, setWorkoutStarted] = useState(false);
@@ -536,6 +552,22 @@ export default function WorkoutDetailPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['exercise-prefs'] }),
   });
 
+  /**
+   * Remember the rest duration against the exercise.
+   *
+   * Fired once when the timer closes rather than on every ±10s tap — see
+   * `restSecondsRef` below. No cache invalidation on success: the only reader
+   * is the next rest timer, and refetching the preferences mid-session would
+   * re-run the cardio-mode effect for no visible gain.
+   */
+  const saveRestSecondsMutation = useMutation({
+    mutationFn: ({ exerciseId, restSeconds }: { exerciseId: string; restSeconds: number }) =>
+      apiFetch(`/exercises/${exerciseId}/preference`, {
+        method: 'PATCH',
+        body: JSON.stringify({ restSeconds }),
+      }),
+  });
+
   // Stored on ExercisePreference, so it belongs to the exercise rather than to
   // this workout and shows up again next session.
   const saveNoteMutation = useMutation({
@@ -825,10 +857,33 @@ export default function WorkoutDetailPage() {
     }
   }
 
-  function openRestTimer(context?: RestContext) {
+  function openRestTimer(context?: RestContext, exerciseId?: string) {
     setRestContext(context ?? null);
+    setRestExerciseId(exerciseId ?? null);
+    restSecondsRef.current = null;
     setRestTimerKey((k) => k + 1);
     setShowRestTimer(true);
+  }
+
+  /**
+   * Close the timer, remembering the duration if it was deliberately changed.
+   *
+   * Both halves matter: the flush has to happen however the modal went away —
+   * skipped, run out, or closed from the wrist.
+   */
+  function closeRestTimer() {
+    const seconds = restSecondsRef.current;
+    const exerciseId = restExerciseId;
+    if (seconds != null && exerciseId) {
+      saveRestSecondsMutation.mutate({ exerciseId, restSeconds: seconds });
+      // Reflect it locally so a second rest on the same exercise this session
+      // opens at the new duration without waiting for a refetch.
+      queryClient.setQueryData(['exercise-prefs', exerciseIds], (old: any) =>
+        old ? { ...old, [exerciseId]: { ...(old[exerciseId] ?? {}), restSeconds: seconds } } : old,
+      );
+    }
+    restSecondsRef.current = null;
+    setShowRestTimer(false);
   }
 
   /**
@@ -853,7 +908,7 @@ export default function WorkoutDetailPage() {
 
     const groupId = exerciseToGroup.get(exerciseId);
     if (!groupId) {
-      openRestTimer(context);
+      openRestTimer(context, exerciseId);
       return;
     }
 
@@ -868,7 +923,9 @@ export default function WorkoutDetailPage() {
       return !peer || peer.isCompleted;
     });
 
-    if (roundComplete) openRestTimer(context);
+    // The exercise that closed the round owns the rest: in a superset the wait
+    // follows the whole round, and this is the movement it ended on.
+    if (roundComplete) openRestTimer(context, exerciseId);
   }
 
   /**
@@ -1335,7 +1392,9 @@ export default function WorkoutDetailPage() {
           key={restTimerKey}
           context={restContext ?? undefined}
           onRestActivityChange={setRestActivity}
-          onClose={() => setShowRestTimer(false)}
+          initialSeconds={restExerciseId ? prefsQuery.data?.[restExerciseId]?.restSeconds ?? null : null}
+          onDurationChange={(s) => { restSecondsRef.current = s; }}
+          onClose={closeRestTimer}
         />
       )}
 

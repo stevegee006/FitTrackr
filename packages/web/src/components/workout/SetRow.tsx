@@ -200,6 +200,56 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
     onSettled: invalidateIfLast,
   });
 
+  /**
+   * Carry a weight or rep count across every set of this exercise that has not
+   * been ticked off yet.
+   *
+   * Typing the working weight once and having the rest of the sets follow is
+   * how the logger is actually used: the alternative was retyping 135 into
+   * four rows. The server does it in ONE `updateMany` — see the note on
+   * `applyToIncompleteSets` for why that matters here specifically.
+   *
+   * Completed sets are left alone by both sides, so going back to correct a
+   * set you have already done stays a single-set edit.
+   */
+  const propagateMutation = useMutation({
+    mutationKey,
+    mutationFn: (data: SetPatch) =>
+      apiFetch(`/workouts/${workoutId}/exercises/${set.exerciseId}/sets`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    onMutate: async (data) => {
+      setSaveError(null);
+      await queryClient.cancelQueries({ queryKey: ['workout', workoutId] });
+      const previous = queryClient.getQueryData<WorkoutQuery>(['workout', workoutId]);
+
+      // The same predicate the server uses, so the preview matches the refetch.
+      queryClient.setQueryData<WorkoutQuery>(['workout', workoutId], (old) =>
+        old
+          ? {
+              ...old,
+              data: {
+                ...old.data,
+                sets: old.data.sets.map((s) =>
+                  s.exerciseId === set.exerciseId && !s.isCompleted && !s.isWarmup
+                    ? { ...s, ...data }
+                    : s,
+                ),
+              },
+            }
+          : old,
+      );
+
+      return { previous };
+    },
+    onError: (err: any, _data, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(['workout', workoutId], ctx.previous);
+      setSaveError(err?.message ?? 'Could not save.');
+    },
+    onSettled: invalidateIfLast,
+  });
+
   const deleteMutation = useMutation({
     mutationKey,
     mutationFn: () =>
@@ -261,8 +311,26 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
     return { distanceM: isImperial ? Math.round(val * 1609.344) : Math.round(val * 1000) };
   }
 
-  function commitWeight() { const p = weightPayload(); if (p) updateMutation.mutate(p); }
-  function commitReps() { const p = repsPayload(); if (p) updateMutation.mutate(p); }
+  /**
+   * Weight and reps are set-level values that in practice describe the whole
+   * exercise, so editing one on an unticked working set carries it to the rest
+   * of them. The bulk route's predicate already includes THIS set, so it
+   * replaces the single-set PATCH rather than being sent alongside it.
+   *
+   * A warmup or an already-completed set falls back to editing just itself: a
+   * warmup is deliberately lighter, and a completed set is a record of what
+   * happened rather than a plan for what is next.
+   */
+  const spreads = !set.isCompleted && !set.isWarmup;
+
+  function commitWeight() {
+    const p = weightPayload();
+    if (p) (spreads ? propagateMutation : updateMutation).mutate(p);
+  }
+  function commitReps() {
+    const p = repsPayload();
+    if (p) (spreads ? propagateMutation : updateMutation).mutate(p);
+  }
   function commitRpe() { const p = rpePayload(); if (p) updateMutation.mutate(p); }
   function commitDuration() { const p = durationPayload(); if (p) updateMutation.mutate(p); }
   function commitDistance() { const p = distancePayload(); if (p) updateMutation.mutate(p); }
@@ -420,7 +488,9 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
           onApply={(kg) => {
             const display = isImperial ? Math.round(kg * 2.20462 * 10) / 10 : kg;
             setWeightVal(String(display));
-            updateMutation.mutate({ weightKg: Math.round(kg * 100) / 100 });
+            // Same act as typing the weight, so it spreads the same way.
+            (spreads ? propagateMutation : updateMutation)
+              .mutate({ weightKg: Math.round(kg * 100) / 100 });
             setShowCalc(false);
           }}
         />
