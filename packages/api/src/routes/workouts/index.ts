@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import {
-  createWorkoutSchema, updateWorkoutSchema, addSetSchema, updateSetSchema, finishWorkoutSchema,
+  createWorkoutSchema, updateWorkoutSchema, addSetSchema, updateSetSchema, applyToSetsSchema,
+  finishWorkoutSchema,
   workoutHealthSchema, importHealthWorkoutsSchema,
   // Interpolated into the prompt below rather than written out: a muscle group
   // the model is never told about is one it can never return.
@@ -158,6 +159,21 @@ export default async function workoutRoutes(fastify: FastifyInstance) {
       const { exerciseOrder } = req.body as { exerciseOrder: string[] };
       await workoutService.reorderExercises(fastify, req.user.sub, id, exerciseOrder);
       return { ok: true };
+    },
+  });
+
+  // PATCH /workouts/:id/exercises/:exerciseId/sets
+  // Apply a weight and/or rep count to every set of this exercise that is not
+  // yet ticked off. See the service note for why this is one request.
+  fastify.patch('/workouts/:id/exercises/:exerciseId/sets', {
+    preHandler: [fastify.authenticate],
+    handler: async (req) => {
+      const { id, exerciseId } = req.params as any;
+      const body = applyToSetsSchema.parse(req.body);
+      const data = await workoutService.applyToIncompleteSets(
+        fastify, req.user.sub, id, exerciseId, body,
+      );
+      return { data };
     },
   });
 

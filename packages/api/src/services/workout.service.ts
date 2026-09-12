@@ -182,6 +182,46 @@ export async function reorderExercises(
   return fastify.prisma.workout.update({ where: { id: workoutId }, data: { exerciseOrder } });
 }
 
+/**
+ * Write a weight and/or rep count across every set of one exercise in this
+ * workout that has NOT been ticked off yet.
+ *
+ * One request rather than one PATCH per set, and deliberately so: the logger
+ * already trips the API rate limit during a dense session (see the note in
+ * SetRow about four PATCHes per tap), and a five-set exercise would otherwise
+ * turn a single blur into five more.
+ *
+ * WARMUPS ARE EXCLUDED. A warmup's lighter load is the whole point of it, and
+ * carrying the working weight down onto it would silently undo a ladder.
+ *
+ * No personal-record recompute: these sets are incomplete by definition, and
+ * an incomplete set has never counted toward a record.
+ */
+export async function applyToIncompleteSets(
+  fastify: FastifyInstance,
+  userId: string,
+  workoutId: string,
+  exerciseId: string,
+  data: { reps?: number | null; weightKg?: number | null },
+) {
+  const workout = await fastify.prisma.workout.findUnique({ where: { id: workoutId } });
+  if (!workout) throw new NotFoundError('Workout');
+  if (workout.userId !== userId) throw new ForbiddenError('Not your workout');
+
+  const fields = {
+    ...(data.reps !== undefined && { reps: data.reps }),
+    ...(data.weightKg !== undefined && { weightKg: data.weightKg }),
+  };
+  if (Object.keys(fields).length === 0) return { updated: 0 };
+
+  const result = await fastify.prisma.workoutSet.updateMany({
+    where: { workoutId, exerciseId, isCompleted: false, isWarmup: false },
+    data: fields,
+  });
+
+  return { updated: result.count };
+}
+
 export async function updateSet(
   fastify: FastifyInstance,
   userId: string,

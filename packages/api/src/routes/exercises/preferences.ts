@@ -25,7 +25,10 @@ export default async function exercisePreferenceRoutes(fastify: FastifyInstance)
 
       const pref = await fastify.prisma.exercisePreference.findUnique({
         where: { userId_exerciseId: { userId, exerciseId } },
-        select: { repRangeMin: true, repRangeMax: true, targetSets: true, isCardio: true, notes: true },
+        select: {
+          repRangeMin: true, repRangeMax: true, targetSets: true, isCardio: true,
+          restSeconds: true, notes: true,
+        },
       });
 
       // The exercise's own category is the fallback when the user has never
@@ -41,6 +44,9 @@ export default async function exercisePreferenceRoutes(fastify: FastifyInstance)
           repRangeMax: pref?.repRangeMax ?? null,
           targetSets: pref?.targetSets ?? null,
           isCardio: pref?.isCardio ?? null,
+          // The rest duration this exercise settled on last time. Null means
+          // the client should use its own global fallback.
+          restSeconds: pref?.restSeconds ?? null,
           // A cue that follows the exercise from session to session — seat
           // height, grip, a niggle to watch. The column has existed since
           // migration 0002 and was never wired to anything.
@@ -62,6 +68,7 @@ export default async function exercisePreferenceRoutes(fastify: FastifyInstance)
         repRangeMax?: number | null;
         targetSets?: number | null;
         isCardio?: boolean | null;
+        restSeconds?: number | null;
         notes?: string | null;
       };
 
@@ -72,6 +79,13 @@ export default async function exercisePreferenceRoutes(fastify: FastifyInstance)
         ...(body.repRangeMax !== undefined && { repRangeMax: body.repRangeMax }),
         ...(body.targetSets !== undefined && { targetSets: body.targetSets }),
         ...(body.isCardio !== undefined && { isCardio: body.isCardio }),
+        // Clamped to the range the timer itself allows: 5s is its floor, and an
+        // hour is well past any real rest. Null clears the preference.
+        ...(body.restSeconds !== undefined && {
+          restSeconds: Number.isFinite(Number(body.restSeconds))
+            ? Math.min(Math.max(Math.round(Number(body.restSeconds)), 5), 3600)
+            : null,
+        }),
         // Bounded, and an empty string clears the note rather than storing "".
         ...(body.notes !== undefined && {
           notes: typeof body.notes === 'string' && body.notes.trim()
@@ -232,10 +246,11 @@ export default async function exercisePreferenceRoutes(fastify: FastifyInstance)
         select: { repRangeMin: true, repRangeMax: true, targetSets: true },
       });
 
-      // Fetch exercise name
+      // Muscles as well as the name: what else has already hit this muscle
+      // TODAY changes the answer, and that is computed below.
       const exercise = await fastify.prisma.exercise.findUnique({
         where: { id: exerciseId },
-        select: { name: true },
+        select: { name: true, primaryMuscle: true, secondaryMuscles: true },
       });
 
       const exerciseName = exercise?.name ?? 'Unknown exercise';
@@ -287,6 +302,12 @@ Apply DOUBLE PROGRESSION. These rules are not optional:
 - targetWeight must never be BELOW the athlete's current working weight unless
   the strategy is genuinely "deload".
 - targetRepsRange should normally stay inside the athlete's configured range.
+- ORDER WITHIN THE SESSION matters. When the SESSION CONTEXT below says the
+  muscle has already been worked today, the athlete is pre-fatigued and will
+  fall short of what the history implies — that is expected, not a stall, and
+  never grounds for a deload. When it says the muscle is FRESH, this is the
+  session's first exposure and the strongest one: do not shade the target down
+  for fatigue that has not happened.
 - BODYWEIGHT exercises (pull-ups, chin-ups, dips, push-ups) log reps with no
   weight, shown as "N reps (bodyweight)". They are NOT missing data. Progress
   them by reps first; once the top of the range is beaten, advise added
@@ -393,6 +414,73 @@ Apply DOUBLE PROGRESSION. These rules are not optional:
         }
       }
 
+      /*
+       What else has already hit this muscle in TODAY's session.
+
+       The advice was previously history-only, so it recommended the same load
+       for a hammer curl whether it opened the session or followed four sets of
+       dumbbell curls. Those are not the same lift on the same day, and the
+       athlete knows it even when the model does not.
+
+       Computed here rather than described to the model, for the same reason
+       the rep-range and set analysis are (#61): when a decision follows a
+       rule, apply the rule and hand over the conclusion.
+
+       Only COMPLETED working sets count — a plan for later in the session is
+       not fatigue that has happened yet, which is the same rule the rings and
+       the streak use.
+      */
+      let fatigueSignal = '';
+      if (excludeId && exercise?.primaryMuscle) {
+        const target = exercise.primaryMuscle;
+        const todaySets = await fastify.prisma.workoutSet.findMany({
+          where: {
+            workoutId: excludeId,
+            isWarmup: false,
+            isCompleted: true,
+            exerciseId: { not: exerciseId },
+            workout: { userId },
+          },
+          select: {
+            exercise: { select: { name: true, primaryMuscle: true, secondaryMuscles: true } },
+          },
+        });
+
+        // Direct work outweighs indirect: three sets of dumbbell curls fatigue
+        // a bicep far more than three sets of rows that merely involve it.
+        const direct = new Map<string, number>();
+        const indirect = new Map<string, number>();
+        for (const s of todaySets) {
+          const ex = s.exercise;
+          if (!ex) continue;
+          if (ex.primaryMuscle === target) {
+            direct.set(ex.name, (direct.get(ex.name) ?? 0) + 1);
+          } else if ((ex.secondaryMuscles ?? []).includes(target)) {
+            indirect.set(ex.name, (indirect.get(ex.name) ?? 0) + 1);
+          }
+        }
+
+        const fmt = (m: Map<string, number>) =>
+          [...m.entries()].map(([n, c]) => `${n} (${c} ${c === 1 ? 'set' : 'sets'})`).join(', ');
+        const muscleLabel = String(target).toLowerCase().replace(/_/g, ' ');
+
+        if (direct.size > 0) {
+          const totalSets = [...direct.values()].reduce((a, b) => a + b, 0);
+          fatigueSignal =
+            `SESSION CONTEXT: earlier in TODAY's session the athlete already completed ${totalSets} direct working ${totalSets === 1 ? 'set' : 'sets'} for ${muscleLabel} — ${fmt(direct)}. ` +
+            `The muscle is PRE-FATIGUED, so expect fewer reps at a given load than the history above suggests. ` +
+            `Do not read a shortfall against the rep range as a stall or a reason to deload; hold the load, or target the lower end of the range, and say that the earlier work is why.` +
+            (indirect.size > 0 ? ` Indirect work too: ${fmt(indirect)}.` : '');
+        } else if (indirect.size > 0) {
+          fatigueSignal =
+            `SESSION CONTEXT: no direct ${muscleLabel} work yet today, but ${fmt(indirect)} involved it indirectly. Mild pre-fatigue at most.`;
+        } else {
+          fatigueSignal =
+            `SESSION CONTEXT: this is the FIRST ${muscleLabel} movement of today's session — the muscle is fresh. ` +
+            `A fresh muscle is the right moment to attempt the heavier end of the progression; do not hedge on the assumption of accumulated fatigue.`;
+        }
+      }
+
       const userPrompt = `Exercise: ${exerciseName}
 Target rep range: ${rangeStr}
 Target sets per session: ${targetSets ?? 'not set'}
@@ -400,9 +488,9 @@ Units: ${unitLabel}
 
 Recent history (most recent first):
 ${historyLines || 'No history yet.'}
-${rangeSignal ? `\n${rangeSignal}` : ''}${setSignal ? `\n${setSignal}` : ''}
+${rangeSignal ? `\n${rangeSignal}` : ''}${setSignal ? `\n${setSignal}` : ''}${fatigueSignal ? `\n${fatigueSignal}` : ''}
 
-Base the advice on BOTH the rep analysis and the set analysis above. Provide the JSON response now.`;
+Base the advice on the rep analysis, the set analysis AND the session context above. Provide the JSON response now.`;
 
       try {
         const result = await aiChatCompletion(fastify, userId, systemPrompt, userPrompt, {
