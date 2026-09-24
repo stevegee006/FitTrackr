@@ -1861,6 +1861,21 @@ is exactly why it is written down here.
     do not hand-place `SceneDelegate.swift` first; let it write the stock one
     and copy ours over afterwards (same filename, so its pbxproj wiring holds).
 
+    **It resets the deployment target on EVERY target, not just the Podfile.**
+    Capacitor 8 sets iOS 15, which silently undid App 17.6 and widget 18.6
+    (#126) — 24 build errors, and the one that matters is
+    `'activityFamily' is only available in iOS 18.0 or newer`, i.e.
+    `supplementalActivityFamilies`, without which the watch-face Live Activity
+    goes back to the grey placeholder. Restore both after migrating, and check
+    the watch app and complication too.
+
+    Most of those errors were in Xcode's generated widget boilerplate that had
+    never been deleted — `FitTrackrWidget.swift`, `FitTrackrWidgetControl.swift`
+    and `FitTrackrWidgetLiveActivity.swift` are unreferenced
+    (`FitTrackrWidgetBundle` registers only `WorkoutLiveActivity()`) and were
+    removed from the target. They had compiled only because the deployment
+    target happened to be high enough.
+
     It also rewrites the `Podfile` back to `platform :ios, '14.0'`, which
     **Xcode 27 rejects outright** — the supported range is now 15.0 to 27.0.x.
     Raise it to 17.0 and re-run `pod install`. This is #118 again, one level
@@ -1893,6 +1908,34 @@ is exactly why it is written down here.
     `xcrun devicectl list devices` is the honest status: `available (paired)`
     is the healthy resting state — CoreDevice raises the tunnel on demand — and
     `connected (no DDI)` means reachable but not yet prepped.
+145. **`HKHealthStore.startWatchApp` can hang forever — neither succeeding nor
+    throwing.** Observed 2026-09-24 after the Capacitor 8 / UIScene migration:
+    `WatchWorkout.start` resolved in NEITHER branch, so the JavaScript promise
+    stayed pending and the workout clock ran against a reply that never came.
+
+    `PhoneWatchConnector.swift` now races it against a 20s timeout. This is
+    exactly the hazard the comment above `waitUntilActivated` already
+    describes — "a stranded continuation leaves the JavaScript promise pending
+    forever" — and the lesson is that it applies to **every** awaited system
+    call in that file, not just the one thought about first. A HealthKit
+    completion handler is not contractually guaranteed to fire.
+
+    How it was narrowed, which is the reusable part: `status()` resolving
+    cleared `waitUntilActivated`, `externalWorkouts()` resolving cleared
+    `requestAuthorization`, and that left exactly one awaited line. Both are
+    reachable from Safari's inspector against the device, so a hung plugin can
+    be bisected from JavaScript without a native debugger.
+
+    Note Safari's console hides plugin results: `await` prints `< undefined`
+    and the real value arrives on a later `[Info]` line, top-level `await`
+    cannot be nested inside a call, and an object result expands its whole
+    prototype chain. Use
+    `p.then(r => console.log('X ' + JSON.stringify(r)))`.
+
+    **The root cause is still unknown.** The timeout makes the failure honest;
+    it does not fix the handover. UIScene is the prime suspect, since the app's
+    lifecycle is what changed that day, but that is a hypothesis and the phone's
+    Xcode console has not yet been read while the call hangs.
 
 ### Awards and benchmarks
 

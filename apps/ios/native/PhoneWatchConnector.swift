@@ -269,6 +269,37 @@ final class PhoneWatchConnector: NSObject {
         )
     }
 
+    /// How long `startWatchApp` is given before we give up on it. Generous —
+    /// waking a sleeping watch over Bluetooth is not instant — but bounded.
+    private static let startWatchAppTimeout: Duration = .seconds(20)
+
+    struct WatchStartTimedOut: LocalizedError {
+        var errorDescription: String? {
+            "The watch did not respond. The workout is recording on the phone."
+        }
+    }
+
+    /**
+     Launch the watch app into a recording session.
+
+     **`startWatchApp` is wrapped in a timeout, and that is load-bearing.** On
+     2026-09-24 it was observed to neither succeed nor throw: the call simply
+     never returned, so `start` resolved in neither branch and the JavaScript
+     promise stayed pending forever. The workout clock had already started, so
+     the athlete was training against a UI waiting on a reply that was never
+     coming.
+
+     This is the same hazard `waitUntilActivated` above is written to avoid —
+     "a stranded continuation leaves the JavaScript promise pending forever" —
+     and the lesson is that it applies to EVERY awaited system call here, not
+     just the one that was thought about first. HealthKit's completion handlers
+     are not contractually guaranteed to fire.
+
+     Timing out is reported as a failure and deliberately does not roll
+     anything back. The phone owns the workout; the wrist is an enhancement.
+     A watch that does not answer must cost a heart-rate trace, never the
+     session.
+     */
     func startWorkout(named name: String) async throws {
         await waitUntilActivated()
         try await requestAuthorization()
@@ -277,7 +308,20 @@ final class PhoneWatchConnector: NSObject {
         config.activityType = .traditionalStrengthTraining
         config.locationType = .indoor
 
-        try await healthStore.startWatchApp(toHandle: config)
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask { [healthStore] in
+                try await healthStore.startWatchApp(toHandle: config)
+            }
+            group.addTask {
+                try await Task.sleep(for: Self.startWatchAppTimeout)
+                throw WatchStartTimedOut()
+            }
+            // Whichever finishes first decides. Cancelling the group leaves the
+            // hung call orphaned rather than ended — nothing can end it — but it
+            // stops the caller waiting on it, which is the whole point.
+            defer { group.cancelAll() }
+            try await group.next()
+        }
 
         // The configuration carries no arbitrary metadata, so the name follows
         // separately — cosmetic only, and safe to lose.
