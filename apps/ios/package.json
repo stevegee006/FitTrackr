@@ -9,11 +9,11 @@
     "cap:open": "cap open ios"
   },
   "devDependencies": {
-    "@capacitor/cli": "^7.0.0",
+    "@capacitor/cli": "^8.0.0",
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@capacitor/core": "^7.0.0",
-    "@capacitor/ios": "^7.0.0"
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/ios": "^8.0.0"
   }
 }

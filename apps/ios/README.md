@@ -277,6 +277,10 @@ second and the widget counts on its own, so only real changes cross the bridge
 | App loads but no Live Activity | `NSSupportsLiveActivities` missing, or Live Activities off in Settings → FitTrackr |
 | Dynamic Island shows nothing, Lock Screen fine | Not an iPhone 14 Pro or later — expected |
 | Server never changes from the default | The storyboard still points at `CAPBridgeViewController` |
+| Splash never goes away, on phone AND watch | Check the Xcode console for `UIScene life cycle is required` — the process is being killed at launch. See the UIScene section. The watch is a red herring: it idles waiting for the phone |
+| App launches to a blank dark screen after migrating | The stock `SceneDelegate` replaced `MainViewController`. Copy `native/SceneDelegate.swift` over it |
+| `pod install` → deployment target 14.0 rejected | `npx cap migrate` reset the `Podfile` platform. Raise it to `17.0` and re-run |
+| `cap migrate` logs "partial state" and does nothing | Some of the three scene signals are already present. Restore the backup and start clean |
 | "Untrusted Developer" on launch | Settings → General → VPN & Device Management → Trust |
 | Device missing from Xcode's dropdown | Developer Mode not enabled on the phone |
 
@@ -334,6 +338,59 @@ running on the wrist until the system kills it — losing the whole workout.
    when the screen sleeps and stops collecting.
 8. The **App** target needs the same two usage strings, plus the HealthKit
    capability it already has.
+
+### UIScene, and the iOS 27 SDK
+
+**Building against the iOS 27 SDK kills an app that has not adopted the UIScene
+lifecycle.** Not a warning — the process is terminated at launch with
+`UIScene life cycle is required for apps built with this SDK`, before the
+webview is pointed anywhere. On the device it presents as the splash never
+going away, because an empty webview and the splash are the same colour (#120),
+so it reads as a network or server problem. The Xcode console is the only
+surface that names the real cause.
+
+Capacitor 7 has no scene support. **Capacitor 8 ships `CAPSceneDelegateProxy`**
+and an automated migration, which is why this project is on `^8`.
+
+Run it once, on a project that has never been migrated:
+
+```
+cd apps/ios/ios/App && npx cap migrate
+```
+
+It does four things: adds `UIApplicationSceneManifest` to `Info.plist`, writes
+`SceneDelegate.swift`, patches `AppDelegate.swift` with
+`configurationForConnecting`, and registers the new file with the App target in
+`project.pbxproj`.
+
+Three things to know before running it:
+
+1. **Back up `apps/ios/ios` first.** It is gitignored, hand-configured across
+   four targets, and the migration rewrites `project.pbxproj`.
+
+   ```
+   cd apps/ios && cp -R ios ios.backup-$(date +%Y%m%d)
+   ```
+
+2. **It refuses to run from a PARTIAL state.** It checks three signals — the
+   manifest, `SceneDelegate.swift`, and `configurationForConnecting` — and if
+   some but not all are present it logs a warning and does *nothing*. So do not
+   hand-place `SceneDelegate.swift` beforehand; let the migration write its own
+   and let the sync step below copy ours over the top. Same filename, same
+   target membership, so its Xcode wiring still holds.
+
+3. **The stock `SceneDelegate` it writes is wrong for this app.** It sets
+   `rootViewController = CAPBridgeViewController()`, which discards
+   `MainViewController` and with it the server URL, the splash and the
+   first-run prompt. `native/SceneDelegate.swift` keeps the window the
+   storyboard built instead. The failure is silent — `CAPBridgeViewController`
+   works fine, it is just not ours — so the symptom is an app that launches to
+   nothing with no way to tell it where the server is.
+
+`npx cap migrate` also rewrites the `Podfile`, which puts
+`platform :ios, '14.0'` back. Xcode 27 rejects anything below 15.0, so raise it
+to `17.0` again and re-run `pod install` after migrating. That edit lives only
+on the build machine, like the rest of `apps/ios/ios`.
 
 ### Keeping the sources in sync
 
