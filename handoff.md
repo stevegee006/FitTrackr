@@ -1,6 +1,15 @@
 # HANDOFF — FitTrackr
 
-_Last updated: 2026-09-09 (through `5c182b1` — a **native iOS app** now exists:
+_Last updated: 2026-09-24 (through `599f63d`. **Two things to read first if you
+are picking this up cold.** (1) The 09-12 QOL batch shipped: per-exercise
+remembered rest, a rest timer that survives leaving the page, bulk set apply,
+an applyable AI suggestion, and today's unfinished session at the top of the
+dashboard. Migration `0012` is applied. (2) **The native iOS app does not
+currently launch** — the iOS 27 SDK kills a non-UIScene app at startup (#141),
+the build machine has moved to an Apple-silicon Mac because the Intel one can
+never build for a watchOS 27 watch again, and the UIScene migration is written
+up but not yet run. Start at the 09-21 → 09-24 log entry, then #141–#144.
+Previously, through `5c182b1` — a **native iOS app** exists:
 a Capacitor shell around the deployed web app, with a session Live Activity, a
 runtime-configurable server, and an **Apple Watch app that records the workout
 as a real `HKWorkoutSession`**, whose heart rate and active energy are read
@@ -1067,6 +1076,32 @@ is exactly why it is written down here.
     which handles both month/year rollover and DST. A test asserting
     contiguity via epoch deltas *falsely fails* on all 14 US transitions —
     compare calendar dates in UTC instead.
+139. **A value that ticks does not belong in a context other things read.**
+    Every consumer of a context re-renders when its value changes, so folding
+    the rest countdown's `remaining` into `RestTimerValue` re-rendered the
+    whole workout logger **four times a second** — for a number the logger does
+    not display. Split into a second context (`RestTickContext`) that only the
+    dock and the modal subscribe to (`599f63d`).
+
+    The general rule: a context's value should change at the rate its *widest*
+    consumer cares about. Anything faster needs its own context, however
+    natural it feels to keep the state together.
+140. **A provider that owns a value must own its SIDE EFFECTS too, or they die
+    on navigation.** Moving the rest countdown into `RestTimerProvider` was
+    only half the fix: the end-of-rest alert has to fire whether or not
+    anything is on screen, and `syncWatchRest` has to keep the wrist in step
+    even when the page that used to call it has unmounted. A rest skipped from
+    the dock on another screen left the watch counting down a rest that no
+    longer existed.
+
+    So the interval, the completion handling and the watch subscription all sit
+    in the provider. The Live Activity is deliberately still fed by the page —
+    a different sink, from the same `rest` object — which keeps the rule that
+    mattered: ONE owner per sink, not one owner for everything.
+
+    The watch listener subscribes once for the app's lifetime and reads through
+    refs rather than re-subscribing per rest. That is #137's lesson applied
+    before it could bite again.
 
 ### Finishing a workout
 
@@ -1785,6 +1820,79 @@ is exactly why it is written down here.
     chime that left ducking on would dim the music silently for the rest of the
     session — a worse bug than the one being fixed. It also checks a workout is
     still running before lowering, so it cannot undo `endSession`.
+141. **The iOS 27 SDK KILLS an app that has not adopted the UIScene lifecycle,
+    and it looks exactly like a network problem.** Not a deprecation warning —
+    the process is terminated at launch with `UIScene life cycle is required
+    for apps built with this SDK`, before the webview is pointed anywhere.
+
+    What you see on the device is the splash never going away. Per #120 the
+    splash and an empty webview are both `#030712`, so a dead process is
+    pixel-identical to a hanging load — and the shell loads a remote site, so
+    "the server must be down" is the natural conclusion. Hours went into
+    checking a server that was fine. **The Xcode console is the only place that
+    says what happened**, which is the same lesson as #136 and #137.
+
+    Capacitor 7 has no scene support; Capacitor 8 ships `CAPSceneDelegateProxy`
+    and an automated `npx cap migrate`. That is why `apps/ios/package.json` is
+    on `^8`.
+
+    The watch app is NOT affected — watchOS uses the SwiftUI `App` lifecycle —
+    but it idles waiting for the phone, so it looks broken at the same time.
+    Do not chase it as a second bug.
+142. **Capacitor's stock `SceneDelegate` throws away a custom root view
+    controller.** The template writes
+    `window?.rootViewController = CAPBridgeViewController()`, which discards
+    `MainViewController` and takes the server URL, the splash, the first-run
+    prompt and the `WKNavigationDelegate` with it. The result launches cleanly
+    to nothing, with no route to the server setting.
+
+    It fails silently because `CAPBridgeViewController` is a perfectly working
+    controller — it is just not ours. And `MainViewController` is wired through
+    the storyboard's Identity Inspector rather than in code, so there is
+    nothing to grep for.
+
+    `native/SceneDelegate.swift` keeps the window UIKit built from
+    `Main.storyboard` instead, because the migration's manifest sets
+    `UISceneStoryboardFile` to "Main".
+143. **`cap migrate` does nothing from a PARTIAL state, and resets the
+    Podfile.** It checks three signals — the scene manifest,
+    `SceneDelegate.swift`, `configurationForConnecting` in `AppDelegate` — and
+    if some but not all are present it logs a warning and skips every step. So
+    do not hand-place `SceneDelegate.swift` first; let it write the stock one
+    and copy ours over afterwards (same filename, so its pbxproj wiring holds).
+
+    It also rewrites the `Podfile` back to `platform :ios, '14.0'`, which
+    **Xcode 27 rejects outright** — the supported range is now 15.0 to 27.0.x.
+    Raise it to 17.0 and re-run `pod install`. This is #118 again, one level
+    down: #118 was the App target, this is the Pods project, and the Podfile
+    regenerates so the fix has to go in the Podfile itself.
+144. **Getting onto an Apple Watch from a NEW Mac is a sixth gate, and it fires
+    BEFORE all five in #119.** Signing, Developer Mode and cert trust are
+    irrelevant until CoreDevice can reach the watch at all, and the failures
+    there are generic timeouts (`enablePersonalizedDDI`, `RemotePairingError
+    1001`) that name nothing.
+
+    Four things learned the slow way:
+
+    - **You never pair a watch directly.** Xcode's "Pair Nearby Device" offers
+      iPhone/iPad, Apple TV and Vision Pro — no watch. It is enrolled through
+      the paired iPhone and only then becomes a network device with its own
+      tunnel.
+    - **The watch is reachable only over Wi-Fi**, and it drops Wi-Fi whenever
+      its phone is in Bluetooth range. Turning the PHONE's Bluetooth off forces
+      it back on, which is what finally made it appear.
+    - **Check "same network" FIRST, not last.** A Mac on the iPhone's Personal
+      Hotspot presents identically to one on the house Wi-Fi, right down to the
+      menu-bar icon.
+    - **`.coredevice.local` hostnames are per-HOST**, created by a pairing
+      relationship. Resolving one proves nothing on a Mac that has never
+      paired, so it is useless as a discriminator there. `dns-sd -B
+      _remotepairing._tcp` is the test that works, and `dns-sd -L <uuid>`
+      names which device each advertiser actually is.
+
+    `xcrun devicectl list devices` is the honest status: `available (paired)`
+    is the healthy resting state — CoreDevice raises the tunnel on demand — and
+    `connected (no DDI)` means reachable but not yet prepped.
 
 ### Awards and benchmarks
 
@@ -2333,6 +2441,75 @@ Three things worth knowing before touching it:
 After a move the page follows the workout — selected date AND month offset —
 because staying on a day that just went empty reads as if the move deleted it.
 
+### 2026-09-12 — the QOL batch: rest that follows you, one request instead of five
+
+`2dc1b4c` (api) then `0123094`, `fa197d5`, `1a977f0`, `599f63d` (web). All
+shipped, all green, all in daily use.
+
+**Migration `0012` adds `exercise_preferences.rest_seconds`**, so the rest
+timer remembers a duration per exercise rather than one global value. NULL
+means "no preference", which is every pre-existing row — the timer then falls
+back to the single localStorage value, i.e. the old behaviour.
+
+**`PATCH /workouts/:id/exercises/:exerciseId/sets`** writes a weight and/or rep
+count across every not-yet-completed WORKING set of one exercise in a single
+request. Two deliberate exclusions, both load-bearing:
+
+- **warmups**, because a warmup's lighter load is the point of it, and carrying
+  the working weight down onto it silently undoes a ladder;
+- **completed sets**, because a completed set is a record of what happened, not
+  a plan. Same rule the rings and the streak already use (#105).
+
+It exists because the logger already trips the rate limit during a dense
+session, and a five-set exercise turned one blur into five more PATCHes.
+
+**The rest timer now outlives the page** (`1a977f0`), which is the largest
+change in the batch. It used to be state on the workout page, so tapping away
+unmounted the modal and silently cancelled the rest — the only safe thing to do
+during a rest was stare at it. It now lives in `RestTimerProvider`, mounted in
+the dashboard layout above the routed page, and `SessionDock` draws it: full
+screen expanded, a floating pill with Skip when minimised, and a workout-clock
+pill when a session is open with no rest running.
+
+The provider owns the **ticking**, not just the value, and that is the part
+that matters — see #140.
+
+Also in the batch: the rest timer opens at the duration this exercise last used
+(±10s and presets both count as a choice, flushed once on close rather than per
+tap); typing a weight or reps on an unticked working set spreads it to the
+other unticked working sets in one request; the AI suggestion can be applied,
+writing its weight and the BOTTOM of its rep range to the remaining sets and
+saving its set count as the exercise's target; and today's unfinished session
+gets its own block above the dashboard rings, since everything else on that
+screen reports on what already happened while this one is asking to be acted
+on. HealthKit imports are excluded from that block — they arrive finished, so
+an unfinished one is a failed recording rather than a plan.
+
+### 2026-09-21 → 09-24 — the Intel Mac ran out of road
+
+No FitTrackr code changed for two days. Recorded because the next person will
+hit the same wall, and because almost every hour went to something that
+reported itself as a different problem.
+
+**What happened.** The 7-day personal-team build expired. Rebuilding failed on
+the Intel Mac with `enablePersonalizedDDI` timing out, then — once that was
+chased down — with "the developer disk image could not be mounted". The watch
+had updated itself to watchOS 27.0; Xcode 26.5 only had watchOS 26.5 platform
+support, and there is no watchOS 27 download for it. **An Apple Watch cannot be
+downgraded, and an Intel Mac cannot run Xcode 27**, so that machine is
+permanently unable to build for this watch. The phone was fine — it was still
+on a 26-series prep — which is exactly why the failure looked local.
+
+The project moved to an Apple-silicon Mac. Everything after that was setup cost
+for a tree that is gitignored: no CocoaPods, no Homebrew, a stale `Pods/`
+copied from the old machine, a Podfile at `platform :ios, '14.0'` that Xcode 27
+rejects, and finally the one that actually mattered — **the iOS 27 SDK kills a
+non-UIScene app at launch** (#141).
+
+Two days, and the only durable output is this section, `native/SceneDelegate.swift`
+and the UIScene section of `apps/ios/README.md`. Next step #0 has been the top
+of the list since 09-07; this is what it costs.
+
 ## Current state
 
 Deployed and in daily real use by the author against real workout data. The
@@ -2340,11 +2517,12 @@ Docker Hub images track `main` automatically; the Portainer stack is updated
 by hand with "Pull and redeploy". Live host is `fittrackr.geehive.com` with
 the API on `fittrackr-api.geehive.com`.
 
-**All migrations `0001`–`0011` are applied and confirmed in production**,
+**All migrations `0001`–`0012` are applied and confirmed in production**,
 including `0010_workout_health_metrics` (verified by a real session's heart
-rate reaching the summary) and `0011_workout_source` (verified by an Outdoor
+rate reaching the summary), `0011_workout_source` (verified by an Outdoor
 Walk recorded on the watch appearing in FitTrackr, with no duplicate of any
-FitTrackr session).
+FitTrackr session), and `0012_exercise_pref_rest_seconds` (the per-exercise
+rest timer is in daily use).
 
 The five new muscle groups exist and are in use (the coach's own output shows
 Adductors and Abductors chips, so the two hip machines were re-tagged), and
@@ -2392,18 +2570,31 @@ row ever stops appearing,
 in Safari's inspector separates "HealthKit has nothing" — the activity-type
 filter or the time window — from "the web side is not storing it".
 
-**Built, green in CI, but NOT yet seen in the app** — everything from
-`3babadc` onward:
+**The whole web/API side is deployed and in use through `599f63d`**, including
+the 09-12 QOL batch. What has been *confirmed by eye* is the rest timer
+surviving navigation, the per-exercise remembered duration, the spread of a
+weight across unticked sets, and today's session at the top of the dashboard.
 
-- superset member reordering, and the AI-suggest analysis weighing set count
-  (`3babadc`);
-- the review and the plan agreeing on the split (`f85ebce`);
-- exercise notes (`586761e`);
-- AI answers persisting in Redis, and the workout-type icons (`6242178`).
+Four older items shipped in images that have since been redeployed several
+times, so they are live, but were never explicitly looked at: superset member
+reordering and the AI-suggest set-count weighting (`3babadc`), the review and
+the plan agreeing on the split (`f85ebce`), exercise notes (`586761e`), and AI
+answers persisting in Redis (`6242178`). If one of them misbehaves, it has
+simply never been exercised — not a regression.
 
 Redeploy is Portainer → Stacks → the stack → **Update** with **"Re-pull image
 and redeploy" ON** — without that toggle it recreates the containers from the
-cached image and nothing changes. No migration is needed for any of the above.
+cached image and nothing changes.
+
+**The native iOS app is mid-migration and NOT currently working.** See the
+09-21 → 09-24 log entry. The build machine has moved to an Apple-silicon Mac;
+the Intel Mac can never build for this watch again (#144, and the watchOS 27
+wall in that entry). Capacitor has been bumped to `^8` and
+`native/SceneDelegate.swift` written, but `npx cap migrate` has not yet been
+run on the Mac and no build has launched successfully since the 7-day
+expiry on 09-19. The phone app installs and is killed at launch (#141);
+the watch app installs and idles, which is correct behaviour rather than a
+second fault.
 
 Known outstanding user-facing items:
 
@@ -2436,7 +2627,12 @@ Known outstanding user-facing items:
 ## Next steps (not built, roughly by value)
 
 0. **Get the iOS project into version control, or accept it is disposable.**
-   This has grown from a nuisance into the largest single risk in the project.
+   This is no longer a risk — **it has now happened twice**, and cost two days
+   (see the 09-21 → 09-24 entry). Moving to a new Mac meant rebuilding
+   CocoaPods, Homebrew, signing, the Podfile platform and the UIScene
+   migration by hand, none of which the repo carried. Every fix made on the
+   old machine was lost, and the Podfile edit made on the new one will be lost
+   again the next time `cap migrate` or `cap sync` runs.
    `apps/ios/ios` is gitignored, so the whole Xcode project exists on exactly
    one Mac. What is now only there:
 
@@ -2477,8 +2673,12 @@ Known outstanding user-facing items:
    needs a temp-id placeholder row, and `SetRow` must not be able to PATCH a
    temp id if the user types into it before the POST returns. Doing the bulk
    set-create endpoint below first makes the ladder case tractable.
-4. **A bulk set-create endpoint** (#76) so exercise replay and the warmup
-   ladder are one request instead of N, and cannot partly succeed.
+4. **A bulk set-CREATE endpoint** (#76) so exercise replay and the warmup
+   ladder are one request instead of N, and cannot partly succeed. Note the
+   09-12 batch added bulk set *apply* —
+   `PATCH /workouts/:id/exercises/:exerciseId/sets`, which writes across sets
+   that already exist. Create is still one POST per set, so #76 stands
+   unchanged; the apply endpoint is the pattern to copy.
 5. **Finish the shared unit-display helper** (#53). `formatDistance` now
    exists in `lib/utils` alongside `formatDuration`, and the workouts page
    uses it — six other call sites still divide metres themselves, and weight
