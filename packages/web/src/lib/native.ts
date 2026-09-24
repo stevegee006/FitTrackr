@@ -172,6 +172,9 @@ interface WatchWorkoutBridge {
   summary(options: { startedAt: number }): Promise<{
     found: boolean; avgHeartRateBpm?: number; activeEnergyKcal?: number;
   }>;
+  saveToHealth(options: { startedAt: number; endedAt: number }): Promise<{
+    saved: boolean; reason?: string;
+  }>;
   rest(options: {
     endsAt: number | null; exerciseName?: string; setNumber?: number; totalSets?: number;
   }): Promise<void>;
@@ -370,4 +373,37 @@ export async function getWatchWorkoutSummary(startedAt: number): Promise<WatchWo
       activeEnergyKcal: res.activeEnergyKcal ?? null,
     };
   } catch { return null; }
+}
+
+/**
+ * Put the finished session into Health when the watch did not.
+ *
+ * Only the watch ever wrote to HealthKit, on the reasoning that a workout
+ * without heart rate or energy earns no honest Move credit. True — but it
+ * meant a session trained without the watch recording never reached Health at
+ * all, which is every session where the wrist is asleep, off, flat, or the app
+ * is broken.
+ *
+ * Duration only. No energy is invented, so Fitness shows the session without
+ * inflating the rings.
+ *
+ * The NATIVE side decides whether to write, by asking HealthKit what is
+ * already stored for that window — this side knows only whether it ASKED the
+ * watch to record, which is a different question from whether it did (`start`
+ * can time out; see handoff #145). So calling this unconditionally on finish
+ * is correct and cannot double-write.
+ *
+ * Both timestamps are epoch milliseconds. Never throws: the workout is already
+ * saved on the server by the time this runs, and Health is the nice-to-have.
+ */
+export async function saveWorkoutToHealth(
+  startedAt: number,
+  endedAt: number,
+): Promise<boolean> {
+  try {
+    const bridge = plugins()?.WatchWorkout as WatchWorkoutBridge | undefined;
+    if (!bridge) return false;
+    const res = await bridge.saveToHealth({ startedAt, endedAt });
+    return res?.saved ?? false;
+  } catch { return false; }
 }

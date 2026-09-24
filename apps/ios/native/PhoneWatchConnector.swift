@@ -333,6 +333,54 @@ final class PhoneWatchConnector: NSObject {
     }
 
     /**
+     Write the session to HealthKit from the PHONE, when the watch did not.
+
+     Until 2026-09-24 the only writer in this codebase was
+     `builder.finishWorkout()` on the wrist, on the reasoning that a workout
+     with no heart rate and no active energy "earns no honest Move-ring
+     credit". That is true, but the conclusion drawn was to write NOTHING — so
+     any session trained without the watch recording (asleep, not worn, flat
+     battery, or the app broken, as it was for five days that week) never
+     reached Health at all. Three real hours of lifting with no trace.
+
+     So: a fallback, not a second writer. The caller asks
+     `workoutSummary(startedAt:)` first and only lands here when HealthKit has
+     nothing for the window, which keeps the watch authoritative whenever it
+     ran and makes a double-write structurally impossible.
+
+     **No energy is written, deliberately.** Duration alone puts the session in
+     Fitness without inventing calories the phone cannot measure — the record
+     appears, the rings stay honest. That was the right half of the original
+     reasoning and it survives.
+
+     Not re-imported as a duplicate: `externalWorkouts()` filters to sources
+     that are not this app, which is what migration 0011 exists for.
+     */
+    func saveWorkoutFromPhone(startedAt: Date, endedAt: Date) async throws {
+        guard HKHealthStore.isHealthDataAvailable() else { return }
+
+        // Same activity type the watch records and `workoutSummary` queries on,
+        // so the three agree about what a FitTrackr session looks like. A
+        // mismatch here would make the summary lookup miss its own write.
+        let config = HKWorkoutConfiguration()
+        config.activityType = .traditionalStrengthTraining
+        config.locationType = .indoor
+
+        let builder = HKWorkoutBuilder(
+            healthStore: healthStore,
+            configuration: config,
+            device: .local()
+        )
+
+        try await builder.beginCollection(at: startedAt)
+        // Nothing is added between begin and end on purpose: there are no
+        // samples to add. The builder is being used only to bound a workout in
+        // time, which is the whole claim being made.
+        try await builder.endCollection(at: endedAt)
+        _ = try await builder.finishWorkout()
+    }
+
+    /**
      Pause or resume the session on the wrist.
 
      State, not an event: the phone sends whether it is paused, so a missed

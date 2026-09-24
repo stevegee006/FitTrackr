@@ -1935,7 +1935,32 @@ is exactly why it is written down here.
     **The root cause is still unknown.** The timeout makes the failure honest;
     it does not fix the handover. UIScene is the prime suspect, since the app's
     lifecycle is what changed that day, but that is a hypothesis and the phone's
-    Xcode console has not yet been read while the call hangs.
+    Xcode console has not yet been read while the call hangs. The handover
+    started working again once the watch app had been launched once on the
+    wrist, which fits "nothing to hand off to" but does not prove it.
+146. **Only the WATCH ever wrote to HealthKit, so a phone-only session reached
+    Health not at all.** Found 2026-09-24 by noticing three finished FitTrackr
+    sessions — 17, 16 and 12 sets — missing from the Fitness app entirely,
+    while an older watch-recorded one was there.
+
+    The reasoning behind it was sound and the conclusion was not: a workout
+    with no heart rate and no active energy "earns no honest Move-ring credit",
+    which is true, so nothing was written. But that loses the session whenever
+    the wrist is asleep, off, flat, or the app is broken — which was every
+    session for five days that week.
+
+    `saveToHealth` is now a FALLBACK, not a second writer. Duration only, no
+    invented energy, so Fitness shows the session without inflating the rings.
+
+    The load-bearing detail: **the native side decides whether to write**, by
+    asking `workoutSummary` what HealthKit already holds for that window. The
+    web app knows only whether it ASKED the watch to record, which is a
+    different question from whether it did — `start` can time out (#145).
+    Checking the store rather than trusting the caller makes a double write
+    structurally impossible instead of merely unlikely.
+
+    Not re-imported as a duplicate: `externalWorkouts()` filters to sources
+    that are not this app, which is what `0011_workout_source` exists for.
 
 ### Awards and benchmarks
 

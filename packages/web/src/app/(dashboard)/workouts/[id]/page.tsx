@@ -11,7 +11,7 @@ import type { RestContext } from '@/lib/rest';
 import { useRestTimer } from '@/providers/RestTimerProvider';
 import {
   syncWorkoutActivity, endWorkoutActivity, startWatchWorkout, stopWatchWorkout,
-  syncWatchRest, setWatchPaused, onWatchPauseChanged,
+  syncWatchRest, setWatchPaused, onWatchPauseChanged, saveWorkoutToHealth,
 } from '@/lib/native';
 import { DurationEditModal, MAX_DURATION_MIN } from '@/components/workout/DurationEditModal';
 import { markCelebrate } from '@/components/workout/CelebrationBurst';
@@ -513,6 +513,21 @@ export default function WorkoutDetailPage() {
       // And the watch stops and SAVES: an HKWorkoutSession left running drains
       // the battery and is eventually killed by the system, recording nothing.
       void stopWatchWorkout();
+      // If the watch did NOT record — asleep, off, flat, or `start` timed out —
+      // write the session to Health from here so it exists in Fitness at all.
+      // Only when this browser actually measured the session: Finish is
+      // reachable on a workout whose clock never ran, and inventing a span for
+      // one would put a fictional workout in Health.
+      //
+      // Unconditional otherwise: the native side asks HealthKit what is stored
+      // and declines if the watch already wrote, which is the only reliable
+      // form of the question. Sent BEFORE stopWatchWorkout's save can land is
+      // fine — it re-checks on the native side after the watch's write has had
+      // time to appear, and a session the watch recorded is left alone.
+      if (workoutStarted && elapsed > 0) {
+        const endedAt = Date.now();
+        void saveWorkoutToHealth(endedAt - Math.min(elapsed, MAX_WORKOUT_SECONDS) * 1000, endedAt);
+      }
       queryClient.invalidateQueries({ queryKey: ['workouts'] });
       queryClient.invalidateQueries({ queryKey: ['workout-volume'] });
       queryClient.invalidateQueries({ queryKey: ['personal-records'] });

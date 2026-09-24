@@ -26,6 +26,7 @@ public class WatchWorkoutPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "start", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "summary", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "saveToHealth", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "rest", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "pause", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "externalWorkouts", returnType: CAPPluginReturnPromise),
@@ -151,6 +152,54 @@ public class WatchWorkoutPlugin: CAPPlugin, CAPBridgedPlugin {
             if let bpm = result.avgHeartRate { payload["avgHeartRateBpm"] = bpm }
             if let kcal = result.activeEnergyKcal { payload["activeEnergyKcal"] = kcal }
             call.resolve(payload)
+        }
+    }
+
+    /**
+     Write the finished session to Health from the phone, if the watch did not.
+
+     Checks `workoutSummary` itself rather than trusting the caller: the web
+     app knows whether it ASKED the watch to record, not whether the watch
+     actually did — the wrist can be asleep, off, or flat, and `start` can time
+     out (#145). Asking HealthKit what is actually stored is the only question
+     with a reliable answer, and it makes a double-write impossible rather than
+     merely unlikely.
+
+     Resolves either way, like everything else here. Health is a nice-to-have;
+     the workout is already saved on the server by the time this runs.
+     */
+    @objc func saveToHealth(_ call: CAPPluginCall) {
+        guard let startedAtMs = call.getDouble("startedAt"),
+              let endedAtMs = call.getDouble("endedAt") else {
+            return call.resolve(["saved": false, "reason": "missing startedAt or endedAt"])
+        }
+        let startedAt = Date(timeIntervalSince1970: startedAtMs / 1000)
+        let endedAt = Date(timeIntervalSince1970: endedAtMs / 1000)
+
+        // A zero or negative span makes HKWorkoutBuilder throw, and the clock
+        // has produced junk before — see handoff #72, where a restored anchor
+        // of 0 wrote a workout of ~29.8 million minutes.
+        guard endedAt > startedAt, endedAt.timeIntervalSince(startedAt) < 24 * 60 * 60 else {
+            return call.resolve(["saved": false, "reason": "implausible duration"])
+        }
+
+        Task {
+            if await PhoneWatchConnector.shared.workoutSummary(startedAt: startedAt) != nil {
+                // The watch already wrote one, with heart rate and energy this
+                // path cannot produce. Leave it alone.
+                return call.resolve(["saved": false, "reason": "watch already recorded"])
+            }
+            do {
+                try await PhoneWatchConnector.shared.requestAuthorization()
+                try await PhoneWatchConnector.shared.saveWorkoutFromPhone(
+                    startedAt: startedAt,
+                    endedAt: endedAt
+                )
+                call.resolve(["saved": true])
+            } catch {
+                CAPLog.print("WatchWorkout: could not save to Health — \(error)")
+                call.resolve(["saved": false, "reason": "\(error)"])
+            }
         }
     }
 }
