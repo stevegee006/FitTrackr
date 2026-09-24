@@ -184,11 +184,35 @@ public class WatchWorkoutPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         Task {
-            if await PhoneWatchConnector.shared.workoutSummary(startedAt: startedAt) != nil {
-                // The watch already wrote one, with heart rate and energy this
-                // path cannot produce. Leave it alone.
-                return call.resolve(["saved": false, "reason": "watch already recorded"])
+            /*
+             WAIT before concluding the watch did not record.
+
+             `finishWorkout()` on the wrist and the sample arriving in the
+             phone's HealthKit store are not the same instant — `workoutSummary`
+             says so in its own documentation, and the first version of this
+             method ignored it. The watch wrote one, this checked immediately,
+             found nothing, and wrote a second: one session, two entries in
+             Fitness.
+
+             Polled rather than delayed by a fixed sleep, so the common case
+             still settles in about a second.
+             */
+            await PhoneWatchConnector.shared.waitUntilActivated()
+            let watchCouldHaveRecorded = PhoneWatchConnector.shared.isPaired
+                && PhoneWatchConnector.shared.isWatchAppInstalled
+
+            if watchCouldHaveRecorded {
+                for _ in 0..<20 {
+                    if await PhoneWatchConnector.shared.workoutSummary(startedAt: startedAt) != nil {
+                        // The watch's own record, with heart rate and energy
+                        // this path cannot produce. Leave it alone.
+                        return call.resolve(["saved": false, "reason": "watch already recorded"])
+                    }
+                    try? await Task.sleep(for: .seconds(1))
+                }
             }
+            // No watch, or it had 20 seconds and wrote nothing. A session the
+            // watch never recorded is exactly the case this method exists for.
             do {
                 try await PhoneWatchConnector.shared.requestAuthorization()
                 try await PhoneWatchConnector.shared.saveWorkoutFromPhone(

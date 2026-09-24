@@ -1962,6 +1962,16 @@ is exactly why it is written down here.
     Not re-imported as a duplicate: `externalWorkouts()` filters to sources
     that are not this app, which is what `0011_workout_source` exists for.
 
+    **The first version double-wrote, and the reason was already documented.**
+    `workoutSummary`'s own comment says a nil right after finishing is "the
+    normal case for the first few seconds… the caller is expected to retry
+    rather than treat it as 'no data'." The guard checked once, found nothing
+    because the wrist's save had not yet reached the phone's store, and wrote a
+    second entry — one session, two rows in Fitness. It now polls for up to 20s
+    before concluding, and skips the wait entirely when no watch is paired or
+    the app is not installed. **A single HealthKit read is never evidence of
+    absence.**
+
 ### Awards and benchmarks
 
 80. **Benchmark matching is deliberately strict, and must stay that way.**

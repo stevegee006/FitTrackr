@@ -521,9 +521,10 @@ export default function WorkoutDetailPage() {
       //
       // Unconditional otherwise: the native side asks HealthKit what is stored
       // and declines if the watch already wrote, which is the only reliable
-      // form of the question. Sent BEFORE stopWatchWorkout's save can land is
-      // fine — it re-checks on the native side after the watch's write has had
-      // time to appear, and a session the watch recorded is left alone.
+      // form of the question. It POLLS for up to 20s before deciding, because
+      // the wrist's save and its arrival in the phone's store are seconds
+      // apart — checking once produced one session and two entries in Fitness.
+      // Fire-and-forget for that reason: nothing here waits on it.
       if (workoutStarted && elapsed > 0) {
         const endedAt = Date.now();
         void saveWorkoutToHealth(endedAt - Math.min(elapsed, MAX_WORKOUT_SECONDS) * 1000, endedAt);
