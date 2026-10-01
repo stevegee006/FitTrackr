@@ -98,6 +98,10 @@ These are the GUI steps that cannot be scripted.
    Identifier to something unique — e.g. `com.<yourname>.fittrackr`. Apple
    requires bundle IDs to be globally unique even for free provisioning.
 
+   **On a free personal team, every build stops working after 7 days.** See
+   "Paid team" below — that is what this project uses now, and the difference
+   is a year-long profile instead of a weekly one.
+
 2. **Create the widget extension.** File → New → Target → **Widget Extension**.
    Name it `FitTrackrWidget`, **tick "Include Live Activity"**, do NOT tick
    "Include Configuration App Intent". When Xcode offers to activate the new
@@ -657,11 +661,79 @@ a 20-set session would exhaust it, and there is no need.
 **Device only.** HealthKit workout sessions do not work usefully in the
 simulator, so this needs the iPhone provisioned and a paired Watch.
 
+## The paid team, and why
+
+**A free personal team expires every build after 7 days** — on both the phone
+and the watch, and it presents as *"integrity could not be verified"* or a
+silent refusal, never as anything mentioning expiry. It cost two separate
+working sessions a week apart before the obvious conclusion was drawn.
+
+**A paid Apple Developer Program membership ($99/yr) makes development
+profiles last 12 months.** That is the entire reason this project has one.
+TestFlight is a side benefit and is NOT used day-to-day, because a TestFlight
+build cannot be driven by the Xcode debugger — and the Xcode console is how
+every native bug in this project was actually found (#136, #137, #141, #145).
+
+### Enrolling
+
+developer.apple.com/programs/enroll, **Individual** — not Organization, which
+needs a D-U-N-S number and takes weeks. Use the Apple ID already signing the
+builds, with 2FA on. Approval is usually same-day.
+
+### Switching an existing project over
+
+The Apple ID gains a second team in Xcode → Settings → Accounts. Then change
+Team on **all four targets** — App, FitTrackrWidgetExtension,
+`FitTrackrWatch Watch App`, FitTrackrWatchComplication — leaving *Automatically
+manage signing* ticked. Miss one and that target alone fails to install, which
+reads as a corrupt build rather than a signing mismatch.
+
+Then delete the app from the phone **and the watch** (an expired signature
+blocks an in-place replacement), clean, and rebuild.
+
+**The App Group has to exist on the new team.** Three targets share
+`group.com.geehive.fittrackr` — it is how `SharedRest` reaches the
+complication — and App Groups are registered per-team. Automatic signing
+usually creates it; if it does not, developer.apple.com → Certificates,
+Identifiers & Profiles → Identifiers → App Groups. A missing App Group fails
+the way everything here fails: silently, with the complication simply showing
+nothing.
+
+### `0xe8008012`
+
+> Failed to install embedded profile … This provisioning profile cannot be
+> installed on this device.
+
+A CACHED profile that does not cover the device — distinct from an expired one,
+and rebuilding alone will not clear it because Xcode keeps reusing it:
+
+```
+rm -rf ~/Library/MobileDevice/"Provisioning Profiles"
+```
+
+Then clean, and let automatic signing fetch fresh ones. Re-trust the new
+certificate on both devices afterwards (Settings → General → VPN & Device
+Management) — gate 2 of handoff #119.
+
+### TestFlight, if it is ever wanted
+
+Only worth it for installing with no Mac nearby. Archive against *Any iOS
+Device*, Distribute → TestFlight Internal Testing (no review, up to 100
+testers). The watch app rides inside the phone container as usual. Builds last
+90 days.
+
+Two things that bite on the first upload: the app **name must be globally
+unique** in App Store Connect even for TestFlight-only, so "FitTrackr" may be
+taken; and export compliance is asked on every upload unless
+`ITSAppUsesNonExemptEncryption` is set to `false` in `Info.plist` — standard
+HTTPS is exempt.
+
 ## Known limits
 
 - Dynamic Island: iPhone 14 Pro and later. Others get the Lock Screen only.
 - Live Activities cap at 8 hours and end themselves.
-- A free personal team expires builds after 7 days.
+- A free personal team expires builds after 7 days. A paid one lasts 12 months
+  — see "The paid team, and why".
 - **The iOS CSS sharp edges still apply** (handoff #56 `backdrop-filter` on
   fixed elements, #57 safe-area insets). This is still WKWebView — the shell
   buys the timer, not a layout fix.

@@ -1971,6 +1971,30 @@ is exactly why it is written down here.
     before concluding, and skips the wait entirely when no watch is paired or
     the app is not installed. **A single HealthKit read is never evidence of
     absence.**
+147. **The 7-day free-team expiry is a recurring tax, and it does not announce
+    itself.** It took out a working session on 09-19 and another on 10-01,
+    exactly seven days after each preceding build. It presents as "integrity
+    could not be verified" or a silent refusal to launch — never as anything
+    mentioning expiry — so it reads as a broken build every time.
+
+    **The project moved to a paid Apple Developer Program membership on
+    2026-10-01, and the reason is the 12-month development profile, not
+    TestFlight.** TestFlight is deliberately NOT used day-to-day: a TestFlight
+    build cannot be driven by the Xcode debugger, and the Xcode console is how
+    every native bug here was actually found (#136, #137, #141, #145). Paying
+    removes the weekly expiry while keeping the one diagnostic that works.
+
+    Switching teams touches **all four targets**. Miss one and that target
+    alone fails to install, which reads as a corrupt build. The App Group
+    `group.com.geehive.fittrackr` is registered per-team and has to exist on
+    the new one — three targets share it, and without it the complication
+    silently shows nothing.
+
+    `0xe8008012` ("this provisioning profile cannot be installed on this
+    device") is a CACHED profile, not an expired one, and rebuilding will not
+    clear it: `rm -rf ~/Library/MobileDevice/"Provisioning Profiles"`, then
+    clean and let automatic signing refetch. Full procedure in
+    `apps/ios/README.md` under "The paid team, and why".
 
 ### Awards and benchmarks
 
@@ -2637,10 +2661,15 @@ reason for the silent loop and Background Audio, and the case most likely to
 disappoint — and the Live Activity reverting to the session clock after a rest
 elapses while locked. Both need a real session with the phone pocketed.
 
-**The iOS app is a personal-team build, so it EXPIRES after seven days.** Both
-the phone and watch app stop launching; rebuilding from Xcode resets it. It
-presents as "integrity could not be verified" or a silent refusal to open, not
-as anything mentioning expiry.
+**The iOS app moved to a PAID team on 2026-10-01, so builds now last 12 months
+rather than seven days** (#147). Before that it was a free personal-team build
+that expired weekly — it took out a session on 09-19 and another on 10-01, and
+it presents as "integrity could not be verified" or a silent refusal to open,
+never as anything mentioning expiry. If that symptom returns, check the team on
+all four targets before assuming the build is broken.
+
+TestFlight is deliberately not used day-to-day: it cannot be debugged from
+Xcode, and the console is the only diagnostic that has ever worked here.
 
 **Nothing in the iOS or watch feature is now unverified.** If the heart-rate
 row ever stops appearing,
