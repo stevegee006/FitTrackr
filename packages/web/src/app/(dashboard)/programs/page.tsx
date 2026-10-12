@@ -10,13 +10,46 @@ import { Spinner } from '@/components/ui/Spinner';
 import { ExerciseSearchForm } from '@/components/exercise/ExerciseSearchForm';
 import { WORKOUT_TYPE_LABELS } from '@fittrackr/shared';
 import type { Program, ProgramData, WorkoutType, Exercise } from '@fittrackr/shared';
-import { Sparkles, Calendar, Trash2, CheckCircle, ChevronDown, ChevronUp, Play, BarChart3, Repeat } from 'lucide-react';
+import { Sparkles, Calendar, Trash2, CheckCircle, ChevronDown, ChevronUp, Play, BarChart3, Repeat, Check } from 'lucide-react';
 import { todayString } from '@/lib/utils';
 import { inferExerciseDetails } from '@/lib/infer-exercise';
 import { parseProgramTarget } from '@/lib/program-target';
 
 /** Mirrors generateProgramSchema's cap, so the limit is visible while typing. */
 const PREFERENCES_MAX = 5000;
+
+/** What the AI edit preview returns. Nothing here has been saved. */
+interface AiEditPlan {
+  summary: string;
+  edits: Array<Record<string, any>>;
+  preview: Array<{ op: string; matched: number; warning?: string }>;
+  rejected?: string[];
+  error?: string;
+}
+
+/** One edit, in words. The counts come from the server's dry run. */
+function describeEdit(edit: Record<string, any>, matched: number): string {
+  const scope = Array.isArray(edit.weeks) && edit.weeks.length
+    ? `week${edit.weeks.length > 1 ? 's' : ''} ${edit.weeks.join(', ')}`
+    : 'every week';
+  switch (edit.op) {
+    case 'replaceExercise':
+      return `Replace ${edit.from} with ${edit.to?.name} in ${scope} — ${matched} entries`;
+    case 'setExerciseFields': {
+      const bits = ['sets', 'reps', 'rpe', 'notes']
+        .filter((k) => edit[k] !== undefined)
+        .map((k) => `${k} ${edit[k]}`)
+        .join(', ');
+      return `Set ${edit.name} to ${bits} in ${scope} — ${matched} entries`;
+    }
+    case 'removeExercise':
+      return `Remove ${edit.name} from ${scope} — ${matched} entries`;
+    case 'setWeekNote':
+      return `Set the note on week ${edit.weekNumber}`;
+    default:
+      return `${edit.op} — ${matched} entries`;
+  }
+}
 
 
 const GOAL_LABELS: Record<string, string> = {
@@ -38,6 +71,10 @@ export default function ProgramsPage() {
   /** Which exercise the swap picker is open for: { programId, name }. */
   const [swappingExercise, setSwappingExercise] = useState<{ programId: string; name: string } | null>(null);
   const [swapError, setSwapError] = useState<string | null>(null);
+  /** The AI edit box, per program. */
+  const [aiEditFor, setAiEditFor] = useState<string | null>(null);
+  const [aiInstruction, setAiInstruction] = useState('');
+  const [aiPlan, setAiPlan] = useState<AiEditPlan | null>(null);
   const [form, setForm] = useState({
     durationWeeks: 8,
     workoutsPerWeek: 4,
@@ -91,6 +128,42 @@ export default function ProgramsPage() {
    * Monday. The server applies it through a tested edit vocabulary rather than
    * rewriting the JSON, so a swap cannot quietly damage the other weeks.
    */
+  /**
+   * Ask the AI what to change — WITHOUT changing anything.
+   *
+   * Comes back as edit operations plus a count of what each would touch,
+   * computed by the server running the real apply against a copy. The athlete
+   * reads it and presses Apply, which posts those same operations to the edit
+   * endpoint. A model that misunderstands costs a glance, not a program.
+   */
+  const aiEditMutation = useMutation({
+    mutationFn: ({ programId, instruction }: { programId: string; instruction: string }) =>
+      apiFetch<{ data: AiEditPlan }>(`/programs/${programId}/ai-edit`, {
+        method: 'POST',
+        body: JSON.stringify({ instruction }),
+      }),
+    onSuccess: (res) => setAiPlan(res.data),
+    onError: (err: any) => setAiPlan({
+      summary: '', edits: [], preview: [],
+      error: err?.message || 'Could not reach the AI. Check your API key in Settings.',
+    }),
+  });
+
+  /** Apply a previewed plan — the same endpoint the manual swap uses. */
+  const applyAiEditMutation = useMutation({
+    mutationFn: ({ programId, edits }: { programId: string; edits: unknown[] }) =>
+      apiFetch(`/programs/${programId}/edits`, {
+        method: 'PATCH',
+        body: JSON.stringify({ edits }),
+      }),
+    onSuccess: () => {
+      setAiPlan(null);
+      setAiInstruction('');
+      setAiEditFor(null);
+      queryClient.invalidateQueries({ queryKey: ['programs'] });
+    },
+  });
+
   const editProgramMutation = useMutation({
     mutationFn: ({ programId, from, to }: {
       programId: string;
@@ -516,6 +589,98 @@ export default function ProgramsPage() {
                     )}
                   </div>
                 )}
+
+                {/* Ask the AI to change the plan. Preview first, always. */}
+                <div className="px-4 pb-3">
+                  {aiEditFor === p.id ? (
+                    <div className="rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/20 p-3 space-y-2">
+                      <textarea
+                        value={aiInstruction}
+                        onChange={(e) => setAiInstruction(e.target.value.slice(0, 1000))}
+                        placeholder="e.g. swap the cable chest fly for the pec deck in every week"
+                        rows={2}
+                        maxLength={1000}
+                        className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm resize-none"
+                      />
+
+                      {aiPlan?.error && <p className="text-xs text-red-500">{aiPlan.error}</p>}
+
+                      {aiPlan && !aiPlan.error && (
+                        <div className="space-y-1.5">
+                          {aiPlan.summary && (
+                            <p className="text-xs text-gray-600 dark:text-gray-300">{aiPlan.summary}</p>
+                          )}
+                          {aiPlan.edits.length === 0 ? (
+                            <p className="text-xs text-amber-600 dark:text-amber-400">
+                              Nothing to change — try naming the exercise exactly as it appears above.
+                            </p>
+                          ) : (
+                            <ul className="text-xs space-y-1">
+                              {aiPlan.edits.map((edit, i) => {
+                                const matched = aiPlan.preview[i]?.matched ?? 0;
+                                return (
+                                  <li
+                                    key={i}
+                                    className={matched === 0 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-700 dark:text-gray-200'}
+                                  >
+                                    {matched === 0 ? '⚠ ' : '• '}
+                                    {describeEdit(edit, matched)}
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+                          {/* Operations the model got wrong are shown rather than
+                              dropped: "it ignored half of what I asked" is worth
+                              knowing before pressing Apply. */}
+                          {aiPlan.rejected && aiPlan.rejected.length > 0 && (
+                            <p className="text-[11px] text-gray-400">
+                              Discarded {aiPlan.rejected.length} malformed operation
+                              {aiPlan.rejected.length > 1 ? 's' : ''}.
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="flex gap-2">
+                        {aiPlan && !aiPlan.error && aiPlan.edits.some((_, i) => (aiPlan.preview[i]?.matched ?? 0) > 0) ? (
+                          <Button
+                            onClick={() => applyAiEditMutation.mutate({ programId: p.id, edits: aiPlan.edits })}
+                            disabled={applyAiEditMutation.isPending}
+                            className="flex-1 gap-2"
+                          >
+                            {applyAiEditMutation.isPending ? <Spinner /> : <Check className="h-4 w-4" />}
+                            Apply
+                          </Button>
+                        ) : (
+                          <Button
+                            onClick={() => aiEditMutation.mutate({ programId: p.id, instruction: aiInstruction })}
+                            disabled={aiEditMutation.isPending || aiInstruction.trim().length < 3}
+                            className="flex-1 gap-2"
+                          >
+                            {aiEditMutation.isPending ? <Spinner /> : <Sparkles className="h-4 w-4" />}
+                            {aiEditMutation.isPending ? 'Thinking…' : 'Preview change'}
+                          </Button>
+                        )}
+                        <Button
+                          variant="outline"
+                          onClick={() => { setAiEditFor(null); setAiPlan(null); setAiInstruction(''); }}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => { setAiEditFor(p.id); setAiPlan(null); }}
+                      className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      Ask AI to change this plan
+                    </button>
+                  )}
+                </div>
 
                 {/* Day strip for the selected week (always visible) */}
                 <div className="px-4 pb-3">

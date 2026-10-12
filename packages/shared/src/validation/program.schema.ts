@@ -70,3 +70,8 @@ export const programEditsSchema = z.object({
 });
 
 export type ProgramEdit = z.infer<typeof programEditSchema>;
+
+/** A plain-language instruction to change a program, e.g. "swap the cable fly for the pec deck". */
+export const aiEditProgramSchema = z.object({
+  instruction: z.string().min(3).max(1000),
+});

@@ -5,6 +5,7 @@ import { aiChatCompletion } from './ai-provider.service.js';
 import { NotFoundError, ForbiddenError, AppError } from '../utils/errors.js';
 import { expandProgram } from './program-expand.js';
 import { applyProgramEdits } from './program-edit.js';
+import { programEditSchema } from '@fittrackr/shared';
 import type { ProgramEdit } from './program-edit.js';
 import { performedSets } from './workout-summary.js';
 import { logger } from '../utils/logger.js';
@@ -400,4 +401,143 @@ export async function editProgram(
   );
 
   return { program: updated, applied };
+}
+
+/**
+ * The operation vocabulary, as the model sees it.
+ *
+ * Kept beside the prompt that uses it so the two cannot drift: an operation
+ * added to `program-edit.ts` without a line here is one the model never emits,
+ * and a line here without an implementation is one it emits into a warning.
+ */
+const EDIT_SYSTEM_PROMPT = `You are an expert strength coach editing an existing training program.
+
+You do NOT rewrite the program. You return a short list of EDIT OPERATIONS, which the server applies.
+
+Return ONLY valid JSON:
+{
+  "summary": "one sentence describing the change, in plain words",
+  "edits": [ ... ]
+}
+
+Operations:
+
+{ "op": "replaceExercise", "from": "<exact existing name>", "to": { "name": "...", "primaryMuscle": "...", "equipment": "...", "category": "..." }, "weeks": [1,2] }
+  Swap one exercise for another. OMIT "weeks" to change every week — that is
+  almost always what is meant. "from" MUST match an existing exercise name
+  exactly as listed below; an unmatched name changes nothing.
+  Always give primaryMuscle, equipment and category for the replacement, or the
+  exercise falls out of the volume tracking.
+
+{ "op": "setExerciseFields", "name": "<exact existing name>", "sets": 4, "reps": "8-12", "rpe": 8, "notes": "...", "weeks": [5,6] }
+  Change what is prescribed. Include only the fields that change.
+
+{ "op": "removeExercise", "name": "<exact existing name>", "weeks": [6] }
+
+{ "op": "setWeekNote", "weekNumber": 6, "note": "..." }
+
+Rules:
+- Emit the FEWEST operations that achieve the request. One swap across the
+  whole program is ONE operation with no "weeks", not one per week.
+- Never invent exercise names in "from" or "name". Use the list given.
+- If the request is unclear or names nothing in the program, return an empty
+  "edits" array and say why in "summary". Do not guess.
+- primaryMuscle, equipment and category must come from the allowed values given.`;
+
+/**
+ * Turn a plain-language instruction into edit operations — WITHOUT saving.
+ *
+ * Returns a preview: the operations, and how many entries each would touch,
+ * computed by running the real apply against a copy. Nothing is written until
+ * the caller posts the operations to the edit endpoint, so a model that
+ * misunderstands costs a glance rather than a program.
+ *
+ * The model is given a COMPACT listing — day focuses and exercise names, not
+ * the whole `programData`. Partly tokens, mostly discipline: a model handed
+ * the full JSON tends to return full JSON, and the entire point of the
+ * operation vocabulary is that changes stay small enough to read.
+ */
+export async function aiEditProgram(
+  fastify: FastifyInstance,
+  userId: string,
+  programId: string,
+  instruction: string,
+) {
+  const program = await fastify.prisma.program.findUnique({ where: { id: programId } });
+  if (!program) throw new NotFoundError('Program');
+  if (program.userId !== userId) throw new ForbiddenError('Not your program');
+
+  const data = program.programData as any;
+  const weeks: any[] = Array.isArray(data?.weeks) ? data.weeks : [];
+  if (weeks.length === 0) {
+    throw new AppError(422, 'PROGRAM_EMPTY', 'This program has no weeks to edit.');
+  }
+
+  // Week 1 names everything: the weeks share a template, so later weeks differ
+  // in numbers rather than in which exercises exist.
+  const listing = (weeks[0]?.days ?? [])
+    .map((day: any) => {
+      const names = (day?.exercises ?? [])
+        .map((ex: any) => `    - ${ex?.name} (${ex?.sets} x ${ex?.reps}${ex?.rpe ? `, RPE ${ex.rpe}` : ''})`)
+        .join('\n');
+      return `  Day ${day?.dayOfWeek} — ${day?.focus ?? day?.workoutType}:\n${names}`;
+    })
+    .join('\n');
+
+  const userPrompt = `Program: ${program.name}
+Weeks: ${weeks.length} (numbered 1 to ${weeks.length})
+
+Exercises, by day:
+${listing}
+
+Allowed primaryMuscle: ${muscleGroupValues.join(', ')}
+Allowed equipment: ${equipmentValues.join(', ')}
+Allowed category: ${exerciseCategoryValues.join(', ')}
+
+The athlete asks:
+"""
+${instruction}
+"""`;
+
+  const result = await aiChatCompletion(fastify, userId, EDIT_SYSTEM_PROMPT, userPrompt, {
+    tier: 'light',
+    maxTokens: 2000,
+    temperature: 0.2,
+  });
+
+  let raw: any;
+  try {
+    raw = JSON.parse(result.content);
+  } catch {
+    logger.error({ head: result.content.slice(0, 300) }, 'Failed to parse AI program edit');
+    throw new AppError(502, 'AI_INVALID_RESPONSE', 'The AI returned something unreadable. Please try again.');
+  }
+
+  // Validate each operation separately: one malformed edit should cost that
+  // edit, not the whole instruction.
+  const candidates: any[] = Array.isArray(raw?.edits) ? raw.edits : [];
+  const edits: ProgramEdit[] = [];
+  const rejected: string[] = [];
+  for (const c of candidates) {
+    const parsed = programEditSchema.safeParse(c);
+    if (parsed.success) edits.push(parsed.data as ProgramEdit);
+    else rejected.push(`${c?.op ?? 'unknown'}: ${parsed.error.issues[0]?.message ?? 'invalid'}`);
+  }
+
+  // Dry run against a copy — the real apply, so the counts shown are the
+  // counts that will happen rather than a second implementation that could
+  // disagree with the first.
+  const { applied } = applyProgramEdits(data, edits as any);
+
+  logger.info(
+    { programId, proposed: candidates.length, valid: edits.length, rejected: rejected.length },
+    'AI proposed program edits',
+  );
+
+  return {
+    summary: typeof raw?.summary === 'string' ? raw.summary : '',
+    edits,
+    preview: applied,
+    rejected,
+  };
 }

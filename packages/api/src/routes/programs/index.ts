@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { generateProgramSchema, programEditsSchema } from '@fittrackr/shared';
+import { generateProgramSchema, programEditsSchema, aiEditProgramSchema } from '@fittrackr/shared';
 import * as programService from '../../services/program.service.js';
 
 export default async function programRoutes(fastify: FastifyInstance) {
@@ -34,6 +34,20 @@ export default async function programRoutes(fastify: FastifyInstance) {
       const body = generateProgramSchema.parse(req.body);
       const data = await programService.generateProgram(fastify, req.user.sub, body);
       return reply.code(201).send({ data });
+    },
+  });
+
+  // POST /programs/:id/ai-edit — turn a plain-language instruction into edit
+  // operations. PREVIEW ONLY: nothing is saved. The client shows what would
+  // change and posts the operations to /edits if the athlete agrees, so a
+  // model that misunderstands costs a glance rather than a program.
+  fastify.post('/programs/:id/ai-edit', {
+    preHandler: [fastify.authenticate],
+    handler: async (req, reply) => {
+      const { id } = req.params as any;
+      const body = aiEditProgramSchema.parse(req.body);
+      const data = await programService.aiEditProgram(fastify, req.user.sub, id, body.instruction);
+      return reply.send({ data });
     },
   });
 
