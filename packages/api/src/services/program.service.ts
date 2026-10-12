@@ -4,6 +4,8 @@ import { muscleGroupValues, equipmentValues, exerciseCategoryValues } from '@fit
 import { aiChatCompletion } from './ai-provider.service.js';
 import { NotFoundError, ForbiddenError, AppError } from '../utils/errors.js';
 import { expandProgram } from './program-expand.js';
+import { applyProgramEdits } from './program-edit.js';
+import type { ProgramEdit } from './program-edit.js';
 import { performedSets } from './workout-summary.js';
 import { logger } from '../utils/logger.js';
 
@@ -364,4 +366,38 @@ export async function deleteProgram(fastify: FastifyInstance, userId: string, id
   if (!program) throw new NotFoundError('Program');
   if (program.userId !== userId) throw new ForbiddenError('Not your program');
   await fastify.prisma.program.delete({ where: { id } });
+}
+
+/**
+ * Apply declarative edits to a generated program.
+ *
+ * The program is loaded, edited in memory and saved in one write, so a batch
+ * that half-applies cannot be what lands in the row. `applied` comes back so
+ * the caller can report an edit that matched nothing — a misspelt exercise
+ * name otherwise reports success, changes nothing, and is discovered weeks
+ * later at the rack.
+ */
+export async function editProgram(
+  fastify: FastifyInstance,
+  userId: string,
+  programId: string,
+  edits: ProgramEdit[],
+) {
+  const program = await fastify.prisma.program.findUnique({ where: { id: programId } });
+  if (!program) throw new NotFoundError('Program');
+  if (program.userId !== userId) throw new ForbiddenError('Not your program');
+
+  const { data, applied } = applyProgramEdits(program.programData as any, edits as any);
+
+  const updated = await fastify.prisma.program.update({
+    where: { id: programId },
+    data: { programData: data },
+  });
+
+  logger.info(
+    { programId, edits: edits.length, matched: applied.reduce((n, a) => n + a.matched, 0) },
+    'Edited program',
+  );
+
+  return { program: updated, applied };
 }

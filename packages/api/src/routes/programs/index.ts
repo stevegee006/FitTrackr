@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { generateProgramSchema } from '@fittrackr/shared';
+import { generateProgramSchema, programEditsSchema } from '@fittrackr/shared';
 import * as programService from '../../services/program.service.js';
 
 export default async function programRoutes(fastify: FastifyInstance) {
@@ -34,6 +34,19 @@ export default async function programRoutes(fastify: FastifyInstance) {
       const body = generateProgramSchema.parse(req.body);
       const data = await programService.generateProgram(fastify, req.user.sub, body);
       return reply.code(201).send({ data });
+    },
+  });
+
+  // PATCH /programs/:id/edits — apply declarative changes to a generated
+  // program. Programs were immutable, so swapping one exercise meant
+  // regenerating the block and losing everything else the model got right.
+  fastify.patch('/programs/:id/edits', {
+    preHandler: [fastify.authenticate],
+    handler: async (req, reply) => {
+      const { id } = req.params as any;
+      const body = programEditsSchema.parse(req.body);
+      const data = await programService.editProgram(fastify, req.user.sub, id, body.edits);
+      return reply.send({ data });
     },
   });
 

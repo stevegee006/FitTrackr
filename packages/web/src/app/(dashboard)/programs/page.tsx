@@ -7,9 +7,10 @@ import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
+import { ExerciseSearchForm } from '@/components/exercise/ExerciseSearchForm';
 import { WORKOUT_TYPE_LABELS } from '@fittrackr/shared';
 import type { Program, ProgramData, WorkoutType, Exercise } from '@fittrackr/shared';
-import { Sparkles, Calendar, Trash2, CheckCircle, ChevronDown, ChevronUp, Play, BarChart3 } from 'lucide-react';
+import { Sparkles, Calendar, Trash2, CheckCircle, ChevronDown, ChevronUp, Play, BarChart3, Repeat } from 'lucide-react';
 import { todayString } from '@/lib/utils';
 import { inferExerciseDetails } from '@/lib/infer-exercise';
 import { parseProgramTarget } from '@/lib/program-target';
@@ -34,6 +35,9 @@ export default function ProgramsPage() {
   const today = todayString();
 
   const [showGenerator, setShowGenerator] = useState(false);
+  /** Which exercise the swap picker is open for: { programId, name }. */
+  const [swappingExercise, setSwappingExercise] = useState<{ programId: string; name: string } | null>(null);
+  const [swapError, setSwapError] = useState<string | null>(null);
   const [form, setForm] = useState({
     durationWeeks: 8,
     workoutsPerWeek: 4,
@@ -77,6 +81,38 @@ export default function ProgramsPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiFetch(`/programs/${id}`, { method: 'DELETE' }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['programs'] }),
+  });
+
+  /**
+   * Swap one exercise for another across the program.
+   *
+   * Scoped to EVERY week by default, because that is how the change is meant:
+   * "use the pec deck instead" is a statement about the plan, not about one
+   * Monday. The server applies it through a tested edit vocabulary rather than
+   * rewriting the JSON, so a swap cannot quietly damage the other weeks.
+   */
+  const editProgramMutation = useMutation({
+    mutationFn: ({ programId, from, to }: {
+      programId: string;
+      from: string;
+      to: { name: string; primaryMuscle?: string; equipment?: string; category?: string };
+    }) =>
+      apiFetch<{ data: { applied: Array<{ matched: number; warning?: string }> } }>(
+        `/programs/${programId}/edits`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ edits: [{ op: 'replaceExercise', from, to }] }),
+        },
+      ),
+    onSuccess: (res) => {
+      const applied = res.data.applied?.[0];
+      // A swap that matched nothing reports success and changes nothing, so
+      // say so rather than closing as though it worked.
+      setSwapError(applied && applied.matched === 0 ? (applied.warning ?? 'Nothing matched.') : null);
+      if (!applied || applied.matched > 0) setSwappingExercise(null);
+      queryClient.invalidateQueries({ queryKey: ['programs'] });
+    },
+    onError: (err: any) => setSwapError(err?.message || 'Could not change the program.'),
   });
 
   const startWorkoutMutation = useMutation({
@@ -567,7 +603,51 @@ export default function ProgramsPage() {
                                 {ex.notes && (
                                   <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 italic">{ex.notes}</p>
                                 )}
+
+                                {swappingExercise?.programId === p.id && swappingExercise.name === ex.name && (
+                                  <div className="mt-2">
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">
+                                      Replace <span className="font-medium">{ex.name}</span> in every week.
+                                    </p>
+                                    {editProgramMutation.isPending ? (
+                                      <div className="flex items-center gap-2 py-2 text-sm text-gray-500"><Spinner /> Updating…</div>
+                                    ) : (
+                                      <ExerciseSearchForm
+                                        placeholder="Replace with…"
+                                        onSelect={(picked) => editProgramMutation.mutate({
+                                          programId: p.id,
+                                          from: ex.name,
+                                          to: {
+                                            name: picked.name,
+                                            primaryMuscle: picked.primaryMuscle ?? undefined,
+                                            equipment: picked.equipment ?? undefined,
+                                            category: picked.category ?? undefined,
+                                          },
+                                        })}
+                                      />
+                                    )}
+                                    {swapError && <p className="mt-2 text-xs text-red-500">{swapError}</p>}
+                                  </div>
+                                )}
                               </div>
+
+                              {/* Swap this exercise everywhere it appears. */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSwapError(null);
+                                  setSwappingExercise(
+                                    swappingExercise?.programId === p.id && swappingExercise.name === ex.name
+                                      ? null
+                                      : { programId: p.id, name: ex.name },
+                                  );
+                                }}
+                                className="shrink-0 p-1 rounded-lg text-gray-400 hover:text-indigo-500 transition-colors"
+                                title="Swap this exercise in every week"
+                                aria-label={`Swap ${ex.name}`}
+                              >
+                                <Repeat className="h-3.5 w-3.5" />
+                              </button>
                             </div>
                           ))}
                         </div>
