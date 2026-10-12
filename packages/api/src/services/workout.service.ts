@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { CreateWorkoutInput, UpdateWorkoutInput, AddSetInput, UpdateSetInput, FinishWorkoutInput, WorkoutHealthInput, ImportHealthWorkoutsInput } from '@fittrackr/shared';
-import { NotFoundError, ForbiddenError } from '../utils/errors.js';
+import { NotFoundError, ForbiddenError, AppError } from '../utils/errors.js';
 import { checkAndUpdatePersonalRecords, getPRsForWorkout, recomputePersonalRecords } from './personal-record.service.js';
 import { tally, diffTally, performedSets } from './workout-summary.js';
 
@@ -716,4 +716,89 @@ export async function getWorkoutRange(
       _count: { select: { sets: true } },
     },
   });
+}
+
+/**
+ * Point this workout's sets at a DIFFERENT exercise, keeping everything else.
+ *
+ * The case this exists for: a generated program prescribes "Seated Dumbbell
+ * Overhead Press" while the athlete's four years of history sit under
+ * "Dumbbell Shoulder Press". Before this, the only route was deleting the
+ * exercise and re-adding the right one, which lost the prescribed sets, reps
+ * and RPE — the plan — in order to fix the label on it.
+ *
+ * Everything about the sets is preserved: order, reps, loads, RPE, warmup
+ * flags, completion, superset membership and notes. Only which exercise they
+ * belong to changes.
+ *
+ * `exerciseOrder` is rewritten in place rather than appended, so the exercise
+ * keeps its position in the session.
+ *
+ * Refuses when the target is ALREADY in this workout. Merging would have to
+ * renumber two sets of sets into one sequence and silently interleave a plan
+ * with a record; "remove one and switch the other" is the honest way to ask
+ * for that, and it is the caller's decision to make.
+ */
+export async function switchWorkoutExercise(
+  fastify: FastifyInstance,
+  userId: string,
+  workoutId: string,
+  fromExerciseId: string,
+  toExerciseId: string,
+) {
+  if (fromExerciseId === toExerciseId) return { switched: 0 };
+
+  const workout = await fastify.prisma.workout.findUnique({ where: { id: workoutId } });
+  if (!workout) throw new NotFoundError('Workout');
+  if (workout.userId !== userId) throw new ForbiddenError('Not your workout');
+
+  // The target must exist and be visible to this user, or the switch would
+  // point every set at nothing.
+  const target = await fastify.prisma.exercise.findFirst({
+    where: { id: toExerciseId, OR: [{ createdByUserId: userId }, { createdByUserId: null }] },
+    select: { id: true },
+  });
+  if (!target) throw new NotFoundError('Exercise');
+
+  const existing = await fastify.prisma.workoutSet.count({
+    where: { workoutId, exerciseId: toExerciseId },
+  });
+  if (existing > 0) {
+    throw new AppError(
+      409,
+      'EXERCISE_ALREADY_IN_WORKOUT',
+      'That exercise is already in this workout. Remove one of them first.',
+    );
+  }
+
+  const count = await fastify.prisma.workoutSet.count({
+    where: { workoutId, exerciseId: fromExerciseId },
+  });
+  if (count === 0) throw new NotFoundError('Exercise in this workout');
+
+  await fastify.prisma.$transaction(async (tx) => {
+    await tx.workoutSet.updateMany({
+      where: { workoutId, exerciseId: fromExerciseId },
+      data: { exerciseId: toExerciseId },
+    });
+
+    // In place: the exercise keeps its slot in the session rather than jumping
+    // to the end. A workout whose order array never mentioned it (older rows,
+    // see #13) gets it appended instead of silently losing the position.
+    const order = workout.exerciseOrder.includes(fromExerciseId)
+      ? workout.exerciseOrder.map((e) => (e === fromExerciseId ? toExerciseId : e))
+      : [...workout.exerciseOrder, toExerciseId];
+
+    await tx.workout.update({ where: { id: workoutId }, data: { exerciseOrder: order } });
+  });
+
+  // Both exercises' records are now wrong: the old one may still hold a best
+  // set by sets that no longer belong to it, and the new one has gained work
+  // it has never been compared against. Recompute rather than compare, for the
+  // reason in the note above recomputePersonalRecords — raising-only logic
+  // cannot lower a record that should no longer stand.
+  await recomputePersonalRecords(fastify, userId, fromExerciseId);
+  await recomputePersonalRecords(fastify, userId, toExerciseId);
+
+  return { switched: count };
 }

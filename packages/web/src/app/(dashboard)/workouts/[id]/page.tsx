@@ -21,7 +21,7 @@ import { WORKOUT_TYPE_LABELS, MUSCLE_GROUP_COLORS } from '@fittrackr/shared';
 import type { Workout, WorkoutSet, Exercise } from '@fittrackr/shared';
 import { useAuth } from '@/providers/AuthProvider';
 import { parseDateLocal, formatDuration } from '@/lib/utils';
-import { ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Timer, Sparkles, Check, Flame, Pause, Play, Flag, Link2, Unlink2, ArrowUp, ArrowDown, Watch, Pencil, BarChart3, StickyNote, Ruler } from 'lucide-react';
+import { ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Timer, Sparkles, Check, Flame, Pause, Play, Flag, Link2, Unlink2, ArrowUp, ArrowDown, Watch, Pencil, BarChart3, StickyNote, Ruler, Repeat } from 'lucide-react';
 import Link from 'next/link';
 
 // ─── Delete confirmation modal ────────────────────────────────────────────────
@@ -172,6 +172,8 @@ export default function WorkoutDetailPage() {
   const [showWatchReminder, setShowWatchReminder] = useState(false);
   const [showDurationEdit, setShowDurationEdit] = useState(false);
   const [addExerciseError, setAddExerciseError] = useState<string | null>(null);
+  const [switchingExerciseId, setSwitchingExerciseId] = useState<string | null>(null);
+  const [switchError, setSwitchError] = useState<string | null>(null);
   const [exerciseActionError, setExerciseActionError] = useState<string | null>(null);
   // Removing every set of an exercise is not undoable, so it is confirmed —
   // an in-page bar rather than window.confirm, which on iOS steals focus and
@@ -478,6 +480,32 @@ export default function WorkoutDetailPage() {
         body: JSON.stringify({ tracksDistance }),
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['exercise-prefs'] }),
+  });
+
+  /**
+   * Point this workout's sets at a different exercise.
+   *
+   * A generated program prescribes "Seated Dumbbell Overhead Press" while four
+   * years of history sit under "Dumbbell Shoulder Press". The only previous
+   * route was deleting the exercise and re-adding the right one — which threw
+   * away the prescribed sets, reps and RPE in order to correct the label on
+   * them.
+   */
+  const switchExerciseMutation = useMutation({
+    mutationFn: ({ fromExerciseId, toExerciseId }: { fromExerciseId: string; toExerciseId: string }) =>
+      apiFetch(`/workouts/${id}/exercises/${fromExerciseId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ exerciseId: toExerciseId }),
+      }),
+    onSuccess: () => {
+      setSwitchingExerciseId(null);
+      setSwitchError(null);
+      queryClient.invalidateQueries({ queryKey: ['workout', id] });
+      queryClient.invalidateQueries({ queryKey: ['exercise-prefs'] });
+      // The sets moved between exercises, so both exercises' bests changed.
+      queryClient.invalidateQueries({ queryKey: ['personal-records'] });
+    },
+    onError: (err: any) => setSwitchError(err?.message || 'Could not switch the exercise.'),
   });
 
   const cardioModeMutation = useMutation({
@@ -1216,6 +1244,18 @@ export default function WorkoutDetailPage() {
                 </button>
               )}
 
+              {/* Switch to a different exercise, keeping the sets. */}
+              <button type="button"
+                onClick={e => {
+                  e.stopPropagation();
+                  setSwitchError(null);
+                  setSwitchingExerciseId(switchingExerciseId === exerciseId ? null : exerciseId);
+                }}
+                className={`p-1 rounded-lg transition-colors ${switchingExerciseId === exerciseId ? 'text-indigo-600 bg-indigo-100 dark:bg-indigo-900/40' : 'text-gray-400 hover:text-indigo-500'}`}
+                title="Switch to a different exercise">
+                <Repeat className="h-3.5 w-3.5" />
+              </button>
+
               {/* Exercise note */}
               <button type="button"
                 onClick={e => {
@@ -1251,6 +1291,27 @@ export default function WorkoutDetailPage() {
             <p className="text-xs text-gray-500 dark:text-gray-400 italic mt-1.5 pl-1">
               {programNote}
             </p>
+          )}
+
+          {switchingExerciseId === exerciseId && (
+            <div className="mt-2" onClick={e => e.stopPropagation()}>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">
+                Move this exercise&rsquo;s {sets.length} {sets.length === 1 ? 'set' : 'sets'} to
+                another exercise. Reps, loads, RPE and order are kept.
+              </p>
+              {switchExerciseMutation.isPending ? (
+                <div className="flex items-center gap-2 py-3 text-sm text-gray-500"><Spinner /> Switching…</div>
+              ) : (
+                <ExerciseSearchForm
+                  placeholder="Switch to…"
+                  onSelect={(ex) => switchExerciseMutation.mutate({
+                    fromExerciseId: exerciseId,
+                    toExerciseId: ex.id,
+                  })}
+                />
+              )}
+              {switchError && <p className="mt-2 text-xs text-red-500">{switchError}</p>}
+            </div>
           )}
         </div>
 

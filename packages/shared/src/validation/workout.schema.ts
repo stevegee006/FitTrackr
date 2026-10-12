@@ -115,6 +115,17 @@ export const applyToSetsSchema = z.object({
   distanceM: z.number().min(0).nullish(),
 });
 
+/**
+ * Point a workout's existing sets at a different exercise.
+ *
+ * The exercise being switched FROM is the path parameter; this is the one to
+ * switch to. Only the id — nothing else about the sets changes, which is the
+ * whole point: the plan survives the correction to its label.
+ */
+export const switchExerciseSchema = z.object({
+  exerciseId: z.string().uuid(),
+});
+
 export const createWorkoutTemplateSchema = z.object({
   name: z.string().min(1).max(255),
   workoutType: z.enum(workoutTypeValues),

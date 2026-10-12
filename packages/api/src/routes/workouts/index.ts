@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import {
-  createWorkoutSchema, updateWorkoutSchema, addSetSchema, updateSetSchema, applyToSetsSchema,
+  createWorkoutSchema, updateWorkoutSchema, addSetSchema, updateSetSchema, applyToSetsSchema, switchExerciseSchema,
   finishWorkoutSchema,
   workoutHealthSchema, importHealthWorkoutsSchema,
   // Interpolated into the prompt below rather than written out: a muscle group
@@ -246,6 +246,21 @@ export default async function workoutRoutes(fastify: FastifyInstance) {
     handler: async (req, reply) => {
       const { id, exerciseId } = req.params as any;
       const data = await workoutService.deleteWorkoutExercise(fastify, req.user.sub, id, exerciseId);
+      return reply.send({ data });
+    },
+  });
+
+  // PATCH /workouts/:id/exercises/:exerciseId — swap this workout's sets onto
+  // a different exercise, keeping reps, loads, RPE, order and superset groups.
+  // For when a program prescribes a name the athlete's history is not under.
+  fastify.patch('/workouts/:id/exercises/:exerciseId', {
+    preHandler: [fastify.authenticate],
+    handler: async (req, reply) => {
+      const { id, exerciseId } = req.params as any;
+      const body = switchExerciseSchema.parse(req.body);
+      const data = await workoutService.switchWorkoutExercise(
+        fastify, req.user.sub, id, exerciseId, body.exerciseId,
+      );
       return reply.send({ data });
     },
   });
