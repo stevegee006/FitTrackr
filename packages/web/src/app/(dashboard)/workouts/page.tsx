@@ -11,7 +11,7 @@ import { todayString, parseDateLocal, formatDate, formatDuration, formatDistance
 import { inferExerciseDetails } from '@/lib/infer-exercise';
 import { WorkoutTypeIcon } from '@/components/workout/WorkoutTypeIcon';
 import Link from 'next/link';
-import { ChevronLeft, ChevronRight, Dumbbell, Clock, Sparkles, Camera, X, Check, ImageIcon, Plus, Trash2, BarChart3, HeartPulse, Route, CalendarDays } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Dumbbell, Clock, Sparkles, Camera, X, Check, ImageIcon, Plus, Trash2, BarChart3, HeartPulse, Route, CalendarDays, Copy as CopyIcon } from 'lucide-react';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -71,6 +71,9 @@ export default function WorkoutsPage() {
   // whole workout rather than an id so the modal can name it.
   const [moveWorkout, setMoveWorkout] = useState<Workout | null>(null);
   const [moveDate, setMoveDate] = useState<string>('');
+  // Move and copy share one modal — same picker, same quick chips, one verb
+  // apart. Two near-identical modals would drift.
+  const [moveMode, setMoveMode] = useState<'move' | 'copy'>('move');
 
   const viewYear = new Date(todayDate.getFullYear(), todayDate.getMonth() + monthOffset, 1).getFullYear();
   const viewMonth = new Date(todayDate.getFullYear(), todayDate.getMonth() + monthOffset, 1).getMonth();
@@ -136,6 +139,103 @@ export default function WorkoutsPage() {
    * though a move adds no training: the rings are per-week, so a session that
    * crosses a Sunday leaves one week and joins another.
    */
+  /**
+   * Duplicate a session onto another day.
+   *
+   * The sibling of move, and the reason both exist: a repeated session is the
+   * normal case in a weekly split, and rebuilding one by hand means re-adding
+   * every exercise and set.
+   *
+   * **A copy is a PLAN, not a record.** `isCompleted` is deliberately dropped,
+   * so duplicating Monday's finished session onto Thursday gives you the work
+   * laid out and nothing ticked — the same rule that keeps planned sessions out
+   * of the rings (#130). Loads, rep targets, RPE, warmups, durations and
+   * distances all carry, because those are the plan.
+   *
+   * N requests, one per set, for want of the bulk-create endpoint (#76). The
+   * program flow already does this; worth replacing in both places at once.
+   */
+  const copyWorkoutMutation = useMutation({
+    mutationFn: async ({ id, logDate }: { id: string; logDate: string }) => {
+      // Read the source in full rather than trusting the list payload, which
+      // carries only what the cards render.
+      const src = await apiFetch<{ data: Workout }>(`/workouts/${id}`);
+      const w = src.data;
+
+      const created = await apiFetch<{ data: { id: string } }>('/workouts', {
+        method: 'POST',
+        body: JSON.stringify({
+          logDate,
+          workoutType: w.workoutType,
+          name: w.name ?? undefined,
+          notes: w.notes ?? undefined,
+          // Deliberately NOT copied: programId/programWeek/programDay. A copy
+          // is the athlete's own session, and inheriting the link would count
+          // it twice against program adherence.
+        }),
+      });
+      const newId = created.data.id;
+
+      // Superset group ids are uuids scoped to one workout. Reusing them would
+      // leave two workouts sharing a grouping key, so each group is remapped.
+      const groupMap = new Map<string, string>();
+      const sets = [...(w.sets ?? [])].sort((a, b) => a.setNumber - b.setNumber);
+
+      for (const s of sets) {
+        let supersetGroupId: string | null = null;
+        if (s.supersetGroupId) {
+          if (!groupMap.has(s.supersetGroupId)) {
+            groupMap.set(s.supersetGroupId, crypto.randomUUID());
+          }
+          supersetGroupId = groupMap.get(s.supersetGroupId)!;
+        }
+        await apiFetch(`/workouts/${newId}/sets`, {
+          method: 'POST',
+          body: JSON.stringify({
+            exerciseId: s.exerciseId,
+            setNumber: s.setNumber,
+            reps: s.reps ?? null,
+            weightKg: s.weightKg ?? null,
+            bodyweightKg: s.bodyweightKg ?? null,
+            durationSec: s.durationSec ?? null,
+            distanceM: s.distanceM ?? null,
+            rpe: s.rpe ?? null,
+            isWarmup: s.isWarmup,
+            isCompleted: false,
+            supersetGroupId,
+            notes: s.notes ?? null,
+          }),
+        });
+      }
+
+      // Order is a property of the workout, not of its sets, so it has to be
+      // sent separately or the copy comes out in insertion order.
+      if (Array.isArray(w.exerciseOrder) && w.exerciseOrder.length > 0) {
+        await apiFetch(`/workouts/${newId}/exercise-order`, {
+          method: 'PATCH',
+          body: JSON.stringify({ exerciseOrder: w.exerciseOrder }),
+        });
+      }
+      return { id: newId };
+    },
+    onSuccess: (_res, { logDate }) => {
+      queryClient.invalidateQueries({ queryKey: ['workouts'] });
+      queryClient.invalidateQueries({ queryKey: ['workouts-range'] });
+      // The rings are per-week and a copy adds planned work, not performed
+      // work — but the week's session count changes, so invalidate anyway.
+      queryClient.invalidateQueries({ queryKey: ['workout-volume'] });
+      setMoveWorkout(null);
+      // Follow the copy, not the original: the new session is the one you just
+      // asked for and would otherwise be invisible on another day.
+      setSelectedDate(logDate);
+      const target = parseDateLocal(logDate);
+      setMonthOffset(
+        (target.getFullYear() - todayDate.getFullYear()) * 12 +
+        (target.getMonth() - todayDate.getMonth()),
+      );
+    },
+  });
+
   const moveWorkoutMutation = useMutation({
     mutationFn: ({ id, logDate }: { id: string; logDate: string }) =>
       apiFetch(`/workouts/${id}`, {
@@ -413,7 +513,9 @@ export default function WorkoutsPage() {
                 <CalendarDays className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
               </div>
               <div className="min-w-0">
-                <p className="font-semibold text-gray-900 dark:text-white">Move workout</p>
+                <p className="font-semibold text-gray-900 dark:text-white">
+                  {moveMode === 'copy' ? 'Copy workout' : 'Move workout'}
+                </p>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 truncate">
                   {moveWorkout.name ?? WORKOUT_TYPE_LABELS[moveWorkout.workoutType]}
                 </p>
@@ -450,9 +552,17 @@ export default function WorkoutsPage() {
               />
             </div>
 
-            {moveWorkoutMutation.isError && (
+            {moveMode === 'copy' && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Copies the exercises, sets, loads and targets. Nothing is marked
+                complete — the copy is a plan, not a record.
+              </p>
+            )}
+
+            {(moveMode === 'copy' ? copyWorkoutMutation : moveWorkoutMutation).isError && (
               <p className="text-xs text-red-500">
-                {(moveWorkoutMutation.error as Error)?.message || 'Could not move the workout.'}
+                {((moveMode === 'copy' ? copyWorkoutMutation : moveWorkoutMutation).error as Error)?.message
+                  || `Could not ${moveMode} the workout.`}
               </p>
             )}
 
@@ -466,13 +576,23 @@ export default function WorkoutsPage() {
               </button>
               <button
                 type="button"
-                onClick={() => moveWorkoutMutation.mutate({ id: moveWorkout.id, logDate: moveDate })}
+                onClick={() =>
+                  (moveMode === 'copy' ? copyWorkoutMutation : moveWorkoutMutation)
+                    .mutate({ id: moveWorkout.id, logDate: moveDate })
+                }
                 // A move to the day it is already on is a no-op, and an empty
-                // date is what a cleared picker gives you.
-                disabled={moveWorkoutMutation.isPending || !moveDate || moveDate === current}
+                // date is what a cleared picker gives you. A COPY onto the same
+                // day is legitimate — two sessions in one day is normal.
+                disabled={
+                  (moveMode === 'copy' ? copyWorkoutMutation : moveWorkoutMutation).isPending
+                  || !moveDate
+                  || (moveMode === 'move' && moveDate === current)
+                }
                 className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors disabled:opacity-40"
               >
-                {moveWorkoutMutation.isPending ? 'Moving…' : 'Move'}
+                {moveMode === 'copy'
+                  ? (copyWorkoutMutation.isPending ? 'Copying…' : 'Copy')
+                  : (moveWorkoutMutation.isPending ? 'Moving…' : 'Move')}
               </button>
             </div>
           </Card>
@@ -584,15 +704,25 @@ export default function WorkoutsPage() {
               // real timestamp — moving either would be rewriting what
               // happened rather than changing a plan.
               const canMove = !w.completedAt && w.source !== 'HEALTHKIT';
+              // Copy is broader than move: duplicating a FINISHED session onto
+              // another day is the main use for it — "do Monday again on
+              // Thursday". Only a HealthKit import is excluded, since there is
+              // no plan in a recording to repeat.
+              const canCopy = w.source !== 'HEALTHKIT';
               return (
                 <div key={w.id} className="relative group">
                   <Link href={`/workouts/${w.id}`}>
                     <Card className="flex gap-0 p-0 overflow-hidden hover:shadow-md transition-shadow active:scale-[0.99]">
                       <div className="w-1.5 shrink-0 rounded-l-2xl" style={{ backgroundColor: color }} />
                       {/* Room for the absolutely-positioned buttons below:
-                          delete always, plus either the summary link (finished)
-                          or the move button (still planned). */}
-                      <div className={`flex-1 px-3 py-2.5 min-w-0 ${w.completedAt || canMove ? 'pr-16' : 'pr-10'}`}>
+                          delete always, then either the summary link (finished)
+                          or the move button (still planned), then copy. The
+                          first two share a slot because they are exclusive;
+                          copy needs one of its own. */}
+                      <div className={`flex-1 px-3 py-2.5 min-w-0 ${
+                        canCopy && (w.completedAt || canMove) ? 'pr-24'
+                          : (w.completedAt || canMove || canCopy) ? 'pr-16' : 'pr-10'
+                      }`}>
                         <div className="flex items-center justify-between gap-2">
                           <p className="text-sm font-semibold truncate">{w.name ?? WORKOUT_TYPE_LABELS[w.workoutType]}</p>
                           <span className="text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0"
@@ -652,12 +782,32 @@ export default function WorkoutsPage() {
                   {canMove && (
                     <button
                       type="button"
-                      onClick={(e) => { e.preventDefault(); setMoveWorkout(w); setMoveDate(String(w.logDate).split('T')[0]); }}
+                      onClick={(e) => { e.preventDefault(); setMoveMode('move'); setMoveWorkout(w); setMoveDate(String(w.logDate).split('T')[0]); }}
                       className="absolute right-10 top-1/2 -translate-y-1/2 p-2 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-colors"
                       title="Move to another day"
                       aria-label="Move to another day"
                     >
                       <CalendarDays className="h-4 w-4" />
+                    </button>
+                  )}
+                  {/* Copy. Its own slot, since unlike move it coexists with the
+                      summary link on a finished session. Defaults the picker to
+                      tomorrow rather than today — copying onto the same day is
+                      allowed but is rarely what is meant. */}
+                  {canCopy && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setMoveMode('copy');
+                        setMoveWorkout(w);
+                        setMoveDate(shiftDate(String(w.logDate).split('T')[0], 1));
+                      }}
+                      className="absolute right-[4.5rem] top-1/2 -translate-y-1/2 p-2 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-colors"
+                      title="Copy to another day"
+                      aria-label="Copy to another day"
+                    >
+                      <CopyIcon className="h-4 w-4" />
                     </button>
                   )}
                   {/* Delete button — always visible on mobile, hover on desktop */}

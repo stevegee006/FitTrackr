@@ -12,6 +12,7 @@ import type { Program, ProgramData, WorkoutType, Exercise } from '@fittrackr/sha
 import { Sparkles, Calendar, Trash2, CheckCircle, ChevronDown, ChevronUp, Play, BarChart3 } from 'lucide-react';
 import { todayString } from '@/lib/utils';
 import { inferExerciseDetails } from '@/lib/infer-exercise';
+import { parseProgramTarget } from '@/lib/program-target';
 
 
 const GOAL_LABELS: Record<string, string> = {
@@ -132,18 +133,27 @@ export default function ProgramsPage() {
             match = created.data;
           }
 
-          // Parse rep range from program (e.g. "8-12" → min=8, max=12, target=8)
-          const repsStr = String(ex.reps);
-          const repParts = repsStr.split('-').map((p) => parseInt(p.trim())).filter((n) => !isNaN(n));
-          const repRangeMin = repParts[0] ?? null;
-          const repRangeMax = repParts[1] ?? repParts[0] ?? null;
-          const targetReps = repRangeMin;
+          // The target may be reps ("8-12"), time ("20 min") or distance
+          // ("250 m"). It used to be parseInt'd into reps regardless, which is
+          // how a 20-minute run arrived as 20 reps.
+          const target = parseProgramTarget(ex.reps);
 
-          // Save rep range to user preferences for this exercise
-          if (repRangeMin != null) {
+          // Only a REP target becomes a rep-range preference. Writing one for
+          // "250 m" produced a "250–250 reps" chip on a rowing machine.
+          if (target.reps != null) {
             apiFetch(`/exercises/${match.id}/preference`, {
               method: 'PATCH',
-              body: JSON.stringify({ repRangeMin, repRangeMax, targetSets: ex.sets }),
+              body: JSON.stringify({
+                repRangeMin: target.reps,
+                repRangeMax: target.repsMax ?? target.reps,
+                targetSets: ex.sets,
+              }),
+            }).catch(() => {});
+          } else {
+            // Still worth recording how many sets the program asked for.
+            apiFetch(`/exercises/${match.id}/preference`, {
+              method: 'PATCH',
+              body: JSON.stringify({ targetSets: ex.sets }),
             }).catch(() => {});
           }
 
@@ -162,7 +172,10 @@ export default function ProgramsPage() {
               body: JSON.stringify({
                 exerciseId: match.id,
                 setNumber: i + 1,
-                reps: targetReps,
+                // Exactly one of these is non-null, from the parsed unit.
+                reps: target.reps,
+                durationSec: target.durationSec,
+                distanceM: target.distanceM,
                 weightKg,
                 rpe: ex.rpe ?? null,
                 isWarmup: false,
@@ -473,7 +486,10 @@ export default function ProgramsPage() {
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium leading-tight">{ex.name}</p>
                                 <p className="text-xs text-gray-500 mt-0.5">
-                                  {ex.sets} sets × {ex.reps} reps
+                                  {/* The target carries its own unit when it has
+                                      one, so "reps" is never appended blindly —
+                                      that is what produced "20 min reps". */}
+                                  {ex.sets} sets × {parseProgramTarget(ex.reps).label}
                                   {ex.rpe ? ` · RPE ${ex.rpe}` : ''}
                                 </p>
                                 {ex.notes && (
