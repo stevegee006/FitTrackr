@@ -44,7 +44,16 @@ Return ONLY valid JSON with this structure:
     ]
   },
   "progression": [
-    { "weekNumber": 1, "setsDelta": 0, "repsDelta": 0, "rpeDelta": 0, "note": "Baseline week — establish working weights" }
+    { "weekNumber": 1, "setsDelta": 0, "repsDelta": 0, "rpeDelta": 0, "note": "Baseline week — establish working weights" },
+    { "weekNumber": 3, "setsDelta": 0, "repsDelta": 1, "rpeDelta": 0,
+      "exercises": [
+        { "name": "Barbell Bench Press", "sets": 5 },
+        { "name": "Back Squat", "sets": 5, "notes": "Top set should feel like a hard 8" }
+      ],
+      "note": "Add a working set to the main compounds; isolation unchanged" },
+    { "weekNumber": 6, "setsDelta": -1, "repsDelta": -2, "rpeDelta": -2,
+      "isDeload": true, "loadMultiplier": 0.875,
+      "note": "Deload — cut volume and take ~12% off the bar" }
   ]
 }
 
@@ -53,6 +62,23 @@ Return ONLY valid JSON with this structure:
   setsDelta / repsDelta / rpeDelta are integers applied to every exercise that week,
   relative to the template (so week 1 is normally all zeros).
   Use negative values for deload weeks.
+
+  WRITE THE WEEK'S INTENT AS DATA, NOT ONLY AS PROSE. A note saying "add a set to
+  the compounds" changes nothing on its own — only these fields do:
+
+  "exercises" — OPTIONAL sparse list, ONLY for exercises that differ from what the
+    uniform deltas would give. Match "name" to the template exactly. Values are
+    ABSOLUTE, not deltas: {"name": "Back Squat", "sets": 5} means five sets, not
+    five more. May set sets, reps, rpe and notes. Omit the field entirely for a
+    week where every exercise moves together. Naming an exercise not in the
+    template does nothing.
+  "isDeload" — true on a planned back-off week.
+  "loadMultiplier" — scales the working weight carried over from the athlete's
+    history, e.g. 0.875 for "take about 12% off the bar". Omit it for 1.0.
+    This is the ONLY way to change load: the template carries no weights.
+
+  Keep it sparse. A deload usually needs only isDeload and loadMultiplier; a ramp
+  week usually names two or three lifts. Do not restate the whole week.
   Progress PRIMARILY through reps and sets, not RPE. Template RPE should sit
   around 7-8, and rpeDelta must stay within -3..+2 — a program where every
   exercise ends at RPE 9-10 is not usable. Reserve RPE 10 for nothing; the
@@ -126,17 +152,15 @@ ${preferences ? `Additional preferences: ${preferences}` : ''}
   const progression: any[] = Array.isArray(raw?.progression) ? raw.progression : [];
   const weeks = expandProgram({ days: templateDays }, progression, durationWeeks);
 
-  // Per-week guidance has nowhere to render in the week/day UI, so fold it into
-  // the program-level notes the frontend already shows.
-  const progressionNotes = progression
-    .filter((p) => typeof p?.note === 'string' && p.note.trim())
-    .map((p) => `W${p.weekNumber}: ${p.note.trim()}`)
-    .join(' · ');
-
+  // Per-week guidance now rides on its own week and renders above the day
+  // strip, so it is NOT folded into the program-level notes any more. Doing so
+  // produced a wall of text in which advice for week 6 sat beside advice for
+  // week 1 and applied to neither — and, worse, read as the only place that
+  // guidance existed while nothing acted on it.
   const name = raw.name ?? `${durationWeeks}-Week ${primaryGoal} Program`;
   const programData = {
     weeks,
-    notes: [raw.notes, progressionNotes].filter(Boolean).join('\n\n') || undefined,
+    notes: typeof raw.notes === 'string' && raw.notes.trim() ? raw.notes.trim() : undefined,
   };
 
   logger.info(

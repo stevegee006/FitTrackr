@@ -126,6 +126,23 @@ export interface Program {
 export interface ProgramData {
   weeks: Array<{
     weekNumber: number;
+    /**
+     * A planned back-off week. Carried so the UI can mark it and the athlete
+     * is not left wondering why the numbers went down.
+     */
+    isDeload?: boolean;
+    /**
+     * Multiplier applied to the working weight carried over from history when
+     * a session is started from this week — 0.875 for "drop ~12%".
+     *
+     * Here rather than in the exercise, because the program template holds no
+     * weights at all: loads come from the athlete's own last set. A deload
+     * that only cut sets and reps left the bar loaded the same, which is not a
+     * deload.
+     */
+    loadMultiplier?: number;
+    /** The model's own words for the week, shown above the day tabs. */
+    note?: string;
     days: Array<{
       dayOfWeek: number; // 1=Mon … 7=Sun
       workoutType: WorkoutType;

@@ -84,12 +84,15 @@ export default function ProgramsPage() {
       programId,
       programWeek,
       programDay,
+      loadMultiplier,
     }: {
       workoutType: WorkoutType;
       logDate: string;
       programId?: string;
       programWeek?: number;
       programDay?: number;
+      /** This week's load scaling, e.g. 0.875 on a deload. */
+      loadMultiplier?: number;
       exercises: Array<{
         name: string;
         sets: number;
@@ -179,6 +182,14 @@ export default function ProgramsPage() {
             );
             weightKg = lastSet.data?.weightKg ?? null;
           } catch { /* no history — leave null */ }
+
+          // A deload that cut sets and reps but left the bar loaded the same
+          // is not a deload. The program template carries no weights, so this
+          // is the only place the week's intent can reach the load.
+          if (weightKg != null && loadMultiplier != null && loadMultiplier !== 1) {
+            // To the nearest 0.25 kg — a plate-math number, not 72.1875.
+            weightKg = Math.max(0, Math.round(weightKg * loadMultiplier * 4) / 4);
+          }
 
           for (let i = 0; i < ex.sets; i++) {
             await apiFetch(`/workouts/${workoutId}/sets`, {
@@ -429,8 +440,34 @@ export default function ProgramsPage() {
                         }`}
                       >
                         Week {w.weekNumber}
+                        {/* A deload is a planned back-off. Unmarked, a week
+                            where every number drops reads as a mistake. */}
+                        {w.isDeload && <span className="ml-1 opacity-70">↓</span>}
                       </button>
                     ))}
+                  </div>
+                )}
+
+                {/* This week's intent, in the model's own words. It used to be
+                    folded into the program-level notes blob, where guidance for
+                    week 6 sat next to guidance for week 1 and applied to
+                    neither. */}
+                {(currentWeek?.note || currentWeek?.isDeload || currentWeek?.loadMultiplier) && (
+                  <div className="px-4 pb-2 flex items-start gap-2">
+                    {currentWeek?.isDeload && (
+                      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                        Deload
+                      </span>
+                    )}
+                    {currentWeek?.loadMultiplier != null && (
+                      <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                        {Math.round(currentWeek.loadMultiplier * 100) - 100 > 0 ? '+' : ''}
+                        {Math.round(currentWeek.loadMultiplier * 100) - 100}% load
+                      </span>
+                    )}
+                    {currentWeek?.note && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 italic min-w-0">{currentWeek.note}</p>
+                    )}
                   </div>
                 )}
 
@@ -492,6 +529,7 @@ export default function ProgramsPage() {
                               programId: p.id,
                               programWeek: currentWeek?.weekNumber ?? weekIdx + 1,
                               programDay: selectedDayOfWeek ?? undefined,
+                              loadMultiplier: currentWeek?.loadMultiplier,
                             })}
                             disabled={startWorkoutMutation.isPending}
                             className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition-colors"
