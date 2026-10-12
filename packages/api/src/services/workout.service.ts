@@ -202,7 +202,7 @@ export async function applyToIncompleteSets(
   userId: string,
   workoutId: string,
   exerciseId: string,
-  data: { reps?: number | null; weightKg?: number | null },
+  data: { reps?: number | null; weightKg?: number | null; distanceM?: number | null },
 ) {
   const workout = await fastify.prisma.workout.findUnique({ where: { id: workoutId } });
   if (!workout) throw new NotFoundError('Workout');
@@ -211,6 +211,7 @@ export async function applyToIncompleteSets(
   const fields = {
     ...(data.reps !== undefined && { reps: data.reps }),
     ...(data.weightKg !== undefined && { weightKg: data.weightKg }),
+    ...(data.distanceM !== undefined && { distanceM: data.distanceM }),
   };
   if (Object.keys(fields).length === 0) return { updated: 0 };
 

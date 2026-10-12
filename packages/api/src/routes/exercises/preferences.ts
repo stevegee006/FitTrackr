@@ -27,6 +27,7 @@ export default async function exercisePreferenceRoutes(fastify: FastifyInstance)
         where: { userId_exerciseId: { userId, exerciseId } },
         select: {
           repRangeMin: true, repRangeMax: true, targetSets: true, isCardio: true,
+          tracksDistance: true,
           restSeconds: true, notes: true,
         },
       });
@@ -44,6 +45,7 @@ export default async function exercisePreferenceRoutes(fastify: FastifyInstance)
           repRangeMax: pref?.repRangeMax ?? null,
           targetSets: pref?.targetSets ?? null,
           isCardio: pref?.isCardio ?? null,
+          tracksDistance: pref?.tracksDistance ?? null,
           // The rest duration this exercise settled on last time. Null means
           // the client should use its own global fallback.
           restSeconds: pref?.restSeconds ?? null,
@@ -68,6 +70,7 @@ export default async function exercisePreferenceRoutes(fastify: FastifyInstance)
         repRangeMax?: number | null;
         targetSets?: number | null;
         isCardio?: boolean | null;
+        tracksDistance?: boolean | null;
         restSeconds?: number | null;
         notes?: string | null;
       };
@@ -79,6 +82,7 @@ export default async function exercisePreferenceRoutes(fastify: FastifyInstance)
         ...(body.repRangeMax !== undefined && { repRangeMax: body.repRangeMax }),
         ...(body.targetSets !== undefined && { targetSets: body.targetSets }),
         ...(body.isCardio !== undefined && { isCardio: body.isCardio }),
+        ...(body.tracksDistance !== undefined && { tracksDistance: body.tracksDistance }),
         // Clamped to the range the timer itself allows: 5s is its floor, and an
         // hour is well past any real rest. Null clears the preference.
         ...(body.restSeconds !== undefined && {

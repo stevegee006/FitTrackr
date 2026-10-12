@@ -14,6 +14,9 @@ import { todayString } from '@/lib/utils';
 import { inferExerciseDetails } from '@/lib/infer-exercise';
 import { parseProgramTarget } from '@/lib/program-target';
 
+/** Mirrors generateProgramSchema's cap, so the limit is visible while typing. */
+const PREFERENCES_MAX = 5000;
+
 
 const GOAL_LABELS: Record<string, string> = {
   STRENGTH: 'Build Strength',
@@ -333,13 +336,27 @@ export default function ProgramsPage() {
             </div>
           </div>
 
-          <textarea
-            value={form.preferences}
-            onChange={(e) => setForm((f) => ({ ...f, preferences: e.target.value }))}
-            placeholder="Any preferences or injuries to note? (optional)"
-            rows={2}
-            className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm resize-none"
-          />
+          <div>
+            <textarea
+              value={form.preferences}
+              onChange={(e) => setForm((f) => ({ ...f, preferences: e.target.value.slice(0, PREFERENCES_MAX) }))}
+              placeholder="Any preferences or injuries to note? (optional)"
+              rows={2}
+              // Enforced here as well as on the server, so a brief that is too
+              // long is visible while writing rather than rejected on submit.
+              maxLength={PREFERENCES_MAX}
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm resize-none"
+            />
+            {/* Only once it is worth knowing about. A counter on an empty box
+                is noise. */}
+            {form.preferences.length > PREFERENCES_MAX * 0.8 && (
+              <p className={`text-[11px] mt-0.5 text-right ${
+                form.preferences.length >= PREFERENCES_MAX ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400'
+              }`}>
+                {form.preferences.length} / {PREFERENCES_MAX}
+              </p>
+            )}
+          </div>
           <div className="flex gap-2">
             <Button onClick={() => generateMutation.mutate()} disabled={generateMutation.isPending} className="flex-1 gap-2">
               {generateMutation.isPending ? <Spinner /> : <Sparkles className="h-4 w-4" />}

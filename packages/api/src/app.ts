@@ -69,11 +69,19 @@ export async function buildApp() {
     }
 
     if (error instanceof ZodError) {
+      const fieldErrors = error.flatten().fieldErrors;
+      // Say WHICH field and WHY in the message itself. `details` carried that
+      // all along, but every client renders `message` — so a 3,800-character
+      // program prompt rejected against a 1,000-character cap reported only
+      // "Validation failed", with nothing to act on.
+      const summary = Object.entries(fieldErrors)
+        .map(([field, msgs]) => `${field}: ${(msgs ?? []).join(', ')}`)
+        .join('; ');
       return reply.code(422).send({
         error: {
           code: 'VALIDATION_ERROR',
-          message: 'Validation failed',
-          details: error.flatten().fieldErrors,
+          message: summary ? `Validation failed — ${summary}` : 'Validation failed',
+          details: fieldErrors,
         },
       });
     }

@@ -29,6 +29,8 @@ interface SetRowProps {
   onDeleted: () => void;
   onSetLogged?: () => void;
   isCardio?: boolean;
+  /** Show a short-distance field beside weight — a sled, a carry. */
+  tracksDistance?: boolean;
 }
 
 const cardioInputCls =
@@ -42,7 +44,7 @@ const cardioInputCls =
  * trailing delete). If a column width changes in SetRow it has to change here
  * too — that is why the two are kept side by side rather than in separate files.
  */
-export function SetRowHeader({ units, isCardio }: { units: 'METRIC' | 'IMPERIAL'; isCardio?: boolean }) {
+export function SetRowHeader({ units, isCardio, tracksDistance }: { units: 'METRIC' | 'IMPERIAL'; isCardio?: boolean; tracksDistance?: boolean }) {
   const isImperial = units === 'IMPERIAL';
   const cls = 'text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 text-center shrink-0';
 
@@ -69,6 +71,11 @@ export function SetRowHeader({ units, isCardio }: { units: 'METRIC' | 'IMPERIAL'
               collapses to 0 and silently breaks the alignment. */}
           <span className="shrink-0" style={{ width: 22 }} />
           <span className={`flex-1 min-w-0 ${cls}`}>Reps</span>
+          {/* Loaded carries only. Metres or yards, not the cardio field's
+              miles — 20 m as "0.01 mi" is unreadable. */}
+          {tracksDistance && (
+            <span className={`flex-1 min-w-0 ${cls}`}>{isImperial ? 'Yd' : 'M'}</span>
+          )}
         </>
       )}
 
@@ -80,7 +87,7 @@ export function SetRowHeader({ units, isCardio }: { units: 'METRIC' | 'IMPERIAL'
   );
 }
 
-export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged, isCardio }: SetRowProps) {
+export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged, isCardio, tracksDistance }: SetRowProps) {
   const queryClient = useQueryClient();
   const isImperial = units === 'IMPERIAL';
 
@@ -95,6 +102,21 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
     return String(Math.round((m / 1000) * 100) / 100);
   }
 
+  /**
+   * Short distances, for a loaded carry rather than a run.
+   *
+   * The cardio field is miles or kilometres, which is right for a treadmill
+   * and useless for a sled: 20 m renders as "0.01 mi". Metres and yards keep
+   * the number readable at the scale these are actually measured in.
+   */
+  const SHORT_UNIT = isImperial ? 'yd' : 'm';
+  const M_PER_YARD = 0.9144;
+
+  function toDisplayShortDistance(m: number | null | undefined) {
+    if (m == null) return '';
+    return String(Math.round(isImperial ? m / M_PER_YARD : m));
+  }
+
   const [weightVal, setWeightVal] = useState(() => toDisplayWeight(set.weightKg));
   const [repsVal, setRepsVal] = useState(set.reps != null ? String(set.reps) : '');
   const [rpeVal, setRpeVal] = useState(set.rpe != null ? String(set.rpe) : '');
@@ -106,6 +128,7 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
     set.durationSec != null ? String(set.durationSec % 60) : ''
   );
   const [distanceVal, setDistanceVal] = useState(() => toDisplayDistance(set.distanceM));
+  const [shortDistanceVal, setShortDistanceVal] = useState(() => toDisplayShortDistance(set.distanceM));
 
   useEffect(() => {
     setWeightVal(toDisplayWeight(set.weightKg));
@@ -335,6 +358,21 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
   function commitDuration() { const p = durationPayload(); if (p) updateMutation.mutate(p); }
   function commitDistance() { const p = distancePayload(); if (p) updateMutation.mutate(p); }
 
+  function shortDistancePayload() {
+    const val = parseFloat(shortDistanceVal);
+    if (isNaN(val) || val < 0) return null;
+    return { distanceM: Math.round(isImperial ? val * M_PER_YARD : val) };
+  }
+  /**
+   * Spreads like weight and reps, not like RPE: a carry is prescribed as the
+   * same distance for every set of the exercise, and typing it four times is
+   * the friction the bulk endpoint exists to remove.
+   */
+  function commitShortDistance() {
+    const p = shortDistancePayload();
+    if (p) (spreads ? propagateMutation : updateMutation).mutate(p);
+  }
+
   function handleToggleComplete() {
     if (!set.isCompleted) {
       // One request carrying every field plus the completion flag.
@@ -435,6 +473,18 @@ export function SetRow({ set, workoutId, setIndex, units, onDeleted, onSetLogged
                 hideOps={true}
               />
             </div>
+            {tracksDistance && (
+              <div className="flex-1 min-w-0">
+                <MathInput
+                  className="text-center text-sm"
+                  placeholder={SHORT_UNIT}
+                  value={shortDistanceVal}
+                  onChange={setShortDistanceVal}
+                  onBlur={commitShortDistance}
+                  hideOps={true}
+                />
+              </div>
+            )}
           </>
         )}
 

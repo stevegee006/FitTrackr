@@ -96,14 +96,23 @@ export const updateSetSchema = addSetSchema.omit({ exerciseId: true, setNumber: 
 /**
  * A value to carry across every not-yet-completed set of one exercise.
  *
- * Deliberately narrow. Only weight and reps make sense to apply in bulk —
- * RPE is a per-set observation, and completion is per-set by definition — so
- * the schema is written out rather than derived from `updateSetSchema`, which
- * would quietly widen the moment a field is added there.
+ * Deliberately narrow, and written out rather than derived from
+ * `updateSetSchema` so it cannot widen by accident when a field is added
+ * there. The test for inclusion is whether the value describes the EXERCISE's
+ * plan rather than one set's outcome:
+ *
+ *   reps, weightKg  — prescribed for the exercise, typed once
+ *   distanceM       — same, for a loaded carry: a sled is prescribed as
+ *                     "20 m per set", and typing it on all four is the
+ *                     friction this endpoint exists to remove
+ *
+ * Still excluded: RPE is a per-set observation, and completion is per-set by
+ * definition.
  */
 export const applyToSetsSchema = z.object({
   reps: z.number().int().min(0).nullish(),
   weightKg: z.number().min(0).nullish(),
+  distanceM: z.number().min(0).nullish(),
 });
 
 export const createWorkoutTemplateSchema = z.object({

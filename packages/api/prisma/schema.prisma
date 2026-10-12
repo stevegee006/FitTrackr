@@ -498,6 +498,19 @@ model ExercisePreference {
   // Null = infer (from the exercise category, then from whether existing sets
   // carry duration/distance). Set once the user toggles the mode by hand.
   isCardio      Boolean? @map("is_cardio")
+  /**
+   * Track a distance alongside weight and reps — a sled push, a farmers carry,
+   * a loaded sledge drag.
+   *
+   * Separate from `isCardio` rather than folded into it, because the two are
+   * independent questions. isCardio asks "is this measured in time and
+   * distance INSTEAD of load and reps"; this asks "does distance matter here
+   * as WELL". A sled at 325 lb for 20 m answers no to the first and yes to the
+   * second, and treating it as cardio hid the load entirely.
+   *
+   * NULL means no, which is every existing row.
+   */
+  tracksDistance Boolean? @map("tracks_distance")
   // How long to rest after a set of THIS exercise. Null falls back to the
   // single global value the rest modal keeps in localStorage.
   restSeconds   Int?     @map("rest_seconds")

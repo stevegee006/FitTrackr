@@ -1,0 +1,11 @@
+-- Track a distance alongside weight and reps: a sled push, a farmers carry.
+--
+-- Separate from is_cardio rather than folded into it, because the two ask
+-- different questions. is_cardio means "measured in time and distance INSTEAD
+-- of load and reps"; this means "distance matters here as WELL". A sled at
+-- 325 lb for 20 m answers no to the first and yes to the second — and
+-- inferring cardio from the presence of a distance hid the load entirely,
+-- rendering 20 m as "0.01 mi" in a miles field.
+--
+-- NULL means no, which is every existing row.
+ALTER TABLE "exercise_preferences" ADD COLUMN "tracks_distance" BOOLEAN;

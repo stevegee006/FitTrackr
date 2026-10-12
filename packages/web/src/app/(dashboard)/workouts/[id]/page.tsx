@@ -21,7 +21,7 @@ import { WORKOUT_TYPE_LABELS, MUSCLE_GROUP_COLORS } from '@fittrackr/shared';
 import type { Workout, WorkoutSet, Exercise } from '@fittrackr/shared';
 import { useAuth } from '@/providers/AuthProvider';
 import { parseDateLocal, formatDuration } from '@/lib/utils';
-import { ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Timer, Sparkles, Check, Flame, Pause, Play, Flag, Link2, Unlink2, ArrowUp, ArrowDown, Watch, Pencil, BarChart3, StickyNote } from 'lucide-react';
+import { ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Timer, Sparkles, Check, Flame, Pause, Play, Flag, Link2, Unlink2, ArrowUp, ArrowDown, Watch, Pencil, BarChart3, StickyNote, Ruler } from 'lucide-react';
 import Link from 'next/link';
 
 // ─── Delete confirmation modal ────────────────────────────────────────────────
@@ -139,6 +139,8 @@ interface ExercisePref {
   targetSets: number | null;
   /** User's explicit choice; null means infer. */
   isCardio: boolean | null;
+  /** Track a distance beside weight and reps — a sled, a carry. */
+  tracksDistance?: boolean | null;
   /** The exercise's own category, used when isCardio is null. */
   categoryIsCardio?: boolean;
   /** A cue that follows the exercise session to session. */
@@ -462,6 +464,22 @@ export default function WorkoutDetailPage() {
   // MUST stay above the `if (isLoading) return` guards below — a hook declared
   // after an early return runs conditionally and throws React error #310
   // ("rendered more hooks than during the previous render").
+  /**
+   * Whether this exercise tracks a distance ALONGSIDE weight and reps.
+   *
+   * Deliberately not part of cardio mode: cardio replaces load and reps with
+   * time and distance, while a sled or a farmers carry needs load, reps AND
+   * distance. Treating the second as the first hid the weight entirely.
+   */
+  const tracksDistanceMutation = useMutation({
+    mutationFn: ({ exerciseId, tracksDistance }: { exerciseId: string; tracksDistance: boolean }) =>
+      apiFetch(`/exercises/${exerciseId}/preference`, {
+        method: 'PATCH',
+        body: JSON.stringify({ tracksDistance }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['exercise-prefs'] }),
+  });
+
   const cardioModeMutation = useMutation({
     mutationFn: ({ exerciseId, isCardio }: { exerciseId: string; isCardio: boolean }) =>
       apiFetch(`/exercises/${exerciseId}/preference`, {
@@ -1050,6 +1068,8 @@ export default function WorkoutDetailPage() {
     const isLinking = linkingExerciseId === exerciseId;
     const otherExerciseIds = exerciseOrder.filter(e => e !== exerciseId);
     const isCardio = cardioExercises.has(exerciseId);
+    // Only meaningful in strength mode — cardio already has a distance field.
+    const tracksDistance = !isCardio && pref?.tracksDistance === true;
     const collapsed = collapseKey ? isKeyCollapsed(collapseKey, [exerciseId]) : false;
     const workingSetsDone = sets.filter(s => !s.isWarmup && s.isCompleted).length;
     const workingSetsTotal = sets.filter(s => !s.isWarmup).length;
@@ -1182,6 +1202,20 @@ export default function WorkoutDetailPage() {
                 <Timer className="h-3.5 w-3.5" />
               </button>
 
+              {/* Distance alongside weight — a sled push, a farmers carry.
+                  Hidden in cardio mode, which already measures distance. */}
+              {!isCardio && (
+                <button type="button"
+                  onClick={e => {
+                    e.stopPropagation();
+                    tracksDistanceMutation.mutate({ exerciseId, tracksDistance: !tracksDistance });
+                  }}
+                  className={`p-1 rounded-lg transition-colors ${tracksDistance ? 'text-emerald-600 bg-emerald-100 dark:bg-emerald-900/40' : 'text-gray-400 hover:text-emerald-500'}`}
+                  title={tracksDistance ? 'Stop tracking distance' : 'Also track distance (sled, carry)'}>
+                  <Ruler className="h-3.5 w-3.5" />
+                </button>
+              )}
+
               {/* Exercise note */}
               <button type="button"
                 onClick={e => {
@@ -1299,7 +1333,7 @@ export default function WorkoutDetailPage() {
           <>
             {/* Sets */}
             <div className="px-3 py-1 divide-y divide-gray-50 dark:divide-gray-800">
-              {sets.length > 0 && <SetRowHeader units={units} isCardio={isCardio} />}
+              {sets.length > 0 && <SetRowHeader units={units} isCardio={isCardio} tracksDistance={tracksDistance} />}
               {(() => {
                 let workingCount = 0;
                 return sets.map((set) => {
@@ -1312,6 +1346,7 @@ export default function WorkoutDetailPage() {
                       onDeleted={() => queryClient.invalidateQueries({ queryKey: ['workout', id] })}
                       onSetLogged={() => handleSetLogged(set.exerciseId, roundNumber)}
                       isCardio={isCardio}
+                      tracksDistance={tracksDistance}
                     />
                   );
                 });
