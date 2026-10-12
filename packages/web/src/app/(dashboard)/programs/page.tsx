@@ -155,24 +155,17 @@ export default function ProgramsPage() {
           // how a 20-minute run arrived as 20 reps.
           const target = parseProgramTarget(ex.reps);
 
-          // Only a REP target becomes a rep-range preference. Writing one for
-          // "250 m" produced a "250–250 reps" chip on a rowing machine.
-          if (target.reps != null) {
-            apiFetch(`/exercises/${match.id}/preference`, {
-              method: 'PATCH',
-              body: JSON.stringify({
-                repRangeMin: target.reps,
-                repRangeMax: target.repsMax ?? target.reps,
-                targetSets: ex.sets,
-              }),
-            }).catch(() => {});
-          } else {
-            // Still worth recording how many sets the program asked for.
-            apiFetch(`/exercises/${match.id}/preference`, {
-              method: 'PATCH',
-              body: JSON.stringify({ targetSets: ex.sets }),
-            }).catch(() => {});
-          }
+          // DELIBERATELY writes no exercise preference.
+          //
+          // Starting a program day used to PATCH the exercise's rep range and
+          // target sets, which are GLOBAL and the athlete's own setting — so a
+          // generated program silently rewrote them for every future session,
+          // and a target the parser could not read left a meaningless "0-0
+          // reps" chip behind.
+          //
+          // The program's plan belongs on this workout's sets, which is where
+          // it is written below. A preference is a standing choice and is not
+          // the AI's to change.
 
           // Fetch last working weight for progressive overload
           let weightKg: number | null = null;

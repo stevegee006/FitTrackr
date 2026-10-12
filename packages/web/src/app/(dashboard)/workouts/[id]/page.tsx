@@ -829,6 +829,11 @@ export default function WorkoutDetailPage() {
         const pref = prefs?.[s.exerciseId];
         // An explicit "no" wins over the shape of the data.
         if (pref?.isCardio === false) continue;
+        // A LOADED set with a distance is a carry or a sled, not cardio —
+        // sled pull at 325 lb for 20 m. Treating it as cardio swaps the weight
+        // field for min/sec/miles and renders 20 m as "0.01 mi", losing the
+        // load entirely. Only an unloaded duration or distance implies cardio.
+        if (s.weightKg != null && s.weightKg > 0) continue;
         if (s.durationSec != null || s.distanceM != null) next.add(s.exerciseId);
       }
       return next;
@@ -1029,6 +1034,18 @@ export default function WorkoutDetailPage() {
     // exercise's own note, which is global and the athlete's.
     const programNote = workout?.exerciseNotes?.[exerciseId];
     const isEditingRange = editingRepRange.get(exerciseId) ?? false;
+    /**
+     * Whether a rep-range chip means anything here.
+     *
+     * Not in cardio mode, where the set is measured in minutes and miles and
+     * "reps" is the wrong unit. Not when both ends are zero, which is what a
+     * target the parser could not read used to leave behind — "0–0 reps" says
+     * nothing and invites a tap to fix something that is not broken.
+     */
+    const showRepRange =
+      !cardioExercises.has(exerciseId)
+      && (pref?.repRangeMin != null || pref?.repRangeMax != null)
+      && !((pref?.repRangeMin ?? 0) === 0 && (pref?.repRangeMax ?? 0) === 0);
     const groupId = exerciseToGroup.get(exerciseId);
     const isLinking = linkingExerciseId === exerciseId;
     const otherExerciseIds = exerciseOrder.filter(e => e !== exerciseId);
@@ -1128,7 +1145,7 @@ export default function WorkoutDetailPage() {
                     Cancel
                   </button>
                 </div>
-              ) : pref?.repRangeMin != null || pref?.repRangeMax != null ? (
+              ) : showRepRange ? (
                 <button type="button" onClick={e => { e.stopPropagation(); enterRepRangeEdit(); }}
                   className="text-xs bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full whitespace-nowrap shrink-0">
                   {pref?.repRangeMin}–{pref?.repRangeMax} reps
