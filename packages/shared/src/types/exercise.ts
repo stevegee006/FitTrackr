@@ -73,6 +73,15 @@ export interface Workout {
   /** Cardio distance for imported sessions, which carry no sets to hang it on. */
   distanceM?: number | null;
   notes: string | null;
+  /**
+   * Per-exercise coaching notes for THIS session, keyed by exercise id.
+   *
+   * Written when a program day becomes a workout, so the program's own
+   * guidance reaches the logger. Session-scoped on purpose: "build to 30-35
+   * min by Week 5" is wrong once week 5 passes, which is why it does not live
+   * on the global exercise preference.
+   */
+  exerciseNotes?: Record<string, string> | null;
   exerciseOrder: string[];
   programId?: string | null;
   programWeek?: number | null;

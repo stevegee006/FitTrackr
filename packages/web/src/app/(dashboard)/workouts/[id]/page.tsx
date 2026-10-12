@@ -1025,6 +1025,9 @@ export default function WorkoutDetailPage() {
     const primaryMuscle = sets[0]?.exercise?.primaryMuscle ?? 'FULL_BODY';
     const workingSets = sets.filter((s) => !s.isWarmup);
     const pref = prefsQuery.data?.[exerciseId];
+    // Set when this session came from a program day. Distinct from the
+    // exercise's own note, which is global and the athlete's.
+    const programNote = workout?.exerciseNotes?.[exerciseId];
     const isEditingRange = editingRepRange.get(exerciseId) ?? false;
     const groupId = exerciseToGroup.get(exerciseId);
     const isLinking = linkingExerciseId === exerciseId;
@@ -1188,6 +1191,15 @@ export default function WorkoutDetailPage() {
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
             </div>
+          )}
+
+          {/* The program's own coaching note for this exercise, if the session
+              came from one. Read-only and session-scoped — it is what the plan
+              said to do today, not a note the athlete wrote. */}
+          {programNote && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 italic mt-1.5 pl-1">
+              {programNote}
+            </p>
           )}
         </div>
 

@@ -298,6 +298,24 @@ model Workout {
   // Cardio distance for imported sessions, which carry no sets to hang it on.
   distanceM     Float?      @map("distance_m")
   notes         String?     @db.Text
+  /**
+   * Per-exercise coaching notes, keyed by exercise id.
+   *
+   * A program's exercises carry notes — "Conversational pace, this is your
+   * aerobic base builder", "Low body position, drive through the floor" — and
+   * they were dropped entirely when a program day became a workout, because
+   * there was nowhere to put them.
+   *
+   * Here rather than on ExercisePreference because a program note is about
+   * THIS session: "build to 30-35 min by Week 5" is wrong once week 5 passes,
+   * and a preference is global and would overwrite the athlete's own note.
+   * Here rather than on WorkoutSet because the note belongs to the exercise,
+   * not to each of its four sets.
+   *
+   * A JSON map because there is no WorkoutExercise table — an exercise's
+   * presence in a workout is implied by its sets plus `exerciseOrder`.
+   */
+  exerciseNotes Json?       @map("exercise_notes")
   exerciseOrder String[]    @default([]) @map("exercise_order")
   // Set when the session was started from a program day, so adherence and the
   // program summary can be measured. SetNull: deleting a program keeps history.

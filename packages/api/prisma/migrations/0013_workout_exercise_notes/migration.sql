@@ -1,0 +1,14 @@
+-- Per-exercise coaching notes for one workout, keyed by exercise id.
+--
+-- A program's exercises carry notes, and they were dropped on the floor when a
+-- program day became a workout because there was nowhere to put them.
+--
+-- Not on exercise_preferences: a program note is about THIS session ("build to
+-- 30-35 min by Week 5") and a preference is global, so it would both go stale
+-- and overwrite the athlete's own note. Not on workout_sets: the note belongs
+-- to the exercise, not to each of its four sets.
+--
+-- JSONB rather than a join table because there is no workout_exercises table —
+-- an exercise's presence in a workout is implied by its sets plus
+-- exercise_order. NULL means "no notes", which is every existing row.
+ALTER TABLE "workouts" ADD COLUMN "exercise_notes" JSONB;

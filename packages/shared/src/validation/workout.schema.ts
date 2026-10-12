@@ -7,6 +7,15 @@ export const createWorkoutSchema = z.object({
   workoutType: z.enum(workoutTypeValues),
   name: z.string().max(255).nullish(),
   notes: z.string().max(2000).nullish(),
+  /**
+   * Per-exercise notes for this session, keyed by exercise id. Capped per note
+   * and in total so a verbose model cannot write an unbounded blob into a row
+   * every workout read has to carry.
+   */
+  exerciseNotes: z.record(z.string().uuid(), z.string().max(1000)).nullish()
+    .refine((v) => !v || Object.keys(v).length <= 50, {
+      message: 'Too many exercise notes',
+    }),
   // Capped at 24h. A corrupt client clock once wrote ~29.8 million minutes.
   durationMin: z.number().int().positive().max(1440).nullish(),
   // Set when the session comes from a program day, so program adherence and

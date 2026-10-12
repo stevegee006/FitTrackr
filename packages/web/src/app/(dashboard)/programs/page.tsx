@@ -95,6 +95,10 @@ export default function ProgramsPage() {
         sets: number;
         reps: string | number;
         rpe?: number;
+        // Present in ProgramData and rendered by this very page, but missing
+        // from this local copy of the shape — which is why the program's
+        // coaching notes were silently dropped on the way to the workout.
+        notes?: string;
         primaryMuscle?: string;
         equipment?: string;
         category?: string;
@@ -108,6 +112,9 @@ export default function ProgramsPage() {
         }),
       });
       const workoutId = res.data.id;
+      // Collected as exercises are matched, then written once at the end:
+      // the ids are not known until the search/create loop has run.
+      const exerciseNotes: Record<string, string> = {};
 
       for (const ex of exercises) {
         try {
@@ -131,6 +138,13 @@ export default function ProgramsPage() {
               }),
             });
             match = created.data;
+          }
+
+          // The program's coaching note for this exercise. Kept with the
+          // workout rather than the exercise preference, because it describes
+          // this session — "build to 30-35 min by Week 5" goes stale.
+          if (typeof ex.notes === 'string' && ex.notes.trim()) {
+            exerciseNotes[match.id] = ex.notes.trim().slice(0, 1000);
           }
 
           // The target may be reps ("8-12"), time ("20 min") or distance
@@ -183,6 +197,16 @@ export default function ProgramsPage() {
             });
           }
         } catch { /* skip exercises that can't be found */ }
+      }
+
+      // One write at the end rather than per exercise. Failing here must not
+      // lose the workout that was just built — the notes are guidance, and the
+      // session is the thing.
+      if (Object.keys(exerciseNotes).length > 0) {
+        await apiFetch(`/workouts/${workoutId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ exerciseNotes }),
+        }).catch(() => {});
       }
 
       return res;
