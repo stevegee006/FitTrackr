@@ -108,6 +108,29 @@ export const STREAK_BADGES: StreakBadge[] = [
   { weeks: 52, label: 'Full Year',   emoji: '👑', className: 'bg-yellow-50 text-yellow-800 border-yellow-300 dark:bg-yellow-950/40 dark:text-yellow-200 dark:border-yellow-700/50' },
 ];
 
+/**
+ * How a milestone is said out loud, for the streak length that EXACTLY matches
+ * it. Keyed by `weeks` so it cannot drift from `STREAK_BADGES`.
+ *
+ * Only used on the milestone itself. A 7-week streak is past "One Month" and
+ * nowhere near "Two Months", so naming a duration for it is simply wrong —
+ * which is what the dashboard did, calling seven weeks "a full month" until
+ * 2026-10-12. Between milestones, say the count and nothing else.
+ */
+const MILESTONE_PHRASE: Record<number, string> = {
+  2: 'the habit is forming',
+  4: 'a full month',
+  8: 'two full months',
+  12: 'a full quarter',
+  26: 'half a year',
+  52: 'a full year',
+};
+
+/** The duration phrase for a streak sitting exactly on a milestone, else null. */
+export function milestonePhrase(weeks: number): string | null {
+  return MILESTONE_PHRASE[weeks] ?? null;
+}
+
 /** Highest badge earned at this streak length, or null below the first. */
 export function earnedBadge(weeks: number): StreakBadge | null {
   let best: StreakBadge | null = null;

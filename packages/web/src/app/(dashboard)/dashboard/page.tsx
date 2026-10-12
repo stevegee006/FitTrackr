@@ -3,7 +3,7 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api-client';
 import { todayString, addDays } from '@/lib/utils';
-import { weeklyStreak } from '@/lib/streak';
+import { weeklyStreak, earnedBadge, milestonePhrase } from '@/lib/streak';
 import { useAuth } from '@/providers/AuthProvider';
 import { VolumeRings } from '@/components/volume/VolumeRings';
 import { WorkoutCard } from '@/components/workout/WorkoutCard';
@@ -33,16 +33,26 @@ function getSmartGreeting(
   }
 
   // Streak milestones — `streak` is consecutive WEEKS that hit the weekly goal.
-  if (streak >= 12) {
-    return { emoji: '🔥', message: `${streak} weeks straight at your goal. You’re an absolute machine.` };
-  }
-  if (streak >= 8) {
-    return { emoji: '🚀', message: `${streak} weeks hitting your goal! Incredible consistency.` };
-  }
-  if (streak >= 4) {
-    return { emoji: '⭐', message: `${streak} weeks at your goal — a full month. Keep it up!` };
-  }
-  if (streak >= 2) {
+  //
+  // Thresholds come from STREAK_BADGES rather than being repeated here. They
+  // were duplicated, and the copies disagreed: the dashboard stopped at 12
+  // while the badges go to 26 and 52, so half a year of consistency read the
+  // same as three months.
+  const badge = earnedBadge(streak);
+  if (badge) {
+    // Name a duration ONLY when the streak lands exactly on the milestone.
+    // Anything in between gets the count alone — seven weeks is past a month
+    // and nowhere near two, and calling it "a full month" was the bug.
+    const phrase = milestonePhrase(streak);
+    if (phrase) {
+      return { emoji: badge.emoji, message: `${streak} weeks at your goal — ${phrase}. Keep it up!` };
+    }
+    if (streak >= 12) {
+      return { emoji: '🔥', message: `${streak} weeks straight at your goal. You’re an absolute machine.` };
+    }
+    if (streak >= 8) {
+      return { emoji: '🚀', message: `${streak} weeks hitting your goal! Incredible consistency.` };
+    }
     return { emoji: '💪', message: `${streak} weeks at your goal! You’re building a great habit.` };
   }
 
