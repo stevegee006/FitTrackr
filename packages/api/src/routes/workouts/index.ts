@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { AppError } from '../../utils/errors.js';
 import {
   createWorkoutSchema, updateWorkoutSchema, addSetSchema, updateSetSchema, applyToSetsSchema, switchExerciseSchema,
   finishWorkoutSchema,
@@ -60,6 +61,29 @@ export default async function workoutRoutes(fastify: FastifyInstance) {
       const { from, to } = req.query as any;
       const data = await workoutService.getWorkoutRange(fastify, req.user.sub, from, to);
       return { data };
+    },
+  });
+
+  // GET /workouts/export — workout history as CSV, one row per set.
+  // Returns the file itself rather than JSON the browser then has to format,
+  // so the quoting lives in one tested place.
+  fastify.get('/workouts/export', {
+    preHandler: [fastify.authenticate],
+    handler: async (req, reply) => {
+      const { from, to } = req.query as any;
+      if (!from || !to) {
+        throw new AppError(400, 'BAD_REQUEST', 'from and to are required (YYYY-MM-DD).');
+      }
+      const { csv, count } = await workoutService.exportWorkoutsCsv(fastify, req.user.sub, from, to);
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', `attachment; filename="fittrackr-${from}-to-${to}.csv"`)
+        // So the client can tell "no workouts in range" from a failure without
+        // parsing the body.
+        .header('X-Workout-Count', String(count))
+        // A BOM, because Excel reads a UTF-8 CSV as Latin-1 without one and
+        // turns every accented exercise name into mojibake.
+        .send('﻿' + csv);
     },
   });
 

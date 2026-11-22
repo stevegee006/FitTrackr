@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { CreateWorkoutInput, UpdateWorkoutInput, AddSetInput, UpdateSetInput, FinishWorkoutInput, WorkoutHealthInput, ImportHealthWorkoutsInput } from '@fittrackr/shared';
 import { NotFoundError, ForbiddenError, AppError } from '../utils/errors.js';
+import { buildWorkoutCsv, type ExportUnits } from './workout-export.js';
 import { checkAndUpdatePersonalRecords, getPRsForWorkout, recomputePersonalRecords } from './personal-record.service.js';
 import { tally, diffTally, performedSets } from './workout-summary.js';
 
@@ -801,4 +802,44 @@ export async function switchWorkoutExercise(
   await recomputePersonalRecords(fastify, userId, toExerciseId);
 
   return { switched: count };
+}
+
+/**
+ * Workout history as CSV, one row per set.
+ *
+ * A dedicated query rather than reusing `getWorkoutRange`: that one returns a
+ * `_count` and no sets at all, which is why the old export reported zero sets
+ * on every row. Widening it instead would make the calendar — which calls it
+ * on every month change — drag a full set list it never renders.
+ *
+ * Built on the server so the CSV writer can be tested; quoting is exactly the
+ * kind of code that looks right and mangles one field in a hundred.
+ */
+export async function exportWorkoutsCsv(
+  fastify: FastifyInstance,
+  userId: string,
+  from: string,
+  to: string,
+) {
+  const settings = await fastify.prisma.userSettings.findUnique({ where: { userId } });
+  const units: ExportUnits = settings?.preferredUnits === 'IMPERIAL' ? 'IMPERIAL' : 'METRIC';
+
+  const workouts = await fastify.prisma.workout.findMany({
+    where: {
+      userId,
+      logDate: { gte: new Date(from + 'T00:00:00Z'), lte: new Date(to + 'T23:59:59Z') },
+    },
+    orderBy: { logDate: 'asc' },
+    include: {
+      sets: {
+        // The order the session was performed in, so the file reads like the
+        // workout did. `exerciseOrder` is the display order and is not
+        // reflected here — set id order is the honest record of what happened.
+        orderBy: [{ exerciseId: 'asc' }, { setNumber: 'asc' }],
+        include: { exercise: { select: { name: true } } },
+      },
+    },
+  });
+
+  return { csv: buildWorkoutCsv(workouts as any, units), count: workouts.length, units };
 }

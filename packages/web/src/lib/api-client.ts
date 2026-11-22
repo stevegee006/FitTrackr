@@ -121,11 +121,18 @@ function refreshAccessToken(): Promise<string | null> {
 
 export async function apiFetch<T>(
   path: string,
-  options: RequestInit & { timeout?: number } = {},
+  /**
+   * `responseType: 'text'` returns the raw body instead of parsed JSON — for
+   * endpoints that serve a file, like the CSV export. An option here rather
+   * than a second function on purpose: the token refresh and retry below are
+   * the most delicate code in the client, and a parallel copy of them would
+   * drift.
+   */
+  options: RequestInit & { timeout?: number; responseType?: 'json' | 'text' } = {},
 ): Promise<T> {
   const baseUrl = getApiUrl();
   const url = `${baseUrl}${path}`;
-  const { timeout, ...fetchOptions } = options;
+  const { timeout, responseType, ...fetchOptions } = options;
 
   const headers: Record<string, string> = {
     ...(fetchOptions.headers as Record<string, string>),
@@ -197,6 +204,7 @@ export async function apiFetch<T>(
   }
 
   if (res.status === 204) return undefined as T;
+  if (responseType === 'text') return (await res.text()) as T;
   return res.json();
 }
 

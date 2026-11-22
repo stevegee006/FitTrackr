@@ -2111,43 +2111,38 @@ function ExportCard() {
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
 
+  /**
+   * The CSV is built by the SERVER, one row per set.
+   *
+   * It used to be assembled here from `/workouts/range`, which returns a set
+   * COUNT and no sets — so every export ever produced read "Sets: 0" on every
+   * row and contained no exercises, reps or loads at all. Moving it to the
+   * API also puts the quoting somewhere it can be tested, which is the half
+   * of this codebase that has tests.
+   */
   async function handleExport() {
     setExporting(true);
     setError('');
     try {
-      const res = await apiFetch<{ data: any[] }>(`/workouts/range?from=${from}&to=${to}&limit=500`);
-      const entries = res.data;
-      if (entries.length === 0) {
+      const csv = await apiFetch<string>(
+        `/workouts/export?from=${from}&to=${to}`,
+        { responseType: 'text' },
+      );
+
+      // Header row only (after the BOM) means the range held nothing. Said
+      // here rather than downloading an empty file the athlete has to open to
+      // discover is empty.
+      const rows = csv.split('\n').map((r) => r.trim()).filter(Boolean);
+      if (rows.length <= 1) {
         setError('No workouts found for this date range.');
         return;
       }
 
-      const headers = ['Date', 'Workout', 'Type', 'Sets', 'Duration (min)', 'Notes'];
-      const rows = entries.map((e: any) => [
-        e.logDate?.split('T')[0] ?? '',
-        e.name ?? '',
-        e.workoutType ?? '',
-        e.sets?.length ?? 0,
-        e.durationMin ?? '',
-        e.notes ?? '',
-      ]);
-
-      const csvContent = [headers, ...rows]
-        .map((row) =>
-          row.map((cell: any) => {
-            const str = String(cell);
-            return str.includes(',') || str.includes('"') || str.includes('\n')
-              ? `"${str.replace(/"/g, '""')}"`
-              : str;
-          }).join(','),
-        )
-        .join('\n');
-
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `workouts-${from}-to-${to}.csv`;
+      a.download = `fittrackr-${from}-to-${to}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err: any) {
@@ -2161,7 +2156,8 @@ function ExportCard() {
     <Card className="space-y-4">
       <h3 className="font-semibold">Export Workouts</h3>
       <p className="text-sm text-gray-500 dark:text-gray-400">
-        Download your workout history as a CSV file.
+        Download your workout history as a CSV file — one row per set, with
+        the exercise, reps, weight and RPE.
       </p>
       <div className="flex gap-2 items-end overflow-hidden">
         <div className="flex-1 min-w-0">
